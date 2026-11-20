@@ -4,7 +4,7 @@ from urllib.parse import urlsplit
 
 ROLES={
  'ADMIN': {'*':'RW','my-activity':''},
- 'DIRECTION': {'direction':'R','billing':'R','missions':'R','quotes':'R','crm':'R','tenders':'R','alerts':'R'},
+ 'DIRECTION': {'direction':'R','billing':'R','missions':'R','quotes':'R','crm':'R','tenders':'R','alerts':'R','notifications':'RW'},
  'COMMERCIAL': {'requests':'RW','crm':'RW','quotes':'RW','tenders':'RW','consultants':'R'},
  'RH': {'consultants':'RW','requests':'R'},
  'PROJET': {'missions':'RW','consultants':'R','quotes':'R'},
@@ -14,7 +14,7 @@ ROLES={
  'CONSULTANT': {'my-activity':'RW'},
 }
 
-RESOURCES=frozenset({'requests','crm','quotes','tenders','consultants','missions','billing','direction','accounts','audit','documents','alerts','my-activity'})
+RESOURCES=frozenset({'requests','crm','quotes','tenders','consultants','missions','billing','direction','accounts','audit','documents','alerts','notifications','my-activity'})
 def mfa_required(role):
     return role=='ADMIN' or role in {x.strip() for x in os.environ.get('DSIG_MFA_REQUIRED_ROLES','DIRECTION,CONTROLE,COMPTABLE,AUDITEUR').split(',')}
 

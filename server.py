@@ -22,6 +22,7 @@ import treasury
 import reporting
 import documents
 import alerts
+import notifications
 import accounts
 import own_activity
 import authentication
@@ -69,6 +70,7 @@ def connect():
     treasury.schema(db)
     accounts.schema(db)
     documents.schema(db)
+    notifications.schema(db)
     return db
 
 
@@ -124,6 +126,7 @@ class Handler(SimpleHTTPRequestHandler):
         self.wfile.write(data)
 
     def do_GET(self):
+        if urlsplit(self.path).path=='/api/admin/notifications':return notifications.handle(self,connect,'GET')
         if urlsplit(self.path).path=='/api/admin/alerts':return alerts.handle(self,connect)
         if re.fullmatch(r'/api/admin/documents(?:/[0-9a-f-]{36})?',urlsplit(self.path).path):return documents.handle(self,connect,'GET')
         if urlsplit(self.path).path=='/api/admin/direction/reporting':return reporting.handle(self,connect)
@@ -232,6 +235,7 @@ class Handler(SimpleHTTPRequestHandler):
         self.json_response(200, {"status": payload["status"]})
 
     def do_POST(self):
+        if self.path=='/api/admin/notifications':return notifications.handle(self,connect,'POST')
         if self.path=='/api/admin/documents':return documents.handle(self,connect,'POST')
         if self.path=='/api/admin/billing/expenses':return treasury.handle(self,connect,'POST')
         if re.fullmatch(r'/api/admin/missions/[0-9a-f-]{36}/renewals',self.path):return contracts.handle(self,connect,'POST')
@@ -316,9 +320,15 @@ def main():
     parser.add_argument("--restore-isolated", nargs=2, metavar=("BACKUP","DESTINATION"), help="Restauration chiffrée vers une nouvelle base isolée")
     parser.add_argument("--check-db", action="store_true", help="Vérification de l'intégrité SQLite, lecture seule")
     parser.add_argument("--rotate-documents", metavar="COPY", help="Rotation des documents sur une copie isolée, serveur arrêté")
+    parser.add_argument("--refresh-notifications", action="store_true", help="Calcul des rappels internes (DEV/REC)")
     args = parser.parse_args()
-    if sum(bool(x) for x in (args.export,args.backup,args.backup_encrypted,args.restore_isolated,args.check_db,args.rotate_documents))>1:
+    if sum(bool(x) for x in (args.export,args.backup,args.backup_encrypted,args.restore_isolated,args.check_db,args.rotate_documents,args.refresh_notifications))>1:
         parser.error('Une seule opération à la fois.')
+    if args.refresh_notifications:
+        if os.environ.get('DSIG_ENV','REC') not in ('DEV','REC'):raise SystemExit('Production bloquée.')
+        from datetime import date
+        with connect() as db:count=notifications.run(db,date.today())
+        print(f'{count} nouvelle(s) notification(s).');return
     if args.rotate_documents:
         path=operations.safe_target(args.rotate_documents,DB,ROOT/'dist');operations.verify(path)
         if DB.exists() and path.samefile(DB):raise ValueError('Copie isolée obligatoire.')
