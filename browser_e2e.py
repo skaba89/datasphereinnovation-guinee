@@ -69,6 +69,27 @@ class BrowserTests(unittest.TestCase):
         expect(self.page.locator('#request-status')).to_contain_text('Demande enregistrée localement')
         self.assertEqual(self.errors, [])
 
+    def test_mobile_navigation_and_accessibility(self):
+        self.page.set_viewport_size({'width':390,'height':844})
+        external=[]
+        self.page.on('request',lambda request: external.append(request.url) if request.url.startswith(('http://','https://')) and not request.url.startswith(self.url+'/') else None)
+        self.page.goto('/')
+        self.page.keyboard.press('Tab')
+        expect(self.page.locator('.skip-link')).to_be_focused()
+        self.page.keyboard.press('Enter')
+        expect(self.page.locator('#main')).to_be_focused()
+        self.page.locator('#menu').click()
+        expect(self.page.locator('#menu')).to_have_attribute('aria-expanded','true')
+        self.page.keyboard.press('Escape')
+        expect(self.page.locator('#menu')).to_have_attribute('aria-expanded','false')
+        expect(self.page.locator('#menu')).to_be_focused()
+        self.assertLessEqual(self.page.evaluate('document.documentElement.scrollWidth'),392)
+        self.page.goto('/connexion.html')
+        expect(self.page.locator('#signin')).to_be_visible()
+        self.assertLessEqual(self.page.evaluate('document.documentElement.scrollWidth'),392)
+        self.assertEqual(external,[])
+        self.assertEqual(self.errors,[])
+
     def test_cybersecurity_expertise_and_prefill(self):
         self.page.goto('/')
         expect(self.page.locator('#expertise-groups article')).to_have_count(25)

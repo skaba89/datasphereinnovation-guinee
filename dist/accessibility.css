@@ -1,0 +1,27 @@
+/* Shared accessibility and responsive safeguards; no external resources. */
+.skip-link{position:fixed;z-index:9999;top:12px;left:12px;max-width:calc(100% - 24px);padding:12px 18px;border-radius:8px;background:#241041;color:#fff;transform:translateY(-180%);text-decoration:underline}
+.skip-link:focus{transform:none}
+:where(a,button,input,select,textarea,summary,[tabindex]):focus-visible{outline:3px solid #b76b00;outline-offset:3px;box-shadow:0 0 0 2px #fff}
+main:focus{outline:none}
+img,svg{max-width:100%}
+main,section,article,form,fieldset,.table-wrap,.count{min-width:0}
+input,select,textarea{max-width:100%;font-size:16px}
+textarea{font:inherit;resize:vertical}
+pre{max-width:100%;white-space:pre-wrap;overflow-wrap:anywhere}
+button,.btn,.outline{min-height:44px;overflow-wrap:anywhere}
+.table-wrap{max-width:100%;overflow-x:auto;overscroll-behavior-inline:contain}
+.table-wrap:focus-visible{outline-offset:2px}
+@media(max-width:650px){
+  main>section,main>div,main>form{max-width:100%}
+  main form>label,main form>fieldset{min-width:0;max-width:100%}
+  main form>label:has(input:not([type=checkbox])),main form>label:has(select),main form>label:has(textarea){flex:1 1 100%}
+  main form>label input:not([type=checkbox]),main form>label select,main form>label textarea{width:100%}
+  .nav .brand{min-width:0;flex-shrink:1}
+  .nav #menu{min-width:44px;min-height:44px}
+  .nav #links.open{max-height:calc(100dvh - 90px);overflow:auto}
+  .hero-content,.visual,.action,.section-head>div,.section-head>p{min-width:0;max-width:100%}
+  .counts{grid-template-columns:repeat(auto-fit,minmax(min(130px,100%),1fr))}
+  header:not(.nav)>a{margin-left:0}
+  h1,h2,h3,.count{overflow-wrap:anywhere}
+}
+@media(prefers-reduced-motion:reduce){*,*::before,*::after{scroll-behavior:auto!important;animation-duration:.01ms!important;animation-iteration-count:1!important;transition-duration:.01ms!important}}

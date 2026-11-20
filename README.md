@@ -121,6 +121,8 @@ Le tableau de bord permet de filtrer les demandes et de suivre les statuts Nouve
 
 ## Avant production
 
+V21 : couche d'accessibilité commune aux 16 pages (lien d'évitement, focus visible, défilement horizontal des tableaux au clavier, réduction des animations, formulaires adaptés au mobile). Police système et ressources locales uniquement, CSP sans dépendance Internet. Tests Playwright sur menu mobile, navigation clavier et débordement horizontal. Ces tests ne constituent pas une certification WCAG ni un benchmark complet de performance.
+
 V20 : voir `OPERATIONS.md` pour les sauvegardes chiffrées, la restauration isolée, les contrôles SQLite et la supervision locale. Le point `/api/ready` vérifie la disponibilité du schéma de la base sans la créer ; Docker l'utilise comme healthcheck. La sauvegarde historique `--backup` reste disponible en clair pour compatibilité ; privilégier `--backup-encrypted`. Ne jamais stocker les clés dans Git.
 
 V19.1 : cinq pôles d'expertise et 25 fiches détaillées, dont sept spécialités cybersécurité et résilience supplémentaires, avec formulaire prérempli, qualification des demandes et profils cyber dans le vivier. Les prestations spécialisées sont à cadrer selon les ressources mobilisables et les autorisations ; aucune certification, service SOC 24/7 ou habilitation n'est revendiqué.
