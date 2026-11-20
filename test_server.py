@@ -47,7 +47,7 @@ class IntakeTests(unittest.TestCase):
         return result
 
     def test_accessibility_assets_and_local_csp(self):
-        for name in ('index','en','expertise','confidentialite','connexion','admin','accounts','audit','billing','consultants','crm','direction','missions','my-activity','quotes','tenders','documents','alerts'):
+        for name in ('index','en','expertise','confidentialite','connexion','admin','accounts','audit','billing','consultants','crm','direction','missions','my-activity','quotes','tenders','documents','alerts','notifications'):
             with self.subTest(page=name):
                 s,b,h=self.request('GET','/'+name+'.html');self.assertEqual(s,200)
                 self.assertIn(b'class="skip-link"',b);self.assertIn(b'accessibility.css',b);self.assertIn(b'tabindex="-1"',b)
@@ -214,7 +214,7 @@ class IntakeTests(unittest.TestCase):
         import accounts
         expected={
             'ADMIN':(set(accounts.RESOURCES)-{'my-activity'},set(accounts.RESOURCES)-{'my-activity'}),
-            'DIRECTION':({'direction','billing','missions','quotes','crm','tenders','alerts'},set()),
+            'DIRECTION':({'direction','billing','missions','quotes','crm','tenders','alerts','notifications'},{'notifications'}),
             'COMMERCIAL':({'requests','crm','quotes','tenders','consultants'},{'requests','crm','quotes','tenders'}),
             'RH':({'consultants','requests'},{'consultants'}),
             'PROJET':({'missions','consultants','quotes'},{'missions'}),
@@ -271,6 +271,28 @@ class IntakeTests(unittest.TestCase):
         s,body,_=self.request('PATCH',path+'/'+a['id'],{'action':'ROTATE'},auth);self.assertEqual(s,200)
         self.assertEqual(self.request('GET','/api/admin/direction',headers=user)[0],401)
         self.assertEqual(self.request('GET','/api/admin/direction',headers={'Authorization':'Bearer '+json.loads(body)['key']})[0],200)
+
+    def test_scheduled_notifications(self):
+        import notifications
+        from datetime import date
+        auth={'Authorization':'Bearer '+server.ADMIN_TOKEN,'Content-Type':'application/json'};path='/api/admin/notifications'
+        self.assertEqual(self.request('GET',path)[0],401)
+        with server.connect() as db:
+            db.execute("INSERT INTO missions(id,quote_id,opportunity_id,consultant_id,contract_ref,start_date,end_date) VALUES('m','q','o','c','TEST','2020-01-01','2020-02-01')");db.commit()
+            self.assertEqual(notifications.run(db,date(2020,1,15)),1);self.assertEqual(notifications.run(db,date(2020,1,15)),0)
+            self.assertEqual(notifications.run(db,date(2020,2,2)),1)
+        s,b,_=self.request('GET',path,headers=auth);self.assertEqual(s,200);d=json.loads(b);self.assertEqual(d['unread'],1);oid=d['items'][0]['id'];self.assertEqual(d['items'][0]['priority'],'URGENT')
+        for _ in range(2):self.assertEqual(self.request('POST',path,{'id':oid},auth)[0],200)
+        self.assertEqual(json.loads(self.request('GET',path+'?state=unread',headers=auth)[1])['total'],0)
+        s,b,_=self.request('POST','/api/admin/accounts',{'username':'direction.qa','role':'DIRECTION','consultant_id':''},auth);self.assertEqual(s,201)
+        other={'Authorization':'Bearer '+json.loads(b)['key'],'Content-Type':'application/json'}
+        self.assertEqual(json.loads(self.request('GET',path+'?state=unread',headers=other)[1])['total'],1)
+        self.assertEqual(self.request('POST',path,{'id':oid},other|{'Origin':'https://example.invalid'})[0],403)
+        with server.connect() as db:
+            self.assertEqual(db.execute('SELECT count(*) FROM notification_reads').fetchone()[0],1)
+            db.execute("UPDATE missions SET status='TERMINE'");db.commit();notifications.run(db,date(2020,2,3))
+        self.assertEqual(json.loads(self.request('GET',path,headers=auth)[1])['total'],0)
+        self.assertEqual(json.loads(self.request('GET',path+'?state=all',headers=auth)[1])['total'],2)
 
     def test_business_alerts(self):
         import alerts,accounts
