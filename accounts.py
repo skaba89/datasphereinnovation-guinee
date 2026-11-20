@@ -20,6 +20,7 @@ def schema(db):
     db.execute('''CREATE TABLE IF NOT EXISTS credentials(account_id TEXT PRIMARY KEY, salt TEXT NOT NULL, verifier TEXT NOT NULL)''')
     db.execute('''CREATE TABLE IF NOT EXISTS sessions(token_hash TEXT PRIMARY KEY, account_id TEXT NOT NULL, expires INTEGER NOT NULL)''')
     db.execute('''CREATE TABLE IF NOT EXISTS mfa(account_id TEXT PRIMARY KEY, secret TEXT NOT NULL, enabled INTEGER NOT NULL DEFAULT 0, last_step INTEGER NOT NULL DEFAULT -1)''')
+    db.execute('''CREATE TABLE IF NOT EXISTS recovery_codes(account_id TEXT NOT NULL, code_hash TEXT NOT NULL, PRIMARY KEY(account_id,code_hash))''')
 
 def digest(token):return hashlib.sha256(token.encode()).hexdigest()
 def event(db,actor,action,resource):db.execute('INSERT INTO access_events(actor,action,resource) VALUES(?,?,?)',(actor,action,resource))
@@ -99,6 +100,7 @@ def handle(h,connect,method):
                     key='dsig_'+secrets.token_urlsafe(32);db.execute('UPDATE accounts SET enabled=1,key_hash=? WHERE id=?',(digest(key),oid));result={'id':oid,'key':key}
                     db.execute('DELETE FROM credentials WHERE account_id=?',(oid,))
                     db.execute('DELETE FROM mfa WHERE account_id=?',(oid,))
+                    db.execute('DELETE FROM recovery_codes WHERE account_id=?',(oid,))
                 db.execute('DELETE FROM sessions WHERE account_id=?',(oid,))
                 event(db,h.actor,v['action'],row[0])
         return h.json_response(201 if method=='POST' else 200,result)
