@@ -369,6 +369,32 @@ class IntakeTests(unittest.TestCase):
         self.assertEqual(self.request('POST',finance+'/invoices',inv2,auth)[0],409)
         self.assertEqual(self.request('PATCH',finance+'/milestones/'+jid,{'status':'VALIDE'},auth)[0],200)
         self.assertEqual(self.request('POST',finance+'/invoices',inv2,auth)[0],201)
+        control=json.loads(self.request('GET','/api/admin/direction',headers=auth)[1])['controlling']
+        first=next(x for x in control['missions'] if x['mission_id']==mid)
+        second=next(x for x in control['missions'] if x['mission_id']==mid2)
+        self.assertEqual(first['validated_revenue'],'900.00')
+        self.assertEqual(first['validated_cost'],'850.00')
+        self.assertEqual(first['cost_remaining'],'3200.00')
+        self.assertEqual(first['validated_margin'],'50.00')
+        self.assertEqual(second['validated_revenue'],'600')
+        bucket=control['currencies'][0]
+        self.assertEqual(bucket['currency'],'EUR')
+        self.assertEqual(bucket['budget_revenue'],'7000.00')
+        self.assertEqual(bucket['validated_revenue'],'1500.00')
+        self.assertEqual(bucket['invoiced'],'1050')
+        self.assertEqual(bucket['received'],'100')
+        self.assertEqual(bucket['receivable'],'950')
+        self.assertEqual(bucket['unbilled'],'450.00')
+        self.assertEqual(len(control['clients']),1)
+        self.assertEqual(self.request('GET','/api/admin/direction',headers=own)[0],403)
+        _,body,_=self.request('POST','/api/admin/crm',opp,auth);oid3=json.loads(body)['id']
+        _,body,_=self.request('POST','/api/admin/quotes',v|{'opportunity_id':oid3,'currency':'GNF'},auth);qid3=json.loads(body)['id']
+        self.assertEqual(self.request('POST',path,m|{'quote_id':qid3,'consultant_id':cid2},auth)[0],201)
+        control=json.loads(self.request('GET','/api/admin/direction',headers=auth)[1])['controlling']
+        self.assertEqual([x['currency'] for x in control['currencies']],['EUR','GNF'])
+        self.assertEqual(control['currencies'][0]['budget_revenue'],'7000.00')
+        self.assertEqual(control['currencies'][1]['budget_revenue'],'6000')
+        self.assertEqual(control['currencies'][1]['validated_revenue'],'0')
         renew2=path+'/'+mid2+'/renewals'
         s,body,_=self.request('POST',renew2,payload,auth);self.assertEqual(s,201);rid3=json.loads(body)['id']
         self.assertEqual(self.request('PATCH',renew2+'/'+rid3,{'status':'VALIDE'},auth)[0],403)

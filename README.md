@@ -22,6 +22,8 @@ Avec la clé administrateur de recette, ouvrir `/accounts.html`, créer les comp
 
 ## V10 — Missions et CRA
 
+V23 : dans Direction, le contrôle de gestion compare le budget du devis accepté effectivement affecté à chaque mission aux CRA et jalons validés. Synthèses par devise, client et mission ; les organisations liées au CRM sont regroupées par identifiant, les anciens libellés exacts restent distincts. Les coûts consommés, écarts budgétaires, créances, encaissements, retards et montants validés non facturés sont des indicateurs opérationnels cumulés, pas un bilan comptable ni une trésorerie nette. Le filtre de recherche agit sur les listes client et mission, pas sur les totaux globaux par devise.
+
 V22.2 : le bouton Contrat / renouvellement affiche la référence initiale, l’échéance et l’historique des demandes. Le chef de projet ou l’administrateur soumet une prolongation avec référence d’avenant et motif ; un administrateur distinct valide ou refuse. L’échéance n’est prolongée qu’après validation et contrôle de disponibilité de toute l’équipe. Les tarifs et la référence du contrat initial ne changent pas. Il s’agit d’un registre interne, pas d’une signature électronique ni d’une notification automatique. Une demande en attente empêche la clôture de la mission.
 
 Avant la mise à niveau V22.1, conserver une sauvegarde et la version du code correspondante. Une sauvegarde antérieure doit être restaurée dans une instance isolée de sa version d'origine, puis migrée avant utilisation avec V22.1.

@@ -135,6 +135,7 @@ class Handler(SimpleHTTPRequestHandler):
             if self.headers.get("Sec-Fetch-Site") == "cross-site" or (self.headers.get("Origin") and self.headers["Origin"] != "http://" + self.headers.get("Host", "")):
                 return self.json_response(403, {"error": "Origine non autorisée."})
             with connect() as db:
+                db.execute('BEGIN')
                 return self.json_response(200, direction.snapshot(db))
         if urlsplit(self.path).path == "/api/admin/quotes":
             return quotes.handle(self, connect, "GET")

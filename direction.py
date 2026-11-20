@@ -4,6 +4,7 @@ from decimal import Decimal
 from datetime import date
 import sqlite3
 import quotes
+import controlling
 
 def snapshot(db):
     db.row_factory=sqlite3.Row
@@ -26,4 +27,4 @@ def snapshot(db):
     financial=[]
     for currency,bucket in sorted(totals.items()):
         financial.append({'currency':currency,**{k:str(v) if isinstance(v,Decimal) else v for k,v in bucket.items()}})
-    return {'counts':counts,'overdue':overdue,'financial':financial,'ambiguous_opportunities':conflicts,'as_of':today}
+    return {'counts':counts,'overdue':overdue,'financial':financial,'ambiguous_opportunities':conflicts,'as_of':today,'controlling':controlling.snapshot(db,today)}
