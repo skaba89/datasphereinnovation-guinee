@@ -1,0 +1,55 @@
+{
+  "commit": "",
+  "gates": {
+    "G01": {
+      "status": "NOT_RUN",
+      "evidence": "",
+      "reviewer": ""
+    },
+    "G02": {
+      "status": "NOT_RUN",
+      "evidence": "",
+      "reviewer": ""
+    },
+    "G03": {
+      "status": "NOT_RUN",
+      "evidence": "",
+      "reviewer": ""
+    },
+    "G04": {
+      "status": "NOT_RUN",
+      "evidence": "",
+      "reviewer": ""
+    },
+    "G05": {
+      "status": "NOT_RUN",
+      "evidence": "",
+      "reviewer": ""
+    },
+    "G06": {
+      "status": "NOT_RUN",
+      "evidence": "",
+      "reviewer": ""
+    },
+    "G07": {
+      "status": "NOT_RUN",
+      "evidence": "",
+      "reviewer": ""
+    },
+    "G08": {
+      "status": "NOT_RUN",
+      "evidence": "",
+      "reviewer": ""
+    },
+    "G09": {
+      "status": "NOT_RUN",
+      "evidence": "",
+      "reviewer": ""
+    },
+    "G10": {
+      "status": "NOT_RUN",
+      "evidence": "",
+      "reviewer": ""
+    }
+  }
+}
