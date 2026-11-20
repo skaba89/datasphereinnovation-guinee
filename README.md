@@ -121,6 +121,8 @@ Le tableau de bord permet de filtrer les demandes et de suivre les statuts Nouve
 
 ## Avant production
 
+V16 : le portail de connexion affiche le nombre de sessions actives et l'état MFA. La révocation des autres sessions exige le mot de passe et conserve la session courante. Les déconnexions et révocations sont journalisées.
+
 V15 : ouvrir `connexion.html`, activer le compte individuel puis se connecter. Les modules utilisent la même session navigateur (30 minutes). Pour activer la MFA, confirmer le mot de passe, saisir la clé dans une application TOTP et confirmer le code affiché. Reconnexion avec un nouveau code obligatoire ; attendre le prochain intervalle de 30 secondes. Recette locale uniquement ; voir SECURITY.md.
 
 V8 : depuis l’administration, créer une opportunité CRM puis ouvrir Devis et marges. Rechercher l’opportunité et renseigner les jours, le TJM (régie) ou le prix fixe (forfait), les coûts et frais internes. Tous les calculs HT sont effectués côté serveur en décimal. La marge brute = CA estimé − coûts directs ; elle ne représente pas le résultat net. Les devis acceptés/refusés sont verrouillés. L’export texte exclut les coûts internes ; il doit être vérifié avant transmission. Aucune facturation, fiscalité ou notification automatique. Les prévisions par devis ne doivent pas être additionnées entre devis alternatifs ni devises différentes.

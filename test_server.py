@@ -147,6 +147,31 @@ class IntakeTests(unittest.TestCase):
             self.assertEqual(self.request('POST','/api/auth/logout',{},session)[0],200)
             self.assertEqual(self.request('GET','/api/auth/me',headers=session)[0],401)
 
+    def test_revoke_other_sessions(self):
+        server.authentication.ATTEMPTS.clear()
+        admin={'Authorization':'Bearer '+server.ADMIN_TOKEN,'Content-Type':'application/json'}
+        s,b,_=self.request('POST','/api/admin/accounts',{'username':'sessions.test','role':'COMPTABLE','consultant_id':''},admin)
+        self.assertEqual(s,201)
+        credentials={'username':'sessions.test','password':'fictitious-password-123'}
+        self.assertEqual(self.request('POST','/api/auth/activate',credentials|{'key':json.loads(b)['key']})[0],200)
+        login={'Content-Type':'application/json','X-DSIG-Session':'cookie','Origin':f'http://127.0.0.1:{self.port}'}
+        def sign_in():
+            s,b,h=self.request('POST','/api/auth/login',credentials,login);self.assertEqual(s,200)
+            return login|{'Authorization':'Bearer session','Cookie':h['Set-Cookie'].split(';')[0]}
+        first,second=sign_in(),sign_in()
+        self.assertEqual(json.loads(self.request('GET','/api/auth/me',headers=first)[1])['active_sessions'],2)
+        self.assertEqual(self.request('GET','/api/admin/billing',headers=first|{'Sec-Fetch-Site':'cross-site'})[0],403)
+        self.assertEqual(self.request('POST','/api/auth/revoke-others',{'password':'wrong-password'},first)[0],401)
+        self.assertEqual(self.request('POST','/api/auth/revoke-others',{'password':credentials['password']},first|{'Origin':'https://evil.invalid'})[0],403)
+        s,b,_=self.request('POST','/api/auth/revoke-others',{'password':credentials['password']},first)
+        self.assertEqual(s,200);self.assertEqual(json.loads(b)['revoked'],1)
+        self.assertEqual(self.request('GET','/api/auth/me',headers=second)[0],401)
+        self.assertEqual(json.loads(self.request('GET','/api/auth/me',headers=first)[1])['active_sessions'],1)
+        self.assertEqual(self.request('POST','/api/auth/logout',{},first)[0],200)
+        with server.connect() as db:
+            actions=[r[0] for r in db.execute("SELECT action FROM access_events WHERE actor='sessions.test'")]
+        self.assertIn('REVOCATION_REFUSEE',actions);self.assertIn('SESSIONS_REVOQUEES',actions);self.assertIn('DECONNEXION',actions)
+
     def test_named_accounts(self):
         auth={'Authorization':'Bearer '+server.ADMIN_TOKEN,'Content-Type':'application/json'}
         path='/api/admin/accounts'
