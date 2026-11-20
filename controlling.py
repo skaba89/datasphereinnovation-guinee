@@ -1,6 +1,6 @@
 """Lifetime mission control: approved activity, budgets and receivables by currency."""
 from collections import defaultdict
-from decimal import Decimal
+from decimal import Decimal, ROUND_HALF_UP
 import missions
 import quotes
 import treasury
@@ -8,6 +8,15 @@ import treasury
 KEYS=('budget_revenue','budget_cost','budget_margin','validated_revenue','validated_cost','validated_margin','cost_remaining','revenue_gap','invoiced','received','receivable','overdue','unbilled')
 
 def sums():return {k:Decimal(0) for k in KEYS}
+
+def ratio(numerator,denominator):
+    if numerator is None or denominator is None or Decimal(denominator)==0:return None
+    return str((Decimal(numerator)*100/Decimal(denominator)).quantize(Decimal('0.01'),rounding=ROUND_HALF_UP))
+
+def indicators(values):
+    return dict(margin_rate=ratio(values['validated_margin'],values['validated_revenue']),
+                budget_cost_used_rate=ratio(values['validated_cost'],values['budget_cost']),
+                collection_rate=ratio(values['received'],values['invoiced']))
 
 def stringify(values):return {k:str(v) if isinstance(v,Decimal) else v for k,v in values.items()}
 
@@ -24,7 +33,7 @@ def snapshot(db,today):
         actual=missions.amounts(m,entries)
         for c in db.execute('SELECT id,name FROM consultants WHERE id IN (SELECT consultant_id FROM missions WHERE id=? UNION SELECT consultant_id FROM mission_members WHERE mission_id=?) ORDER BY name,id',(mid,mid)):
             individual=missions.amounts(m,[a for a in entries if a['consultant_id']==c['id']])
-            consultant_rows.append({'consultant_id':c['id'],'consultant':c['name'],'mission_id':mid,'title':m['title'],'currency':m['currency'],'mode':m['mode'],'worked':individual['worked'],'billable':individual['billable'],'cost':individual['actual_cost'],'revenue':individual['billable_revenue'],'margin':individual['actual_margin']})
+            consultant_rows.append({'consultant_id':c['id'],'consultant':c['name'],'mission_id':mid,'title':m['title'],'currency':m['currency'],'mode':m['mode'],'worked':individual['worked'],'billable':individual['billable'],'cost':individual['actual_cost'],'revenue':individual['billable_revenue'],'margin':individual['actual_margin'],'billable_rate':ratio(individual['billable'],individual['worked']) if m['mode']=='REGIE' else None,'margin_rate':ratio(individual['actual_margin'],individual['billable_revenue'])})
         revenue=Decimal(actual['billable_revenue']) if m['mode']=='REGIE' else sum((Decimal(x[0]) for x in db.execute("SELECT amount FROM milestones WHERE mission_id=? AND status='VALIDE'",(mid,))),Decimal(0))
         cost=Decimal(actual['actual_cost']);br=Decimal(budget['revenue']);bc=Decimal(budget['direct_cost'])
         billed=received=late=Decimal(0)
@@ -36,5 +45,5 @@ def snapshot(db,today):
         currency=m['currency'];client_key=('organization',m['organization_id']) if m['organization_id'] else ('legacy',m['company'])
         group=(currency,*client_key,m['client_name'])
         for key,value in values.items():totals[currency][key]+=value;clients[group][key]+=value
-        rows.append({'mission_id':mid,'client':m['client_name'],'organization_id':m['organization_id'],'title':m['title'],'currency':currency,'mode':m['mode'],'status':m['mission_status'],**stringify(values)})
-    return {'missions':rows,'currencies':[{'currency':c,**stringify(v)} for c,v in sorted(totals.items())], 'clients':[{'currency':g[0],'organization_id':g[2] if g[1]=='organization' else '', 'client':g[3],**stringify(v)} for g,v in sorted(clients.items())],'consultants':consultant_rows,'cash':treasury.cash(db)}
+        rows.append({'mission_id':mid,'client':m['client_name'],'organization_id':m['organization_id'],'title':m['title'],'currency':currency,'mode':m['mode'],'status':m['mission_status'],**stringify(values),**indicators(values)})
+    return {'missions':rows,'currencies':[{'currency':c,**stringify(v),**indicators(v)} for c,v in sorted(totals.items())], 'clients':[{'currency':g[0],'organization_id':g[2] if g[1]=='organization' else '', 'client':g[3],**stringify(v),**indicators(v)} for g,v in sorted(clients.items())],'consultants':consultant_rows,'cash':treasury.cash(db)}
