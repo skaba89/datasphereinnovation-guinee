@@ -7,8 +7,23 @@ import quotes
 
 def schema(db):
     db.execute('''CREATE TABLE IF NOT EXISTS missions(id TEXT PRIMARY KEY, quote_id TEXT NOT NULL UNIQUE, opportunity_id TEXT NOT NULL UNIQUE, consultant_id TEXT NOT NULL, contract_ref TEXT NOT NULL, start_date TEXT NOT NULL, end_date TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'ACTIVE', created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)''')
-    db.execute('''CREATE TABLE IF NOT EXISTS activity(id TEXT PRIMARY KEY, mission_id TEXT NOT NULL, work_date TEXT NOT NULL, worked TEXT NOT NULL, billable TEXT NOT NULL, expenses TEXT NOT NULL, description TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'SOUMIS', UNIQUE(mission_id,work_date))''')
+    db.execute('''CREATE TABLE IF NOT EXISTS activity(id TEXT PRIMARY KEY, mission_id TEXT NOT NULL, consultant_id TEXT NOT NULL, work_date TEXT NOT NULL, worked TEXT NOT NULL, billable TEXT NOT NULL, expenses TEXT NOT NULL, description TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'SOUMIS', UNIQUE(mission_id,consultant_id,work_date))''')
     db.execute('''CREATE TABLE IF NOT EXISTS mission_events(id INTEGER PRIMARY KEY, entity_id TEXT NOT NULL, event TEXT NOT NULL, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)''')
+    db.execute('''CREATE TABLE IF NOT EXISTS mission_members(mission_id TEXT NOT NULL, consultant_id TEXT NOT NULL, PRIMARY KEY(mission_id,consultant_id))''')
+    if 'consultant_id' not in {r[1] for r in db.execute('PRAGMA table_info(activity)')}:
+        with db:
+            db.execute('BEGIN IMMEDIATE')
+            if 'consultant_id' not in {r[1] for r in db.execute('PRAGMA table_info(activity)')}:
+                db.execute('ALTER TABLE activity RENAME TO activity_legacy')
+                db.execute('''CREATE TABLE activity(id TEXT PRIMARY KEY, mission_id TEXT NOT NULL, consultant_id TEXT NOT NULL, work_date TEXT NOT NULL, worked TEXT NOT NULL, billable TEXT NOT NULL, expenses TEXT NOT NULL, description TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'SOUMIS', UNIQUE(mission_id,consultant_id,work_date))''')
+                db.execute('''INSERT INTO activity SELECT a.id,a.mission_id,m.consultant_id,a.work_date,a.worked,a.billable,a.expenses,a.description,a.status FROM activity_legacy a LEFT JOIN missions m ON m.id=a.mission_id''')
+                db.execute('DROP TABLE activity_legacy')
+
+def member(db,mid,cid):
+    return db.execute('SELECT 1 FROM missions WHERE id=? AND consultant_id=? UNION SELECT 1 FROM mission_members WHERE mission_id=? AND consultant_id=?',(mid,cid,mid,cid)).fetchone()
+
+def conflict(db,cid,start,end):
+    return db.execute("SELECT 1 FROM missions m WHERE m.status='ACTIVE' AND m.start_date<=? AND m.end_date>=? AND (m.consultant_id=? OR EXISTS(SELECT 1 FROM mission_members x WHERE x.mission_id=m.id AND x.consultant_id=?))",(end,start,cid,cid)).fetchone()
 
 def amounts(m, entries):
     approved=[e for e in entries if e['status']=='VALIDE']
@@ -39,7 +54,7 @@ def handle(h,connect,method):
                 return h.json_response(200,{'items':[dict(r) for r in db.execute('SELECT * FROM activity WHERE mission_id=? ORDER BY work_date DESC LIMIT 25 OFFSET ?',(match[1],(page-1)*25))],'total':db.execute('SELECT count(*) FROM activity WHERE mission_id=?',(match[1],)).fetchone()[0]})
             rows=[]
             for r in db.execute('SELECT q.*,m.id AS mission_id,m.consultant_id,m.contract_ref,m.start_date,m.end_date,m.status AS mission_status,o.company,c.name AS consultant FROM missions m JOIN quotes q ON q.id=m.quote_id JOIN opportunities o ON o.id=m.opportunity_id JOIN consultants c ON c.id=m.consultant_id ORDER BY m.created_at DESC,m.id LIMIT 25 OFFSET ?',((page-1)*25,)):
-                m=dict(r); entries=[dict(e) for e in db.execute('SELECT * FROM activity WHERE mission_id=?',(m['mission_id'],))];rows.append(m|amounts(m,entries))
+                m=dict(r); entries=[dict(e) for e in db.execute('SELECT * FROM activity WHERE mission_id=?',(m['mission_id'],))];m['team']=[{'id':m['consultant_id'],'name':m['consultant']}]+[dict(e) for e in db.execute('SELECT c.id,c.name FROM mission_members x JOIN consultants c ON c.id=x.consultant_id WHERE x.mission_id=? ORDER BY c.name,c.id',(m['mission_id'],))];rows.append(m|amounts(m,entries))
             return h.json_response(200,{'items':rows,'total':db.execute('SELECT count(*) FROM missions').fetchone()[0]})
     try:
         n=int(h.headers.get('Content-Length','0'))
@@ -55,17 +70,24 @@ def handle(h,connect,method):
                 if start>end or start.isoformat()!=v['start_date'] or end.isoformat()!=v['end_date']:raise ValueError()
                 q=db.execute("SELECT * FROM quotes WHERE id=? AND status='ACCEPTE'",(v['quote_id'],)).fetchone()
                 if not q or not db.execute("SELECT 1 FROM consultants WHERE id=? AND status='DISPONIBLE'",(v['consultant_id'],)).fetchone():raise ValueError()
-                if db.execute("SELECT 1 FROM missions WHERE consultant_id=? AND status='ACTIVE' AND start_date<=? AND end_date>=?",(v['consultant_id'],v['end_date'],v['start_date'])).fetchone():return h.json_response(409,{'error':'Consultant déjà affecté sur cette période.'})
+                if conflict(db,v['consultant_id'],v['start_date'],v['end_date']):return h.json_response(409,{'error':'Consultant déjà affecté sur cette période.'})
                 oid=str(uuid.uuid4());db.execute('INSERT INTO missions(id,quote_id,opportunity_id,consultant_id,contract_ref,start_date,end_date) VALUES(?,?,?,?,?,?,?)',(oid,v['quote_id'],q['opportunity_id'],v['consultant_id'],v['contract_ref'],v['start_date'],v['end_date']));event='MISSION_CREEE'
+            elif method=='POST' and path.endswith('/team'):
+                mid=path.split('/')[-2];m=db.execute("SELECT * FROM missions WHERE id=? AND status='ACTIVE'",(mid,)).fetchone()
+                if not m or set(v)!={'consultant_id'} or not db.execute("SELECT 1 FROM consultants WHERE id=? AND status='DISPONIBLE'",(v['consultant_id'],)).fetchone():raise ValueError()
+                if conflict(db,v['consultant_id'],m['start_date'],m['end_date']):return h.json_response(409,{'error':'Consultant déjà affecté sur cette période.'})
+                db.execute('INSERT INTO mission_members VALUES(?,?)',(mid,v['consultant_id']));oid=mid;event='EQUIPE_AJOUT_'+v['consultant_id']
             elif method=='POST' and path.endswith('/activity'):
                 mid=path.split('/')[-2];m=db.execute("SELECT m.*,q.currency,q.mode FROM missions m JOIN quotes q ON q.id=m.quote_id WHERE m.id=? AND m.status='ACTIVE'",(mid,)).fetchone()
-                if not m or set(v)!={'work_date','worked','billable','expenses','description'} or not v['description']:raise ValueError()
+                if not m:raise ValueError()
+                cid=v.pop('consultant_id',m['consultant_id'])
+                if not member(db,mid,cid) or set(v)!={'work_date','worked','billable','expenses','description'} or not v['description']:raise ValueError()
                 day=date.fromisoformat(v['work_date'])
                 if day.isoformat()!=v['work_date'] or not m['start_date']<=v['work_date']<=m['end_date'] or day>date.today():raise ValueError()
                 if any(not re.fullmatch(r'\d{1,12}(?:\.\d{1,2})?',v[k]) for k in ('worked','billable','expenses')):raise ValueError()
                 w,b,e=(Decimal(v[k]) for k in ('worked','billable','expenses'))
                 if not 0<w<=1 or not 0<=b<=w or (m['mode']=='FORFAIT' and b!=0) or (m['currency'] in ('GNF','XOF') and e%1):raise ValueError()
-                oid=str(uuid.uuid4());db.execute('INSERT INTO activity(id,mission_id,work_date,worked,billable,expenses,description) VALUES(?,?,?,?,?,?,?)',(oid,mid,v['work_date'],v['worked'],v['billable'],v['expenses'],v['description']));event='CRA_SOUMIS'
+                oid=str(uuid.uuid4());db.execute('INSERT INTO activity(id,mission_id,consultant_id,work_date,worked,billable,expenses,description) VALUES(?,?,?,?,?,?,?,?)',(oid,mid,cid,v['work_date'],v['worked'],v['billable'],v['expenses'],v['description']));event='CRA_SOUMIS'
             elif method=='PATCH' and '/activity/' in path:
                 oid=path.rsplit('/',1)[-1]
                 if set(v)!={'status'} or v['status'] not in ('VALIDE','REFUSE'):raise ValueError()

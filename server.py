@@ -223,7 +223,7 @@ class Handler(SimpleHTTPRequestHandler):
         if self.path=='/api/admin/my-activity':return own_activity.handle(self,connect,'POST')
         if self.path=='/api/admin/accounts':return accounts.handle(self,connect,'POST')
         if re.fullmatch(r'/api/admin/billing/(?:milestones|invoices|payments)',self.path): return billing.handle(self,connect,'POST')
-        if re.fullmatch(r'/api/admin/missions(?:/[0-9a-f-]{36}/activity)?',self.path):
+        if re.fullmatch(r'/api/admin/missions(?:/[0-9a-f-]{36}/(?:activity|team))?',self.path):
             return missions.handle(self,connect,'POST')
         if self.path == "/api/admin/quotes":
             return quotes.handle(self, connect, "POST")
