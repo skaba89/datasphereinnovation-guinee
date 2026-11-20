@@ -395,6 +395,23 @@ class IntakeTests(unittest.TestCase):
         self.assertEqual(control['currencies'][0]['budget_revenue'],'7000.00')
         self.assertEqual(control['currencies'][1]['budget_revenue'],'6000')
         self.assertEqual(control['currencies'][1]['validated_revenue'],'0')
+        expenses=finance+'/expenses'
+        out={'reference':'DEP-001','currency':'EUR','amount':'80','paid_date':'2020-02-01','category':'CONSULTANT','description':'Paiement fictif','mission_id':mid}
+        self.assertEqual(self.request('GET',expenses)[0],401)
+        self.assertEqual(self.request('POST',expenses,out,own)[0],403)
+        self.assertEqual(self.request('POST',expenses,out|{'currency':'GNF'},auth)[0],400)
+        self.assertEqual(self.request('POST',expenses,out,auth)[0],201)
+        self.assertEqual(self.request('POST',expenses,out|{'reference':'dep-001'},auth)[0],409)
+        self.assertEqual(self.request('POST',expenses,out|{'reference':'DEP-002','currency':'GNF','amount':'1000','mission_id':''},auth)[0],201)
+        cash=json.loads(self.request('GET',expenses,headers=auth)[1])['cash']
+        self.assertEqual(cash,[{'currency':'EUR','received':'100','outflows':'80','net_flow':'20'},{'currency':'GNF','received':'0','outflows':'1000','net_flow':'-1000'}])
+        control=json.loads(self.request('GET','/api/admin/direction',headers=auth)[1])['controlling']
+        self.assertEqual(control['cash'],cash)
+        self.assertEqual(next(x for x in control['missions'] if x['mission_id']==mid)['validated_cost'],'850.00')
+        individual=[x for x in control['consultants'] if x['mission_id']==mid]
+        self.assertEqual(len(individual),2)
+        self.assertTrue(all(x['margin']=='25.00' for x in individual))
+        self.assertIsNone(next(x for x in control['consultants'] if x['mission_id']==mid2)['margin'])
         renew2=path+'/'+mid2+'/renewals'
         s,body,_=self.request('POST',renew2,payload,auth);self.assertEqual(s,201);rid3=json.loads(body)['id']
         self.assertEqual(self.request('PATCH',renew2+'/'+rid3,{'status':'VALIDE'},auth)[0],403)
