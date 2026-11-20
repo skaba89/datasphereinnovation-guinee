@@ -1,9 +1,26 @@
 """Local password activation and expiring bearer sessions."""
-import hashlib,hmac,secrets,time,json,re,sqlite3,base64,struct
+import hashlib,hmac,secrets,time,json,re,sqlite3,base64,struct,os
+from cryptography.fernet import Fernet, InvalidToken
 from threading import Lock
 import accounts
 
 LOCK=Lock();ATTEMPTS=[];TTL=1800;ITERATIONS=600000
+def mfa_cipher():
+    return Fernet(os.environ.get('DSIG_MFA_KEY','').encode())
+
+def encrypt_secret(secret):return 'fernet:'+mfa_cipher().encrypt(secret.encode()).decode()
+
+def decrypt_secret(stored):
+    cipher=mfa_cipher()
+    if stored.startswith('fernet:'):return cipher.decrypt(stored[7:].encode()).decode()
+    if re.fullmatch(r'[A-Z2-7]{32}',stored):return stored # V15/V16 migration after successful verification
+    raise ValueError('Invalid MFA secret')
+
+def recovery_codes(db,account_id):
+    codes=[secrets.token_hex(16) for _ in range(8)]
+    db.execute('DELETE FROM recovery_codes WHERE account_id=?',(account_id,))
+    db.executemany('INSERT INTO recovery_codes VALUES(?,?)',[(account_id,accounts.digest(c)) for c in codes])
+    return codes
 def derive(password,salt):return hashlib.pbkdf2_hmac('sha256',password.encode(),bytes.fromhex(salt),ITERATIONS).hex()
 
 def totp(secret,step):
@@ -80,10 +97,15 @@ def handle(h,connect):
             if m and m['enabled']:return h.json_response(409,{'error':'MFA déjà activée.'})
             if action=='mfa-setup':
                 if not hmac.compare_digest(derive(v['password'],row['salt']),row['verifier']):return h.json_response(401,{'error':'Mot de passe invalide.'})
-                secret=base64.b32encode(secrets.token_bytes(20)).decode();db.execute('INSERT OR REPLACE INTO mfa(account_id,secret) VALUES(?,?)',(row['id'],secret));return h.json_response(200,{'secret':secret})
-            step=verify_code(m['secret'],v['code'],m['last_step']) if m else None
+                secret=base64.b32encode(secrets.token_bytes(20)).decode()
+                try: encrypted=encrypt_secret(secret)
+                except (ValueError,TypeError):return h.json_response(503,{'error':'Configuration MFA indisponible.'})
+                db.execute('INSERT OR REPLACE INTO mfa(account_id,secret) VALUES(?,?)',(row['id'],encrypted));return h.json_response(200,{'secret':secret})
+            try: plain=decrypt_secret(m['secret']) if m else None
+            except (ValueError,TypeError,InvalidToken):return h.json_response(503,{'error':'Configuration MFA indisponible.'})
+            step=verify_code(plain,v['code'],m['last_step']) if m else None
             if step is None:return h.json_response(401,{'error':'Code invalide.'})
-            db.execute('UPDATE mfa SET enabled=1,last_step=? WHERE account_id=?',(step,row['id']));db.execute('DELETE FROM sessions WHERE account_id=?',(row['id'],));accounts.event(db,row['username'],'MFA_ACTIVE','auth');cookie(h);return h.json_response(200,{'status':'ok'})
+            db.execute('UPDATE mfa SET enabled=1,last_step=?,secret=? WHERE account_id=?',(step,encrypt_secret(plain),row['id']));codes=recovery_codes(db,row['id']);db.execute('DELETE FROM sessions WHERE account_id=?',(row['id'],));accounts.event(db,row['username'],'MFA_ACTIVE','auth');cookie(h);return h.json_response(200,{'status':'ok','recovery_codes':codes})
     if set(v) not in ([{'username','password','key'}] if action=='activate' else [{'username','password'},{'username','password','otp'}]) or not re.fullmatch(r'[A-Za-z0-9._-]{3,64}',v['username']) or not 12<=len(v['password'])<=128:return h.json_response(400,{'error':'Identifiant ou mot de passe invalide (12 caractères minimum).'})
     with connect() as db:
         db.row_factory=sqlite3.Row;db.execute('BEGIN IMMEDIATE')
@@ -99,9 +121,14 @@ def handle(h,connect):
             return h.json_response(401,{'error':'Identifiants invalides.'})
         m=db.execute('SELECT * FROM mfa WHERE account_id=? AND enabled=1',(row['id'],)).fetchone()
         if m:
-            step=verify_code(m['secret'],v.get('otp',''),m['last_step'])
-            if step is None:return h.json_response(401,{'error':'Code MFA manquant, invalide ou déjà utilisé.'})
-            db.execute('UPDATE mfa SET last_step=? WHERE account_id=?',(step,row['id']))
+            try: plain=decrypt_secret(m['secret'])
+            except (ValueError,TypeError,InvalidToken):return h.json_response(503,{'error':'Configuration MFA indisponible.'})
+            otp=v.get('otp','');step=verify_code(plain,otp,m['last_step'])
+            if step is None:
+                if not re.fullmatch(r'[a-f0-9]{32}',otp) or not db.execute('DELETE FROM recovery_codes WHERE account_id=? AND code_hash=?',(row['id'],accounts.digest(otp))).rowcount:return h.json_response(401,{'error':'Code MFA manquant, invalide ou déjà utilisé.'})
+                db.execute('DELETE FROM sessions WHERE account_id=?',(row['id'],));accounts.event(db,row['username'],'CODE_SECOURS_UTILISE','auth')
+            else:db.execute('UPDATE mfa SET last_step=? WHERE account_id=?',(step,row['id']))
+            if not m['secret'].startswith('fernet:'):db.execute('UPDATE mfa SET secret=? WHERE account_id=?',(encrypt_secret(plain),row['id']))
         token='dsig_'+secrets.token_urlsafe(32);expires=int(time.time())+TTL
         db.execute('DELETE FROM sessions WHERE expires<=?',(int(time.time()),));db.execute('INSERT INTO sessions VALUES(?,?,?)',(accounts.digest(token),row['id'],expires));accounts.event(db,row['username'],'CONNEXION_REUSSIE','auth')
         cookie(h,token,TTL)

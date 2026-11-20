@@ -3,6 +3,8 @@ import tempfile
 import threading
 import unittest
 import time
+import os
+from cryptography.fernet import Fernet
 from unittest.mock import patch
 from http.client import HTTPConnection
 from pathlib import Path
@@ -11,6 +13,7 @@ import server
 
 class IntakeTests(unittest.TestCase):
     def setUp(self):
+        self.mfa_env=patch.dict(os.environ,{'DSIG_MFA_KEY':Fernet.generate_key().decode()});self.mfa_env.start();self.addCleanup(self.mfa_env.stop)
         self.tmp = tempfile.TemporaryDirectory()
         self.original = server.DB
         self.original_token = server.ADMIN_TOKEN
@@ -136,8 +139,16 @@ class IntakeTests(unittest.TestCase):
         now=int(time.time());step=now//30
         with patch('authentication.time.time',return_value=now):
             code=server.authentication.totp(secret,step)
-            self.assertEqual(self.request('POST','/api/auth/mfa-confirm',{'code':code},session)[0],200)
+            s,b,_=self.request('POST','/api/auth/mfa-confirm',{'code':code},session);self.assertEqual(s,200)
+            codes=json.loads(b)['recovery_codes'];self.assertEqual(len(set(codes)),8)
+            with server.connect() as db:
+                stored=db.execute('SELECT secret FROM mfa').fetchone()[0];self.assertTrue(stored.startswith('fernet:'));self.assertNotIn(secret,stored)
+                self.assertNotIn(codes[0],[r[0] for r in db.execute('SELECT code_hash FROM recovery_codes')])
             self.assertEqual(self.request('GET','/api/auth/me',headers=session)[0],401)
+            with patch.dict(os.environ,{'DSIG_MFA_KEY':Fernet.generate_key().decode()}):
+                self.assertEqual(self.request('POST','/api/auth/login',credentials|{'otp':codes[0]},login)[0],503)
+            s,b,h=self.request('POST','/api/auth/login',credentials|{'otp':codes[0]},login);self.assertEqual(s,200)
+            self.assertEqual(self.request('POST','/api/auth/login',credentials|{'otp':codes[0]},login)[0],401)
             self.assertEqual(self.request('POST','/api/auth/login',credentials,login)[0],401)
             self.assertEqual(self.request('POST','/api/auth/login',credentials|{'otp':code},login)[0],401)
             s,b,h=self.request('POST','/api/auth/login',credentials|{'otp':server.authentication.totp(secret,step+1)},login)
@@ -146,6 +157,23 @@ class IntakeTests(unittest.TestCase):
             self.assertEqual(self.request('GET','/api/auth/me',headers=session)[0],200)
             self.assertEqual(self.request('POST','/api/auth/logout',{},session)[0],200)
             self.assertEqual(self.request('GET','/api/auth/me',headers=session)[0],401)
+
+    def test_legacy_mfa_migration(self):
+        server.authentication.ATTEMPTS.clear()
+        admin={'Authorization':'Bearer '+server.ADMIN_TOKEN,'Content-Type':'application/json'}
+        s,b,_=self.request('POST','/api/admin/accounts',{'username':'legacy.test','role':'COMPTABLE','consultant_id':''},admin)
+        self.assertEqual(s,201);account=json.loads(b)
+        credentials={'username':'legacy.test','password':'fictitious-password-123'}
+        self.assertEqual(self.request('POST','/api/auth/activate',credentials|{'key':account['key']})[0],200)
+        secret='A'*32
+        with server.connect() as db:db.execute('INSERT INTO mfa(account_id,secret,enabled) VALUES(?,?,1)',(account['id'],secret))
+        code=server.authentication.totp(secret,int(time.time())//30)
+        with patch.dict(os.environ,{'DSIG_MFA_KEY':''}):
+            self.assertEqual(self.request('POST','/api/auth/login',credentials|{'otp':code})[0],503)
+        self.assertEqual(self.request('POST','/api/auth/login',credentials|{'otp':code})[0],200)
+        with server.connect() as db:
+            stored=db.execute('SELECT secret FROM mfa WHERE account_id=?',(account['id'],)).fetchone()[0]
+            self.assertTrue(stored.startswith('fernet:'));self.assertEqual(server.authentication.decrypt_secret(stored),secret)
 
     def test_revoke_other_sessions(self):
         server.authentication.ATTEMPTS.clear()
