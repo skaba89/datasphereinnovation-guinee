@@ -356,6 +356,8 @@ class IntakeTests(unittest.TestCase):
         auth={'Authorization':'Bearer '+server.ADMIN_TOKEN,'Content-Type':'application/json'};path='/api/admin/alerts'
         self.assertEqual(self.request('GET',path)[0],401);self.assertFalse(accounts.allowed('CONSULTANT','alerts','GET'));self.assertTrue(accounts.allowed('DIRECTION','alerts','GET'))
         self.assertEqual(self.request('GET',path+'?page=0',headers=auth)[0],400)
+        self.assertEqual(self.request('GET',path+'?horizon=8',headers=auth)[0],400)
+        self.assertEqual(json.loads(self.request('GET',path+'?horizon=60',headers=auth)[1])['horizon'],60)
         with server.connect() as db:
             db.execute("INSERT INTO missions(id,quote_id,opportunity_id,consultant_id,contract_ref,start_date,end_date) VALUES('m','q','o','c','TEST','2020-01-01','2020-02-01')")
             db.execute("INSERT INTO activity(id,mission_id,consultant_id,work_date,worked,billable,expenses,description) VALUES('a','m','c','2020-01-01','1','1','0','fictif')")
@@ -366,6 +368,9 @@ class IntakeTests(unittest.TestCase):
             db.execute("INSERT INTO payments(id,invoice_id,reference,amount,paid_date) VALUES('p','i','P','40.15','2020-01-01')")
             results=alerts.snapshot(db,date(2020,1,15));self.assertEqual({x['kind'] for x in results},{'CONTRAT','CRA','RELANCE','RENOUVELLEMENT','FACTURE'})
             self.assertEqual(next(x['details'] for x in results if x['kind']=='FACTURE'),'60.10 EUR restant')
+            self.assertEqual(next(x['days_remaining'] for x in results if x['kind']=='CONTRAT'),17)
+            self.assertFalse(any(x['kind']=='CONTRAT' for x in alerts.snapshot(db,date(2020,1,15),7)))
+            self.assertTrue(any(x['kind']=='CONTRAT' for x in alerts.snapshot(db,date(2020,1,15),60)))
             db.execute("INSERT INTO payments(id,invoice_id,reference,amount,paid_date) VALUES('p2','i','P2','60.10','2020-01-02')")
             self.assertFalse(any(x['kind']=='FACTURE' for x in alerts.snapshot(db,date(2020,1,15))))
         s,b,_=self.request('GET',path+'?kind=CRA&priority=URGENT',headers=auth);self.assertEqual(s,200);self.assertEqual(json.loads(b)['total'],1)

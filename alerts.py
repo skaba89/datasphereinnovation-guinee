@@ -6,11 +6,11 @@ import sqlite3
 
 KINDS=('CONTRAT','FACTURE','CRA','RELANCE','RENOUVELLEMENT')
 
-def snapshot(db,today):
+def snapshot(db,today,horizon_days=30):
     db.row_factory=sqlite3.Row
-    now=today.isoformat(); horizon=(today+timedelta(days=30)).isoformat();items=[]
+    now=today.isoformat(); horizon=(today+timedelta(days=horizon_days)).isoformat();items=[]
     def add(kind,oid,label,due,details=''):
-        items.append(dict(kind=kind,id=oid,label=label,due=due,priority='URGENT' if due<now else 'A_TRAITER',details=details))
+        items.append(dict(kind=kind,id=oid,label=label,due=due,priority='URGENT' if due<now else 'A_TRAITER',details=details,days_remaining=(date.fromisoformat(due)-today).days))
     for r in db.execute("SELECT id,contract_ref,end_date FROM missions WHERE status='ACTIVE' AND end_date<=?",(horizon,)):
         add('CONTRAT',r['id'],r['contract_ref'],r['end_date'])
     for r in db.execute('SELECT i.id,i.reference,i.amount,i.due_date,q.currency FROM invoices i JOIN missions m ON m.id=i.mission_id JOIN quotes q ON q.id=m.quote_id WHERE i.due_date<=?',(horizon,)):
@@ -28,10 +28,10 @@ def handle(h,connect):
     if not h.admin_authorized():return
     query=parse_qs(urlsplit(h.path).query)
     try:
-        page=int(query.get('page',['1'])[0]);kind=query.get('kind',[''])[0];priority=query.get('priority',[''])[0]
-        if not 1<=page<=10000 or kind not in ('',*KINDS) or priority not in ('','URGENT','A_TRAITER'):raise ValueError()
+        page=int(query.get('page',['1'])[0]);kind=query.get('kind',[''])[0];priority=query.get('priority',[''])[0];horizon=int(query.get('horizon',['30'])[0])
+        if horizon not in (7,30,60,90) or not 1<=page<=10000 or kind not in ('',*KINDS) or priority not in ('','URGENT','A_TRAITER'):raise ValueError()
     except ValueError:return h.json_response(400,{'error':'Filtre invalide.'})
     with connect() as db:
-        today=date.today();items=snapshot(db,today);counts={k:sum(x['kind']==k for x in items) for k in KINDS}
+        today=date.today();items=snapshot(db,today,horizon);counts={k:sum(x['kind']==k for x in items) for k in KINDS}
         filtered=[x for x in items if (not kind or x['kind']==kind) and (not priority or x['priority']==priority)]
-        return h.json_response(200,{'items':filtered[(page-1)*25:page*25],'total':len(filtered),'counts':counts,'as_of':today.isoformat(),'urgent':sum(x['priority']=='URGENT' for x in items)})
+        return h.json_response(200,{'items':filtered[(page-1)*25:page*25],'total':len(filtered),'counts':counts,'as_of':today.isoformat(),'horizon':horizon,'urgent':sum(x['priority']=='URGENT' for x in items)})
