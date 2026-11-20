@@ -54,7 +54,9 @@ cd /home/ubuntu/datasphereinnovation-guinee
   docker exec "$c" python server.py --check-db
   docker exec "$c" python server.py --backup-encrypted "$archive"
   docker exec "$c" python server.py --restore-isolated "$archive" "$restored"
-  docker cp "$c:$archive" "$destination"
+  docker exec "$c" cat "$archive" > "$destination"
+  test -s "$destination"
+  test "$(docker exec "$c" sha256sum "$archive" | cut -d' ' -f1)" = "$(sha256sum "$destination" | cut -d' ' -f1)"
   chmod 600 "$destination"
   sha256sum "$destination"
   docker exec "$c" rm -- "$archive" "$restored"
@@ -76,3 +78,15 @@ En cas d'erreur, arrêter l'exercice, identifier le fichier temporaire exact ava
 ## V34 — Contrôle préalable REC
 
 Après déploiement, exécuter `docker exec dsig-rec-dsig-1 python preflight.py`. Le rapport JSON ne contient aucune valeur secrète. FAIL retourne 1 ; WARN (socket antivirus absent) retourne 0 mais exige une action. PASS ne vaut pas autorisation de production. Vérifier séparément HTTPS et restriction d'accès, connexion MFA réelle, scan antivirus, restauration isolée et recette métier. Le contrôle SQLite utilise une connexion en lecture seule.
+
+## V35 — Sauvegarde quotidienne REC (Linux)
+
+Exécuter manuellement depuis le VPS : `bash scripts/backup-rec.sh`. Verrouillage, restauration isolée, transfert via docker exec compatible tmpfs, comparaison SHA256 et publication sans écrasement. Aucun effacement d'archives historiques, aucun GO PROD.
+
+Après un premier succès réel, ajouter au crontab ubuntu (sans remplacer les tâches existantes) :
+
+```cron
+15 2 * * * /bin/bash /home/ubuntu/datasphereinnovation-guinee/scripts/backup-rec.sh >> /home/ubuntu/dsig-backups/backup.log 2>&1
+```
+
+Prévoir rotation du journal, surveillance d'espace, alertes et externalisation chiffrée. Le cron utilise le fuseau du VPS. Ne jamais stocker les clés avec les archives. Aucune tâche cron installée automatiquement.
