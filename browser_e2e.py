@@ -90,6 +90,20 @@ class BrowserTests(unittest.TestCase):
         self.assertEqual(external,[])
         self.assertEqual(self.errors,[])
 
+    def test_self_hosted_typography(self):
+        for path in ('/', '/en.html', '/expertise.html', '/connexion.html'):
+            for width in (390, 1440):
+                self.page.set_viewport_size({'width': width, 'height': 900})
+                self.page.goto(path)
+                loaded = self.page.evaluate("""async () => {
+                    await document.fonts.ready;
+                    const faces = await document.fonts.load('400 16px "DSIG Open Sans"', 'École Guinée');
+                    return faces.length > 0 && faces.every(face => face.status === 'loaded') &&
+                        getComputedStyle(document.body).fontFamily.includes('DSIG Open Sans');
+                }""")
+                self.assertTrue(loaded, f'Font not loaded: {path} ({width}px)')
+                self.assertTrue(self.page.evaluate('document.documentElement.scrollWidth <= innerWidth + 1'), path)
+
     def test_cybersecurity_expertise_and_prefill(self):
         self.page.goto('/')
         expect(self.page.locator('#expertise-groups article')).to_have_count(25)
