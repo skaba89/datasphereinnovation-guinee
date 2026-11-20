@@ -25,3 +25,14 @@ button,.btn,.outline{min-height:44px;overflow-wrap:anywhere}
   h1,h2,h3,.count{overflow-wrap:anywhere}
 }
 @media(prefers-reduced-motion:reduce){*,*::before,*::after{scroll-behavior:auto!important;animation-duration:.01ms!important;animation-iteration-count:1!important;transition-duration:.01ms!important}}
+
+/* DSIG typography: locally hosted, no third-party requests. */
+@font-face{font-family:'DSIG Open Sans';src:url('fonts/open-sans-Regular.woff') format('woff');font-style:normal;font-weight:400;font-display:swap}
+@font-face{font-family:'DSIG Open Sans';src:url('fonts/open-sans-Semibold.woff') format('woff');font-style:normal;font-weight:600;font-display:swap}
+@font-face{font-family:'DSIG Open Sans';src:url('fonts/open-sans-Bold.woff') format('woff');font-style:normal;font-weight:700;font-display:swap}
+@font-face{font-family:'DSIG Open Sans';src:url('fonts/open-sans-ExtraBold.woff') format('woff');font-style:normal;font-weight:800;font-display:swap}
+:root,body{font-family:'DSIG Open Sans','Segoe UI',Arial,sans-serif}
+button,input,select,textarea{font-family:inherit}
+.hero h1,.section h2,.about h2{letter-spacing:-.025em}
+.hero p{line-height:1.65}
+.count strong,td{font-variant-numeric:tabular-nums}
