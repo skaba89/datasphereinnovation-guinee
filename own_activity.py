@@ -10,8 +10,8 @@ def handle(h,connect,method):
     if method=='GET':
         with connect() as db:
             db.row_factory=sqlite3.Row
-            rows=[dict(r) for r in db.execute('SELECT m.id,m.start_date,m.end_date,m.status,q.title,q.mode,q.currency FROM missions m JOIN quotes q ON q.id=m.quote_id WHERE m.consultant_id=? ORDER BY m.start_date DESC',(h.consultant_id,))]
-            entries=[dict(r) for r in db.execute('SELECT a.* FROM activity a JOIN missions m ON m.id=a.mission_id WHERE m.consultant_id=? ORDER BY a.work_date DESC LIMIT 100',(h.consultant_id,))]
+            rows=[dict(r) for r in db.execute('SELECT m.id,m.start_date,m.end_date,m.status,q.title,q.mode,q.currency FROM missions m JOIN quotes q ON q.id=m.quote_id WHERE m.consultant_id=? OR EXISTS(SELECT 1 FROM mission_members x WHERE x.mission_id=m.id AND x.consultant_id=?) ORDER BY m.start_date DESC',(h.consultant_id,h.consultant_id))]
+            entries=[dict(r) for r in db.execute('SELECT a.* FROM activity a WHERE a.consultant_id=? ORDER BY a.work_date DESC LIMIT 100',(h.consultant_id,))]
         return h.json_response(200,{'missions':rows,'items':entries})
     try:
         size=int(h.headers.get('Content-Length','0'))
@@ -26,10 +26,10 @@ def handle(h,connect,method):
         if not 0<w<=1 or not 0<=b<=w:raise ValueError()
         with connect() as db:
             db.row_factory=sqlite3.Row;db.execute('BEGIN IMMEDIATE')
-            m=db.execute("SELECT m.*,q.mode,q.currency FROM missions m JOIN quotes q ON q.id=m.quote_id WHERE m.id=? AND m.consultant_id=? AND m.status='ACTIVE'",(v['mission_id'],h.consultant_id)).fetchone()
+            m=db.execute("SELECT m.*,q.mode,q.currency FROM missions m JOIN quotes q ON q.id=m.quote_id WHERE m.id=? AND m.status='ACTIVE' AND (m.consultant_id=? OR EXISTS(SELECT 1 FROM mission_members x WHERE x.mission_id=m.id AND x.consultant_id=?))",(v['mission_id'],h.consultant_id,h.consultant_id)).fetchone()
             if not m:return h.json_response(403,{'error':'Mission non accessible.'})
             if not m['start_date']<=v['work_date']<=m['end_date'] or (m['mode']=='FORFAIT' and b!=0) or (m['currency'] in ('GNF','XOF') and e%1):raise ValueError()
-            oid=str(uuid.uuid4());db.execute('INSERT INTO activity(id,mission_id,work_date,worked,billable,expenses,description) VALUES(?,?,?,?,?,?,?)',(oid,v['mission_id'],v['work_date'],v['worked'],v['billable'],v['expenses'],v['description']))
+            oid=str(uuid.uuid4());db.execute('INSERT INTO activity(id,mission_id,consultant_id,work_date,worked,billable,expenses,description) VALUES(?,?,?,?,?,?,?,?)',(oid,v['mission_id'],h.consultant_id,v['work_date'],v['worked'],v['billable'],v['expenses'],v['description']))
             db.execute('INSERT INTO mission_events(entity_id,event) VALUES(?,?)',(oid,'CRA_SOUMIS'))
         return h.json_response(201,{'id':oid})
     except (ValueError,TypeError,UnicodeError):return h.json_response(400,{'error':'Champs invalides.'})

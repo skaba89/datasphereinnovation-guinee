@@ -272,6 +272,20 @@ class IntakeTests(unittest.TestCase):
         self.assertEqual(self.request('GET','/api/admin/direction',headers=user)[0],401)
         self.assertEqual(self.request('GET','/api/admin/direction',headers={'Authorization':'Bearer '+json.loads(body)['key']})[0],200)
 
+    def test_mission_activity_migration(self):
+        import missions
+        with server.sqlite3.connect(':memory:') as db:
+            db.execute('CREATE TABLE activity(id TEXT PRIMARY KEY, mission_id TEXT NOT NULL, work_date TEXT NOT NULL, worked TEXT NOT NULL, billable TEXT NOT NULL, expenses TEXT NOT NULL, description TEXT NOT NULL, status TEXT NOT NULL, UNIQUE(mission_id,work_date))')
+            db.execute('CREATE TABLE missions(id TEXT PRIMARY KEY, consultant_id TEXT NOT NULL)')
+            db.execute("INSERT INTO missions VALUES('m','c')")
+            db.execute("INSERT INTO activity VALUES('a','m','2020-01-01','1','1','0','Test','VALIDE')")
+            db.commit()
+            missions.schema(db)
+            missions.schema(db)
+            self.assertEqual(db.execute('SELECT id,consultant_id,status FROM activity').fetchall(),[('a','c','VALIDE')])
+            db.execute("INSERT INTO activity VALUES('b','m','c2','2020-01-01','1','1','0','Test','SOUMIS')")
+            self.assertEqual(db.execute('SELECT count(*) FROM activity').fetchone()[0],2)
+
     def test_mission_lifecycle(self):
         auth={'Authorization':'Bearer '+server.ADMIN_TOKEN,'Content-Type':'application/json'}
         path='/api/admin/missions'
@@ -314,6 +328,18 @@ class IntakeTests(unittest.TestCase):
         d=json.loads(self.request('GET',finance,headers=auth)[1]);self.assertEqual(d['totals']['EUR']['balance'],'350');self.assertEqual(d['totals']['EUR']['overdue'],'350')
         self.assertEqual(self.request('POST',finance+'/milestones',{'mission_id':mid,'title':'Test','amount':'10'},auth)[0],400)
         self.assertEqual(self.request('GET','/billing.html')[0],200)
+        _,body,_=self.request('POST','/api/admin/consultants',profile|{'name':'Second consultant','email':'second@example.invalid'},auth);cid2=json.loads(body)['id']
+        self.assertEqual(self.request('POST',path+'/'+mid+'/team',{'consultant_id':cid2},auth)[0],201)
+        self.assertEqual(self.request('POST',path+'/'+mid+'/team',{'consultant_id':cid2},auth)[0],409)
+        _,body,_=self.request('POST','/api/admin/accounts',{'username':'second.test','role':'CONSULTANT','consultant_id':cid2},auth)
+        own2={'Authorization':'Bearer '+json.loads(body)['key'],'Content-Type':'application/json'}
+        self.assertEqual(json.loads(self.request('GET',personal,headers=own2)[1])['items'],[])
+        s,body,_=self.request('POST',personal,a|{'mission_id':mid},own2);self.assertEqual(s,201);aid2=json.loads(body)['id']
+        self.assertEqual(self.request('POST',personal,a|{'mission_id':mid},own2)[0],409)
+        self.assertEqual(len(json.loads(self.request('GET',personal,headers=own)[1])['items']),1)
+        self.assertEqual(self.request('PATCH',path+'/'+mid,{'status':'TERMINE'},auth)[0],409)
+        self.assertEqual(self.request('PATCH',path+'/activity/'+aid2,{'status':'VALIDE'},auth)[0],200)
+        row=json.loads(self.request('GET',path,headers=auth)[1])['items'][0];self.assertEqual(len(row['team']),2);self.assertEqual(row['actual_cost'],'850.00')
         self.assertEqual(self.request('PATCH',path+'/'+mid,{'status':'TERMINE'},auth)[0],200)
         self.assertEqual(self.request('POST',route,a|{'work_date':'2020-01-09'},auth)[0],400)
         self.assertEqual(self.request('GET','/missions.html')[0],200)
