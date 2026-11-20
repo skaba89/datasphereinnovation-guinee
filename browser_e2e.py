@@ -132,6 +132,10 @@ class BrowserTests(unittest.TestCase):
                     expect(self.page.locator('#rows')).to_contain_text('Mission fictive E2E')
                     self.page.locator('#rows').get_by_role('button',name='Modifier').click()
                     expect(self.page.locator('#editor [name=organization_id]')).not_to_have_value('')
+                if module=='direction':
+                    expect(self.page.locator('#control-tables table')).to_have_count(3)
+                    self.page.locator('#control-currency').select_option('GNF')
+                    expect(self.page.locator('#control-tables')).to_contain_text('Aucun résultat.')
         self.page.goto('/connexion.html')
         expect(self.page.locator('#workspace')).to_be_visible()
         self.page.locator('#logout').click()
