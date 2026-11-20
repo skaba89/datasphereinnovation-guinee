@@ -44,7 +44,7 @@ def me(h,connect):
         row=db.execute('SELECT a.id,a.role,s.expires,COALESCE(m.enabled,0) AS mfa FROM sessions s JOIN accounts a ON a.id=s.account_id LEFT JOIN mfa m ON m.account_id=a.id WHERE s.token_hash=? AND s.expires>? AND a.enabled=1',(accounts.digest(accounts.session_cookie(h)),int(time.time()))).fetchone()
         if not row:return h.json_response(401,{'error':'Session invalide.'})
         count=db.execute('SELECT COUNT(*) FROM sessions WHERE account_id=? AND expires>?',(row['id'],int(time.time()))).fetchone()[0]
-        return h.json_response(200,{'role':row['role'],'expires':row['expires'],'permissions':accounts.ROLES[row['role']],'active_sessions':count,'mfa_enabled':bool(row['mfa'])})
+        return h.json_response(200,{'role':row['role'],'expires':row['expires'],'permissions':accounts.effective_permissions(row['role'],row['mfa']),'active_sessions':count,'mfa_enabled':bool(row['mfa']),'mfa_required':accounts.mfa_required(row['role'])})
 
 def handle(h,connect):
     if (h.headers.get('Origin') and h.headers['Origin']!='http://'+h.headers.get('Host','')) or h.headers.get('Sec-Fetch-Site')=='cross-site':return h.json_response(403,{'error':'Origine interdite.'})
@@ -132,6 +132,6 @@ def handle(h,connect):
         token='dsig_'+secrets.token_urlsafe(32);expires=int(time.time())+TTL
         db.execute('DELETE FROM sessions WHERE expires<=?',(int(time.time()),));db.execute('INSERT INTO sessions VALUES(?,?,?)',(accounts.digest(token),row['id'],expires));accounts.event(db,row['username'],'CONNEXION_REUSSIE','auth')
         cookie(h,token,TTL)
-        result={'expires':expires,'role':row['role'],'permissions':accounts.ROLES[row['role']]}
+        result={'expires':expires,'role':row['role'],'permissions':accounts.effective_permissions(row['role'],bool(m)),'mfa_required':accounts.mfa_required(row['role']),'mfa_enabled':bool(m)}
         if h.headers.get('X-DSIG-Session')!='cookie':result['token']=token
         return h.json_response(200,result)
