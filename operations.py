@@ -9,6 +9,7 @@ from cryptography.fernet import Fernet, InvalidToken
 MAX_DB_BYTES = 64 * 1024 * 1024
 MAX_ENCRYPTED_BYTES = 2 * MAX_DB_BYTES
 REQUIRED_TABLES = {'requests', 'request_events', 'accounts', 'credentials', 'sessions', 'mfa', 'recovery_codes', 'access_events', 'opportunities', 'opportunity_events', 'consultants', 'consultant_events', 'quotes', 'quote_events', 'missions', 'activity', 'mission_events', 'tenders', 'tender_events', 'milestones', 'invoices', 'payments', 'billing_events', 'organizations', 'organization_links', 'mission_members', 'contract_renewals', 'expenses', 'documents'}
+REQUIRED_TABLES.add('document_history')
 
 
 def readonly(path):
