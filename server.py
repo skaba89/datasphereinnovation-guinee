@@ -16,6 +16,7 @@ import organizations
 import quotes
 import direction
 import missions
+import contracts
 import billing
 import accounts
 import own_activity
@@ -59,6 +60,7 @@ def connect():
     organizations.schema(db)
     quotes.schema(db)
     missions.schema(db)
+    contracts.schema(db)
     billing.schema(db)
     accounts.schema(db)
     return db
@@ -116,6 +118,7 @@ class Handler(SimpleHTTPRequestHandler):
         self.wfile.write(data)
 
     def do_GET(self):
+        if re.fullmatch(r'/api/admin/missions/[0-9a-f-]{36}/renewals',urlsplit(self.path).path):return contracts.handle(self,connect,'GET')
         if urlsplit(self.path).path == '/api/admin/crm/organizations':
             return organizations.handle(self,connect,'GET')
         if self.path=='/api/ready':
@@ -173,6 +176,7 @@ class Handler(SimpleHTTPRequestHandler):
         return accounts.authorize(self,connect,ADMIN_TOKEN)
 
     def do_PATCH(self):
+        if re.fullmatch(r'/api/admin/missions/[0-9a-f-]{36}/renewals/[0-9a-f-]{36}',self.path):return contracts.handle(self,connect,'PATCH')
         if re.fullmatch(r'/api/admin/crm/organizations/[0-9a-f-]{36}',self.path):
             return organizations.handle(self,connect,'PATCH')
         if re.fullmatch(r'/api/admin/accounts/[0-9a-f-]{36}',self.path):return accounts.handle(self,connect,'PATCH')
@@ -217,6 +221,7 @@ class Handler(SimpleHTTPRequestHandler):
         self.json_response(200, {"status": payload["status"]})
 
     def do_POST(self):
+        if re.fullmatch(r'/api/admin/missions/[0-9a-f-]{36}/renewals',self.path):return contracts.handle(self,connect,'POST')
         if self.path == '/api/admin/crm/organizations':
             return organizations.handle(self,connect,'POST')
         if self.path in ('/api/auth/activate','/api/auth/login','/api/auth/logout','/api/auth/mfa-setup','/api/auth/mfa-confirm','/api/auth/revoke-others'):return authentication.handle(self,connect)

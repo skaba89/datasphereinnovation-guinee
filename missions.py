@@ -97,6 +97,7 @@ def handle(h,connect,method):
             elif method=='PATCH':
                 oid=path.rsplit('/',1)[-1]
                 if v!={'status':'TERMINE'}:raise ValueError()
+                if db.execute("SELECT 1 FROM contract_renewals WHERE mission_id=? AND status='SOUMIS'",(oid,)).fetchone():return h.json_response(409,{'error':'Renouvellement en attente.'})
                 if db.execute("SELECT 1 FROM activity WHERE mission_id=? AND status='SOUMIS'",(oid,)).fetchone():return h.json_response(409,{'error':'CRA en attente.'})
                 if db.execute("UPDATE missions SET status='TERMINE' WHERE id=? AND status='ACTIVE'",(oid,)).rowcount!=1:return h.json_response(409,{'error':'Mission absente ou clôturée.'})
                 event='MISSION_TERMINEE'
