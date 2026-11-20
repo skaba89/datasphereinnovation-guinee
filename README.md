@@ -165,3 +165,7 @@ Ne pas exposer ce serveur local directement sur Internet.
 
 Le portail administrateur permet de déposer et télécharger des PDF fictifs associés aux missions, consultants, devis et dépenses par leur UUID. Le contenu est chiffré avec Fernet, distinct de la clé MFA ; les métadonnées restent en clair. Générer localement `DSIG_DOCUMENT_KEY` avec `python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"`, puis l'injecter hors Git. Conserver cette clé séparément des sauvegardes ; sans elle, les documents ne sont pas récupérables. Les anciens backups doivent être restaurés avec la version d'origine avant migration. Dépôts et téléchargements sont journalisés, quota 20 Mio, 1 Mio par PDF. Pas de prévisualisation, d'antivirus, de purge ni de rotation de clé à ce stade : usage fictif uniquement, pas de données personnelles réelles.
 
+### V24.1 — Alertes métier
+
+Le portail ADMIN et DIRECTION contient un centre d'alertes calculé à la consultation : contrats actifs et relances ouvertes à échéance dans les 30 jours ou en retard, factures non soldées, CRA soumis et renouvellements en attente. Les éléments résolus disparaissent au prochain rafraîchissement. Filtres par catégorie et priorité. Aucun e-mail, SMS, tâche planifiée ou donnée réelle ; ces intégrations restent à valider séparément.
+

@@ -21,6 +21,7 @@ import billing
 import treasury
 import reporting
 import documents
+import alerts
 import accounts
 import own_activity
 import authentication
@@ -123,6 +124,7 @@ class Handler(SimpleHTTPRequestHandler):
         self.wfile.write(data)
 
     def do_GET(self):
+        if urlsplit(self.path).path=='/api/admin/alerts':return alerts.handle(self,connect)
         if re.fullmatch(r'/api/admin/documents(?:/[0-9a-f-]{36})?',urlsplit(self.path).path):return documents.handle(self,connect,'GET')
         if urlsplit(self.path).path=='/api/admin/direction/reporting':return reporting.handle(self,connect)
         if urlsplit(self.path).path=='/api/admin/billing/expenses':return treasury.handle(self,connect,'GET')
