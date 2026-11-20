@@ -204,7 +204,7 @@ class IntakeTests(unittest.TestCase):
     def test_role_matrix(self):
         import accounts
         expected={
-            'ADMIN':(set(accounts.RESOURCES),set(accounts.RESOURCES)),
+            'ADMIN':(set(accounts.RESOURCES)-{'my-activity'},set(accounts.RESOURCES)-{'my-activity'}),
             'DIRECTION':({'direction','billing','missions','quotes','crm','tenders'},set()),
             'COMMERCIAL':({'requests','crm','quotes','tenders','consultants'},{'requests','crm','quotes','tenders'}),
             'RH':({'consultants','requests'},{'consultants'}),
