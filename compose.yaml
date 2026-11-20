@@ -1,0 +1,19 @@
+services:
+  dsig:
+    build: .
+    environment:
+      DSIG_ENV: "${DSIG_ENV:-REC}"
+      DSIG_ADMIN_TOKEN: "${DSIG_ADMIN_TOKEN:?Generate a private local administration key}"
+    ports:
+      - "127.0.0.1:${DSIG_PORT:-8080}:8080"
+    volumes:
+      - dsig-data:/app/data
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+volumes:
+  dsig-data:

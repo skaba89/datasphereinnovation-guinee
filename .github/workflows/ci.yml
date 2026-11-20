@@ -1,0 +1,44 @@
+name: DSIG CI
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+permissions:
+  contents: read
+jobs:
+  regression:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ['3.10', '3.12']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Python regression tests
+        run: python -m unittest -v
+      - name: JavaScript syntax
+        run: for f in dist/*.js; do node --check "$f" || exit 1; done
+  docker-smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build local image
+        run: docker build -t dsig-ci .
+      - name: Verify local container
+        run: |
+          docker run -d --name dsig-ci -p 127.0.0.1:8080:8080 -e DSIG_ENV=REC -e DSIG_ADMIN_TOKEN=ci-fictitious-token-not-a-secret-123456 dsig-ci
+          for i in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:8080/api/health; then break; fi
+            sleep 1
+          done
+          curl -fsS http://127.0.0.1:8080/api/health
+          curl -fsS http://127.0.0.1:8080/ >/dev/null
+      - name: Cleanup
+        if: always()
+        run: docker rm -f dsig-ci || true

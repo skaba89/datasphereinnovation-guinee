@@ -1,0 +1,24 @@
+.dsig-icon{width:1.15em;height:1.15em;display:inline-block;vertical-align:-.2em;flex-shrink:0}
+.product-icon .dsig-icon{width:32px;height:32px}
+.detail-art #symbol .dsig-icon{width:clamp(80px,12vw,150px);height:auto}
+.sector-choice [data-icon] .dsig-icon{width:24px;height:24px}
+.principles p .dsig-icon{margin-right:.55em;color:inherit}
+.expertise-group{margin-top:38px}
+.expertise-group>h3{font-size:clamp(20px,2.2vw,28px);letter-spacing:-.025em;margin:0 0 18px;color:#29164c}
+.expertise-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:18px}
+.expertise-grid article,.career-card{display:flex;flex-direction:column;align-items:flex-start;padding:26px;border:1px solid #e6dff1;background:white;border-radius:18px;box-shadow:0 8px 28px #24104108;min-width:0}
+.expertise-icon{display:grid;place-items:center;width:52px;height:52px;border-radius:13px;background:#eee8ff;color:#56329e;margin-bottom:14px}
+.expertise-icon .dsig-icon{width:28px;height:28px}
+.expertise-grid h4,.career-card h3{font-size:18px;line-height:1.35;margin:0 0 10px;color:#29164c}
+.expertise-grid p,.career-card p{color:#526476;margin:0 0 20px}
+.expertise-grid .service-link{margin-top:auto;color:#5839a0;font-size:14px;font-weight:650}
+.career-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:18px;margin-top:24px}
+.career-card .btn{margin-top:auto}
+.career-note{margin-top:20px;color:#526476}
+.expertise-detail-hero{display:flex;align-items:center;justify-content:space-between;gap:24px;margin:36px 0}
+.expertise-detail-hero h1{font-size:clamp(32px,5vw,60px);line-height:1.15;color:#29164c;margin:12px 0}
+.expertise-detail-hero .expertise-icon{width:100px;height:100px;flex-shrink:0}
+.expertise-detail-hero .expertise-icon .dsig-icon{width:60px;height:60px}
+@media(max-width:580px){.expertise-detail-hero{align-items:flex-start;flex-direction:column}}
+@media(max-width:900px){.expertise-grid,.career-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:580px){.expertise-grid,.career-grid{grid-template-columns:1fr}.expertise-grid article,.career-card{padding:20px}}
