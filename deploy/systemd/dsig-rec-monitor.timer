@@ -1,0 +1,11 @@
+[Unit]
+Description=DSIG REC monitor schedule
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=5min
+AccuracySec=15s
+Unit=dsig-rec-monitor.service
+
+[Install]
+WantedBy=timers.target

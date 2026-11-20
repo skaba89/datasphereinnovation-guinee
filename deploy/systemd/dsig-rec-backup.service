@@ -1,0 +1,17 @@
+[Unit]
+Description=DSIG REC backup
+After=docker.service
+Requires=docker.service
+
+[Service]
+Type=oneshot
+User=ubuntu
+WorkingDirectory=/home/ubuntu/datasphereinnovation-guinee
+Environment=HOME=/home/ubuntu
+Environment=DSIG_BACKUP_DIR=/home/ubuntu/dsig-backups
+UMask=0077
+ExecStart=/bin/bash /home/ubuntu/datasphereinnovation-guinee/scripts/backup-rec.sh
+TimeoutStartSec=600
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=dsig-rec-backup

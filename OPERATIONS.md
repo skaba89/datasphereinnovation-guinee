@@ -117,3 +117,23 @@ Après validation manuelle, ajouter au crontab ubuntu sans remplacer les tâches
 ```
 
 Consulter `journalctl -t dsig-rec-monitor --since today`. FAIL est une alerte dans le journal, pas une notification externe. Une surveillance externe et l'acheminement des alertes restent nécessaires pour PROD. Aucun port supplémentaire, aucune tâche installée automatiquement.
+
+## V40 — Ordonnancement systemd REC
+
+Option recommandée à la place des deux entrées cron V35/V37 (ne pas cumuler). Vérifier `crontab -l` et supprimer uniquement les anciennes lignes DSIG correspondantes si présentes, après sauvegarde du crontab. Les services utilisent ubuntu et le répertoire privé existant, le même conteneur, aucune modification des autres applications. Les échecs restent visibles dans systemd et le journal ; aucune notification externe n'est activée. Les unités ne sont pas installées automatiquement.
+
+Après validation manuelle de V35/V37, installer les quatre fichiers explicites :
+
+```bash
+cd /home/ubuntu/datasphereinnovation-guinee
+sudo systemd-analyze verify deploy/systemd/dsig-rec-{backup,monitor}.{service,timer}
+sudo install -m 644 deploy/systemd/dsig-rec-{backup,monitor}.{service,timer} /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl start dsig-rec-backup.service
+sudo systemctl start dsig-rec-monitor.service
+sudo systemctl enable --now dsig-rec-backup.timer dsig-rec-monitor.timer
+systemctl list-timers 'dsig-rec-*' --all
+sudo journalctl -u dsig-rec-backup.service -u dsig-rec-monitor.service -n 50 --no-pager
+```
+
+Sauvegarde à 02:15 UTC (03:15 Paris en hiver, 04:15 en été, 02:15 Guinée), rattrapage après arrêt. Monitoring toutes les cinq minutes. Examiner les statuts et les logs, notamment les FAIL ; transmettre les alertes à un canal externe approuvé et conserver une copie hors VPS. Aucune suppression automatique d'archives. Pour rollback : `sudo systemctl disable --now dsig-rec-backup.timer dsig-rec-monitor.timer`, sans toucher aux volumes ni aux autres services. Ne pas activer PROD.
