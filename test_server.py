@@ -55,6 +55,18 @@ class IntakeTests(unittest.TestCase):
         self.assertEqual(self.request('GET','/accessibility.css')[0],200)
         self.assertNotIn(b'fonts.googleapis.com',self.request('GET','/studio.css')[1])
 
+    def test_local_font_assets_are_strictly_allowlisted(self):
+        for weight in ('Regular','Semibold','Bold','ExtraBold'):
+            path='/fonts/open-sans-'+weight+'.woff'
+            s,b,h=self.request('GET',path)
+            self.assertEqual(s,200)
+            self.assertEqual(h['Content-Type'],'font/woff')
+            self.assertEqual(b[:4],b'wOFF')
+            self.assertEqual(self.request('HEAD',path)[0],200)
+        self.assertEqual(self.request('GET','/fonts/LICENSE.txt')[0],200)
+        for path in ('/fonts/','/fonts/unknown.woff','/fonts/../server.py','/fonts/%2e%2e/index.html','/fonts//open-sans-Regular.woff','/open-sans-Regular.woff'):
+            self.assertEqual(self.request('GET',path)[0],404,path)
+
     def test_health_and_security(self):
         status, _, headers = self.request("GET", "/api/health")
         self.assertEqual(status, 200)
