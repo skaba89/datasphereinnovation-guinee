@@ -1,0 +1,11 @@
+[Unit]
+Description=DSIG REC backup schedule
+
+[Timer]
+OnCalendar=*-*-* 02:15:00 UTC
+Persistent=true
+AccuracySec=15s
+Unit=dsig-rec-backup.service
+
+[Install]
+WantedBy=timers.target

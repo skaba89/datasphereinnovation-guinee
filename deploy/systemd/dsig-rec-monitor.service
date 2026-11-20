@@ -1,0 +1,17 @@
+[Unit]
+Description=DSIG REC monitor
+After=docker.service
+Requires=docker.service
+
+[Service]
+Type=oneshot
+User=ubuntu
+WorkingDirectory=/home/ubuntu/datasphereinnovation-guinee
+Environment=HOME=/home/ubuntu
+Environment=DSIG_BACKUP_DIR=/home/ubuntu/dsig-backups
+UMask=0077
+ExecStart=/usr/bin/python3 /home/ubuntu/datasphereinnovation-guinee/scripts/monitor-rec.py
+TimeoutStartSec=90
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=dsig-rec-monitor
