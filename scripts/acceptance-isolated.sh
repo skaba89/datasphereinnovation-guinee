@@ -29,5 +29,5 @@ docker run --rm --network none --read-only --tmpfs /tmp:rw,nosuid,nodev,size=512
   --cap-drop ALL --security-opt no-new-privileges \
   --mount "type=bind,src=$stage,dst=/suite,readonly" \
   -e DSIG_ENV=REC -e PYTHONDONTWRITEBYTECODE=1 \
-  -w /suite "$image" python -m unittest -v
+  -w /tmp "$image" sh -ec 'cp -R /suite /tmp/suite; cd /tmp/suite; python -m unittest -v'
 echo 'PASS: isolated Python regression suite. Manual REC acceptance still required.'
