@@ -4,6 +4,7 @@ from urllib.parse import urlsplit,parse_qs
 from cryptography.fernet import Fernet,InvalidToken,MultiFernet
 from datetime import date
 import accounts
+import antivirus
 
 MAX_FILE=1024*1024
 MAX_TOTAL=20*1024*1024
@@ -32,6 +33,14 @@ def rotate(db):
         accounts.event(db,'maintenance','DOCUMENT_ROTATION','documents')
     return len(rows)
 
+def safe_scan(h,connect,data,resource):
+    try:antivirus.scan(data);return True
+    except (antivirus.Infected,antivirus.Unavailable) as exc:
+        infected=isinstance(exc,antivirus.Infected)
+        with connect() as db:accounts.event(db,h.actor,'DOCUMENT_SCAN_REJETE' if infected else 'DOCUMENT_SCAN_INDISPONIBLE',resource)
+        h.json_response(422 if infected else 503,{'error':'Document refusé par le contrôle antivirus.' if infected else 'Contrôle antivirus indisponible. Réessayez ultérieurement.'})
+        return False
+
 def handle(h,connect,method):
     if not h.admin_authorized():return
     if h.headers.get('Sec-Fetch-Site')=='cross-site' or (h.headers.get('Origin') and h.headers['Origin']!='http://'+h.headers.get('Host','')):return h.json_response(403,{'error':'Origine non autorisée.'})
@@ -54,7 +63,8 @@ def handle(h,connect,method):
             try:data=key.decrypt(r['ciphertext'])
             except InvalidToken:return h.json_response(503,{'error':'Document illisible.'})
             if hashlib.sha256(data).hexdigest()!=r['sha256'] or len(data)!=r['size']:return h.json_response(503,{'error':'Intégrité documentaire invalide.'})
-            accounts.event(db,h.actor,'DOCUMENT_TELECHARGE',oid)
+        if not safe_scan(h,connect,data,oid):return
+        with connect() as db:accounts.event(db,h.actor,'DOCUMENT_TELECHARGE',oid)
         h.send_response(200);h.send_header('Content-Type','application/octet-stream');h.send_header('Content-Disposition',f'attachment; filename="{oid}.pdf"');h.send_header('Cache-Control','no-store');h.send_header('Content-Length',str(len(data)));h.end_headers();h.wfile.write(data);return
     try:
         n=int(h.headers.get('Content-Length','0'))
@@ -70,6 +80,7 @@ def handle(h,connect,method):
         data=base64.b64decode(v['content'],validate=True)
         if not 0<len(data)<=MAX_FILE or not data.startswith(b'%PDF-') or not data.rstrip().endswith(b'%%EOF'):raise ValueError()
         digest=hashlib.sha256(data).hexdigest()
+        if not safe_scan(h,connect,data,category):return
         with connect() as db:
             db.execute('BEGIN IMMEDIATE')
             if not db.execute('SELECT 1 FROM '+TARGETS[category]+' WHERE id=?',(entity,)).fetchone():raise ValueError()
