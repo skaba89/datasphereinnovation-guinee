@@ -105,3 +105,15 @@ docker exec dsig-rec-dsig-1 python preflight.py
 ```
 
 Le contrôle envoie un contenu anodin et la chaîne de test standard EICAR non exécutable, uniquement au scanner privé sans enregistrer de document. Les deux résultats doivent être PASS ; la présence du socket seule ne suffit pas. En cas d'indisponibilité, le mécanisme de dépôt existant reste fail-closed. Conserver l'overlay dans toutes les commandes suivantes. Aucun GO PROD.
+
+## V37 — Supervision locale REC
+
+Sur le VPS, sous ubuntu : `python3 scripts/monitor-rec.py`. Le rapport vérifie conteneur, santé API, disponibilité DB indirecte via ready, scan antivirus sain, présence d'une archive privée récente (26 h), et espace disque (15 % libre). La fraîcheur n'est pas une preuve de restauration ; conserver les exercices V35.
+
+Après validation manuelle, ajouter au crontab ubuntu sans remplacer les tâches existantes :
+
+```cron
+*/5 * * * * /usr/bin/python3 /home/ubuntu/datasphereinnovation-guinee/scripts/monitor-rec.py 2>&1 | /usr/bin/logger -t dsig-rec-monitor
+```
+
+Consulter `journalctl -t dsig-rec-monitor --since today`. FAIL est une alerte dans le journal, pas une notification externe. Une surveillance externe et l'acheminement des alertes restent nécessaires pour PROD. Aucun port supplémentaire, aucune tâche installée automatiquement.
