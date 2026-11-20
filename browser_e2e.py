@@ -164,6 +164,8 @@ class BrowserTests(unittest.TestCase):
                     self.assertTrue(self.page.evaluate('document.documentElement.scrollWidth <= innerWidth + 1'))
                     self.page.set_viewport_size({'width':1280,'height':900})
                     expect(self.page.locator('#control-tables table')).to_have_count(5)
+                    expect(self.page.locator('#control-tables')).to_contain_text('Budget coût consommé (%)')
+                    expect(self.page.locator('#control-tables')).to_contain_text('Jours facturables / travaillés (%)')
                     self.page.locator('#control-currency').select_option('GNF')
                     expect(self.page.locator('#control-tables')).to_contain_text('Aucun résultat.')
                     expect(self.page.locator('#control-tables')).to_contain_text('Flux de trésorerie enregistrés')

@@ -553,6 +553,8 @@ class IntakeTests(unittest.TestCase):
         self.assertEqual(first['validated_cost'],'850.00')
         self.assertEqual(first['cost_remaining'],'3200.00')
         self.assertEqual(first['validated_margin'],'50.00')
+        self.assertEqual(first['margin_rate'],'5.56')
+        self.assertEqual(first['budget_cost_used_rate'],'20.99')
         self.assertEqual(second['validated_revenue'],'600')
         bucket=control['currencies'][0]
         self.assertEqual(bucket['currency'],'EUR')
@@ -561,6 +563,7 @@ class IntakeTests(unittest.TestCase):
         self.assertEqual(bucket['invoiced'],'1050')
         self.assertEqual(bucket['received'],'100')
         self.assertEqual(bucket['receivable'],'950')
+        self.assertEqual(bucket['collection_rate'],'9.52')
         self.assertEqual(bucket['unbilled'],'450.00')
         self.assertEqual(len(control['clients']),1)
         self.assertEqual(self.request('GET','/api/admin/direction',headers=own)[0],403)
@@ -572,6 +575,7 @@ class IntakeTests(unittest.TestCase):
         self.assertEqual(control['currencies'][0]['budget_revenue'],'7000.00')
         self.assertEqual(control['currencies'][1]['budget_revenue'],'6000')
         self.assertEqual(control['currencies'][1]['validated_revenue'],'0')
+        self.assertIsNone(control['currencies'][1]['margin_rate'])
         expenses=finance+'/expenses'
         out={'reference':'DEP-001','currency':'EUR','amount':'80','paid_date':'2020-02-01','category':'CONSULTANT','description':'Paiement fictif','mission_id':mid}
         self.assertEqual(self.request('GET',expenses)[0],401)
@@ -589,6 +593,8 @@ class IntakeTests(unittest.TestCase):
         self.assertEqual(len(individual),2)
         self.assertTrue(all(x['margin']=='25.00' for x in individual))
         self.assertIsNone(next(x for x in control['consultants'] if x['mission_id']==mid2)['margin'])
+        self.assertIsNone(next(x for x in control['consultants'] if x['mission_id']==mid2)['billable_rate'])
+        self.assertTrue(all(x['margin_rate']=='5.56' for x in individual))
         report='/api/admin/direction/reporting?start=2020-01-01&end=2020-02-29'
         self.assertEqual(self.request('GET',report)[0],401)
         self.assertEqual(self.request('GET',report,headers=own)[0],403)
