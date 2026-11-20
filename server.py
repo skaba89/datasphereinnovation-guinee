@@ -18,6 +18,7 @@ import direction
 import missions
 import contracts
 import billing
+import treasury
 import accounts
 import own_activity
 import authentication
@@ -62,6 +63,7 @@ def connect():
     missions.schema(db)
     contracts.schema(db)
     billing.schema(db)
+    treasury.schema(db)
     accounts.schema(db)
     return db
 
@@ -118,6 +120,7 @@ class Handler(SimpleHTTPRequestHandler):
         self.wfile.write(data)
 
     def do_GET(self):
+        if urlsplit(self.path).path=='/api/admin/billing/expenses':return treasury.handle(self,connect,'GET')
         if re.fullmatch(r'/api/admin/missions/[0-9a-f-]{36}/renewals',urlsplit(self.path).path):return contracts.handle(self,connect,'GET')
         if urlsplit(self.path).path == '/api/admin/crm/organizations':
             return organizations.handle(self,connect,'GET')
@@ -222,6 +225,7 @@ class Handler(SimpleHTTPRequestHandler):
         self.json_response(200, {"status": payload["status"]})
 
     def do_POST(self):
+        if self.path=='/api/admin/billing/expenses':return treasury.handle(self,connect,'POST')
         if re.fullmatch(r'/api/admin/missions/[0-9a-f-]{36}/renewals',self.path):return contracts.handle(self,connect,'POST')
         if self.path == '/api/admin/crm/organizations':
             return organizations.handle(self,connect,'POST')
