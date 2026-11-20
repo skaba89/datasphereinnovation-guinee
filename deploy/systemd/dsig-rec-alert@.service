@@ -1,0 +1,14 @@
+[Unit]
+Description=DSIG REC notification for %i
+StartLimitIntervalSec=1800
+StartLimitBurst=1
+
+[Service]
+Type=oneshot
+User=ubuntu
+EnvironmentFile=/etc/dsig-rec-alert.env
+ExecStart=/usr/bin/python3 /home/ubuntu/datasphereinnovation-guinee/scripts/notify-rec.py %i
+TimeoutStartSec=30
+UMask=0077
+StandardOutput=journal
+StandardError=journal
