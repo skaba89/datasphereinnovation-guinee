@@ -60,7 +60,7 @@ class IntakeTests(unittest.TestCase):
             path='/fonts/open-sans-'+weight+'.woff'
             s,b,h=self.request('GET',path)
             self.assertEqual(s,200)
-            self.assertEqual(h['Content-Type'],'font/woff')
+            self.assertEqual({k.lower():v for k,v in h.items()}['content-type'],'font/woff')
             self.assertEqual(b[:4],b'wOFF')
             self.assertEqual(self.request('HEAD',path)[0],200)
         self.assertEqual(self.request('GET','/fonts/LICENSE.txt')[0],200)
