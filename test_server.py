@@ -340,6 +340,22 @@ class IntakeTests(unittest.TestCase):
         self.assertEqual(self.request('PATCH',path+'/'+mid,{'status':'TERMINE'},auth)[0],409)
         self.assertEqual(self.request('PATCH',path+'/activity/'+aid2,{'status':'VALIDE'},auth)[0],200)
         row=json.loads(self.request('GET',path,headers=auth)[1])['items'][0];self.assertEqual(len(row['team']),2);self.assertEqual(row['actual_cost'],'850.00')
+        renew=path+'/'+mid+'/renewals'
+        payload={'new_end':'2020-02-29','reference':'AV-001','reason':'Extension fictive'}
+        _,body,_=self.request('POST','/api/admin/accounts',{'username':'project.test','role':'PROJET','consultant_id':''},auth)
+        project={'Authorization':'Bearer '+json.loads(body)['key'],'Content-Type':'application/json'}
+        self.assertEqual(self.request('POST',renew,payload,own)[0],403)
+        self.assertEqual(self.request('POST',renew,payload|{'new_end':'2020-01-01'},project)[0],400)
+        s,body,_=self.request('POST',renew,payload,project);self.assertEqual(s,201);rid=json.loads(body)['id']
+        self.assertEqual(self.request('POST',renew,payload,project)[0],409)
+        self.assertEqual(self.request('PATCH',renew+'/'+rid,{'status':'VALIDE'},project)[0],403)
+        self.assertEqual(self.request('PATCH',path+'/'+mid,{'status':'TERMINE'},auth)[0],409)
+        self.assertEqual(self.request('PATCH',renew+'/'+rid,{'status':'VALIDE'},auth)[0],200)
+        self.assertEqual(self.request('PATCH',renew+'/'+rid,{'status':'REFUSE'},auth)[0],409)
+        self.assertEqual(json.loads(self.request('GET',renew,headers=auth)[1])['contract']['end_date'],'2020-02-29')
+        s,body,_=self.request('POST',renew,payload|{'new_end':'2020-03-31'},project);self.assertEqual(s,201);rid2=json.loads(body)['id']
+        self.assertEqual(self.request('PATCH',renew+'/'+rid2,{'status':'REFUSE'},auth)[0],200)
+        self.assertEqual(json.loads(self.request('GET',renew,headers=auth)[1])['contract']['end_date'],'2020-02-29')
         self.assertEqual(self.request('PATCH',path+'/'+mid,{'status':'TERMINE'},auth)[0],200)
         self.assertEqual(self.request('POST',route,a|{'work_date':'2020-01-09'},auth)[0],400)
         self.assertEqual(self.request('GET','/missions.html')[0],200)
@@ -353,6 +369,9 @@ class IntakeTests(unittest.TestCase):
         self.assertEqual(self.request('POST',finance+'/invoices',inv2,auth)[0],409)
         self.assertEqual(self.request('PATCH',finance+'/milestones/'+jid,{'status':'VALIDE'},auth)[0],200)
         self.assertEqual(self.request('POST',finance+'/invoices',inv2,auth)[0],201)
+        renew2=path+'/'+mid2+'/renewals'
+        s,body,_=self.request('POST',renew2,payload,auth);self.assertEqual(s,201);rid3=json.loads(body)['id']
+        self.assertEqual(self.request('PATCH',renew2+'/'+rid3,{'status':'VALIDE'},auth)[0],403)
 
     def test_direction_and_backup(self):
         auth={'Authorization':'Bearer '+server.ADMIN_TOKEN,'Content-Type':'application/json'}
