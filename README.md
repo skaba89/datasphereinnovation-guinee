@@ -121,6 +121,8 @@ Le tableau de bord permet de filtrer les demandes et de suivre les statuts Nouve
 
 ## Avant production
 
+V19.1 : cinq pôles d'expertise et 25 fiches détaillées, dont sept spécialités cybersécurité et résilience supplémentaires, avec formulaire prérempli, qualification des demandes et profils cyber dans le vivier. Les prestations spécialisées sont à cadrer selon les ressources mobilisables et les autorisations ; aucune certification, service SOC 24/7 ou habilitation n'est revendiqué.
+
 V19 : tests navigateur locaux avec `python -m pip install -r requirements-dev.txt`, `python -m playwright install chromium`, puis `python -m unittest -v browser_e2e`. Ils démarrent un serveur loopback sur port aléatoire et une base temporaire, sans données réelles. Le job CI browser-acceptance exécute les mêmes parcours. Le compte administrateur affiche dix espaces métier ; Mes CRA est réservé aux consultants associés.
 
 V18 : la MFA devient obligatoire pour ADMIN, DIRECTION, CONTROLE, COMPTABLE et AUDITEUR. Après connexion par mot de passe, ces comptes n'ont accès qu'au portail d'inscription MFA tant que le second facteur n'est pas activé ; les API métier refusent également les clés initiales. ADMIN est toujours obligatoire ; DSIG_MFA_REQUIRED_ROLES personnalise les autres rôles (valeur par défaut : DIRECTION,CONTROLE,COMPTABLE,AUDITEUR). Configurer DSIG_MFA_KEY avant l'inscription. La clé bootstrap reste un accès d'administration d'urgence propre à la recette locale et doit être supprimée ou strictement contrôlée avant production.

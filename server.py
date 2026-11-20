@@ -30,7 +30,7 @@ DB = Path(os.environ.get("DSIG_DB", ROOT / "data" / "requests.sqlite3"))
 NEEDS = {"Demande de démonstration", "Mission en régie", "Projet au forfait",
          "Plateforme Analytics / BI", "Transformation numérique", "Data & IA", "Partenariat",
          "Conseil & expertise", "Contrôle de gestion & finance", "Audit & contrôle interne",
-         "Avant-vente & appels d’offres", "Candidature spontanée"}
+         "Avant-vente & appels d’offres", "Candidature spontanée", "Cybersécurité & résilience"}
 SIZES = {"nom": 120, "org": 180, "email": 254, "besoin": 80, "solution": 160, "message": 4000}
 RATE = defaultdict(list)
 RATE_LOCK = Lock()

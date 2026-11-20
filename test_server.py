@@ -431,6 +431,15 @@ class IntakeTests(unittest.TestCase):
             self.assertEqual(db.execute("SELECT stage FROM tender_events WHERE tender_id=? ORDER BY id",(tid,)).fetchall(),[("VEILLE",),("GO",)])
         self.assertEqual(self.request("GET","/tenders.html")[0],200)
 
+    def test_cybersecurity_intake(self):
+        from urllib.parse import urlencode
+        need='Cybersécurité & résilience'
+        self.assertEqual(self.request('POST','/api/requests',self.payload|{'besoin':need})[0],201)
+        status,data,_=self.request('GET','/api/admin/requests?'+urlencode({'besoin':need}),headers={'Authorization':'Bearer '+server.ADMIN_TOKEN})
+        self.assertEqual(status,200);self.assertEqual(json.loads(data)['total'],1)
+        self.assertEqual(json.loads(data)['items'][0]['besoin'],need)
+        self.assertEqual(self.request('GET','/expertise.html?id=audit-de-cybersecurite-grc')[0],200)
+
     def test_new_expertise_and_career_intake(self):
         from urllib.parse import urlencode
         for need in ("Conseil & expertise", "Contrôle de gestion & finance", "Audit & contrôle interne",
