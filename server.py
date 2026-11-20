@@ -315,9 +315,15 @@ def main():
     parser.add_argument("--backup-encrypted", metavar="FILE", help="Sauvegarde chiffrée, fichier inexistant")
     parser.add_argument("--restore-isolated", nargs=2, metavar=("BACKUP","DESTINATION"), help="Restauration chiffrée vers une nouvelle base isolée")
     parser.add_argument("--check-db", action="store_true", help="Vérification de l'intégrité SQLite, lecture seule")
+    parser.add_argument("--rotate-documents", metavar="COPY", help="Rotation des documents sur une copie isolée, serveur arrêté")
     args = parser.parse_args()
-    if sum(bool(x) for x in (args.export,args.backup,args.backup_encrypted,args.restore_isolated,args.check_db))>1:
+    if sum(bool(x) for x in (args.export,args.backup,args.backup_encrypted,args.restore_isolated,args.check_db,args.rotate_documents))>1:
         parser.error('Une seule opération à la fois.')
+    if args.rotate_documents:
+        path=operations.safe_target(args.rotate_documents,DB,ROOT/'dist');operations.verify(path)
+        if DB.exists() and path.samefile(DB):raise ValueError('Copie isolée obligatoire.')
+        with sqlite3.connect(path) as db:count=documents.rotate(db)
+        print(f'{count} document(s) rechiffré(s) sur la copie isolée.');return
     if args.backup_encrypted:
         operations.encrypted_backup(DB,args.backup_encrypted,ROOT/'dist');print('Sauvegarde chiffrée vérifiée.');return
     if args.restore_isolated:

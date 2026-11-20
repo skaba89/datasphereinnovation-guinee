@@ -169,3 +169,7 @@ Le portail administrateur permet de déposer et télécharger des PDF fictifs as
 
 Le portail ADMIN et DIRECTION contient un centre d'alertes calculé à la consultation : contrats actifs et relances ouvertes à échéance dans les 30 jours ou en retard, factures non soldées, CRA soumis et renouvellements en attente. Les éléments résolus disparaissent au prochain rafraîchissement. Filtres par catégorie et priorité. Aucun e-mail, SMS, tâche planifiée ou donnée réelle ; ces intégrations restent à valider séparément.
 
+### V24.2 — Historique et rotation documentaire
+
+Une nouvelle version référence la précédente (même catégorie et dossier), sans écraser les PDF historiques. La date facultative de revue indique les documents à examiner ; aucune suppression automatique, aucun délai légal présumé. La rotation utilise une nouvelle clé `DSIG_DOCUMENT_KEY` et temporairement `DSIG_DOCUMENT_PREVIOUS_KEY`. Serveur arrêté, réaliser une sauvegarde chiffrée, restaurer une copie isolée hors `dist`, puis lancer `python server.py --rotate-documents /chemin/copie.sqlite3`. La transaction vérifie chaque contenu et annule tout en cas d'erreur. Vérifier la copie, tester les téléchargements avec la nouvelle clé seule avant toute promotion contrôlée ; conserver l'ancienne clé pour les anciennes sauvegardes. Aucun remplacement de la base active par la commande. Antivirus et politique de purge restent à définir avant usage réel.
+

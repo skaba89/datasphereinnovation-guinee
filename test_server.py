@@ -315,7 +315,32 @@ class IntakeTests(unittest.TestCase):
             s,b,_=self.request('GET',path,headers=auth);self.assertEqual(s,200);item=json.loads(b)['items'][0];self.assertNotIn('ciphertext',item);self.assertEqual(item['sha256'],hashlib.sha256(raw).hexdigest())
             with server.connect() as db:
                 self.assertNotIn(raw,db.execute('SELECT ciphertext FROM documents').fetchone()[0]);self.assertEqual(db.execute("SELECT count(*) FROM access_events WHERE action IN ('DOCUMENT_DEPOSE','DOCUMENT_TELECHARGE')").fetchone()[0],2)
-        with patch.dict(os.environ,{'DSIG_DOCUMENT_KEY':Fernet.generate_key().decode()}):self.assertEqual(self.request('GET',path+'/'+oid,headers=auth)[0],503)
+            newer=payload|{'content':base64.b64encode(b'%PDF-1.4\nversion two\n%%EOF').decode(),'previous_id':oid,'review_date':'2020-01-01'}
+            s,b,_=self.request('POST',path,newer,auth);self.assertEqual(s,201);self.assertEqual(json.loads(b)['version'],2);newid=json.loads(b)['id']
+            self.assertEqual(self.request('POST',path,newer,auth)[0],409)
+            items={x['id']:x for x in json.loads(self.request('GET',path,headers=auth)[1])['items']};self.assertFalse(items[oid]['current']);self.assertTrue(items[newid]['current']);self.assertTrue(items[newid]['review_due'])
+            self.assertEqual(self.request('GET',path+'/'+oid,headers=auth)[1],raw)
+            oldkey=os.environ['DSIG_DOCUMENT_KEY']
+        with patch.dict(os.environ,{'DSIG_DOCUMENT_KEY':Fernet.generate_key().decode(),'DSIG_DOCUMENT_PREVIOUS_KEY':''}):self.assertEqual(self.request('GET',path+'/'+oid,headers=auth)[0],503)
+        import documents
+        newkey=Fernet.generate_key().decode()
+        with patch.dict(os.environ,{'DSIG_DOCUMENT_KEY':newkey,'DSIG_DOCUMENT_PREVIOUS_KEY':oldkey}):
+            self.assertEqual(self.request('GET',path+'/'+oid,headers=auth)[1],raw)
+            with server.connect() as db:self.assertEqual(documents.rotate(db),2)
+        with patch.dict(os.environ,{'DSIG_DOCUMENT_KEY':newkey,'DSIG_DOCUMENT_PREVIOUS_KEY':''}):self.assertEqual(self.request('GET',path+'/'+oid,headers=auth)[1],raw)
+
+    def test_document_rotation_rollback(self):
+        import documents,accounts,hashlib
+        old=Fernet.generate_key();new=Fernet.generate_key();raw=b'%PDF-1.4\n%%EOF';cipher=Fernet(old);encrypted=cipher.encrypt(raw)
+        with server.sqlite3.connect(':memory:') as db:
+            accounts.schema(db);documents.schema(db)
+            for oid,digest in [('a',hashlib.sha256(raw).hexdigest()),('b','invalid')]:
+                db.execute('INSERT INTO documents(id,category,entity_id,title,size,sha256,ciphertext,actor) VALUES(?,?,?,?,?,?,?,?)',(oid,'CV','c',oid,len(raw),digest,encrypted,'test'))
+            db.commit()
+            with patch.dict(os.environ,{'DSIG_DOCUMENT_KEY':new.decode(),'DSIG_DOCUMENT_PREVIOUS_KEY':old.decode()}):
+                with self.assertRaises(ValueError):documents.rotate(db)
+            self.assertEqual(db.execute('SELECT ciphertext FROM documents ORDER BY id').fetchall(),[(encrypted,),(encrypted,)])
+            self.assertEqual(db.execute('SELECT count(*) FROM access_events').fetchone()[0],0)
 
     def test_mission_activity_migration(self):
         import missions
