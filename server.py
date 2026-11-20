@@ -142,11 +142,25 @@ class Handler(SimpleHTTPRequestHandler):
         # The site is a flat bundle; refuse unpublished files and symlink escape.
         path=unquote(urlsplit(self.path).path)
         name='index.html' if path=='/' else path[1:]
-        if not re.fullmatch(r'[A-Za-z0-9_-]+\.(?:html|css|js|svg|webp|txt)',name):
+        # Only the four bundled fonts and their license may use a nested path.
+        font_asset=name in {
+            'fonts/open-sans-Regular.woff',
+            'fonts/open-sans-Semibold.woff',
+            'fonts/open-sans-Bold.woff',
+            'fonts/open-sans-ExtraBold.woff',
+            'fonts/LICENSE.txt',
+        }
+        if not font_asset and not re.fullmatch(r'[A-Za-z0-9_-]+\.(?:html|css|js|svg|webp|txt)',name):
             self.send_error(404);return None
         target=ROOT/'dist'/name
-        if target.is_symlink() or not target.is_file():self.send_error(404);return None
+        if (font_asset and target.parent.is_symlink()) or target.is_symlink() or not target.is_file():
+            self.send_error(404);return None
         return super().send_head()
+
+    def guess_type(self, path):
+        if path.endswith('.woff'):
+            return 'font/woff'
+        return super().guess_type(path)
 
     def end_headers(self):
         self.send_header("X-Content-Type-Options", "nosniff")
