@@ -72,3 +72,7 @@ En cas d'erreur, arrêter l'exercice, identifier le fichier temporaire exact ava
 - [ ] Exécuter l'exercice de sauvegarde/restauration, mesurer les durées et tester une instance restaurée isolée.
 - [ ] Confirmer la supervision, les clés, les sauvegardes hors site, l'antivirus et la capacité du VPS.
 - [ ] Lever explicitement les blocages PROD dans une version dédiée, après revue de sécurité et validation humaine.
+
+## V34 — Contrôle préalable REC
+
+Après déploiement, exécuter `docker exec dsig-rec-dsig-1 python preflight.py`. Le rapport JSON ne contient aucune valeur secrète. FAIL retourne 1 ; WARN (socket antivirus absent) retourne 0 mais exige une action. PASS ne vaut pas autorisation de production. Vérifier séparément HTTPS et restriction d'accès, connexion MFA réelle, scan antivirus, restauration isolée et recette métier. Le contrôle SQLite utilise une connexion en lecture seule.
