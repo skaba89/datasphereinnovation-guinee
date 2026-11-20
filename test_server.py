@@ -1,0 +1,331 @@
+import json
+import tempfile
+import threading
+import unittest
+from http.client import HTTPConnection
+from pathlib import Path
+import server
+
+
+class IntakeTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.original = server.DB
+        self.original_token = server.ADMIN_TOKEN
+        server.ADMIN_TOKEN = "test-token-only-" + "x"*32
+        server.DB = Path(self.tmp.name) / "requests.sqlite3"
+        server.RATE.clear()
+        self.http = server.ThreadingHTTPServer(("127.0.0.1", 0), server.Handler)
+        self.thread = threading.Thread(target=self.http.serve_forever, daemon=True)
+        self.thread.start()
+        self.port = self.http.server_address[1]
+        self.payload = {"nom": "Test", "org": "Organisation fictive", "email": "qa@example.invalid",
+                        "besoin": "Demande de démonstration", "solution": "MineFleet360",
+                        "message": "Test de recette", "consent": True, "website": ""}
+
+    def tearDown(self):
+        self.http.shutdown()
+        self.http.server_close()
+        self.thread.join()
+        server.DB = self.original
+        server.ADMIN_TOKEN = self.original_token
+        self.tmp.cleanup()
+
+    def request(self, method, path, payload=None, headers=None):
+        conn = HTTPConnection("127.0.0.1", self.port, timeout=5)
+        body = None if payload is None else json.dumps(payload)
+        conn.request(method, path, body, headers or {"Content-Type": "application/json"})
+        res = conn.getresponse()
+        result = res.status, res.read(), dict(res.getheaders())
+        conn.close()
+        return result
+
+    def test_health_and_security(self):
+        status, _, headers = self.request("GET", "/api/health")
+        self.assertEqual(status, 200)
+        self.assertEqual(headers["X-Robots-Tag"], "noindex, nofollow")
+        self.assertIn("frame-ancestors 'none'", headers["Content-Security-Policy"])
+
+    def test_valid_request_persists(self):
+        status, data, _ = self.request("POST", "/api/requests", self.payload)
+        self.assertEqual(status, 201)
+        with server.connect() as db:
+            self.assertEqual(db.execute("SELECT id, solution, status FROM requests").fetchone(),
+                             (json.loads(data)["id"], "MineFleet360", "NOUVELLE"))
+
+    def test_invalid_requests(self):
+        for changes in ({"consent": False}, {"email": "no-email"}, {"solution": ""},
+                        {"website": "spam"}, {"besoin": "inconnu"}, {"message": "x" * 4001}):
+            self.assertEqual(self.request("POST", "/api/requests", self.payload | changes)[0], 400)
+
+    def test_origin_and_content_type(self):
+        self.assertEqual(self.request("POST", "/api/requests", self.payload,
+                         {"Content-Type": "application/json", "Origin": "https://example.invalid"})[0], 403)
+        self.assertEqual(self.request("POST", "/api/requests", self.payload,
+                         {"Content-Type": "text/plain"})[0], 415)
+
+    def test_rate_limit(self):
+        for _ in range(5):
+            self.assertEqual(self.request("POST", "/api/requests", self.payload)[0], 201)
+        self.assertEqual(self.request("POST", "/api/requests", self.payload)[0], 429)
+
+    def test_no_public_lead_listing_or_database(self):
+        self.assertEqual(self.request("GET", "/api/requests")[0], 404)
+        self.assertEqual(self.request("GET", "/data/requests.sqlite3")[0], 404)
+
+    def test_public_site_does_not_expose_product_catalogue(self):
+        status, data, _ = self.request("GET", "/")
+        self.assertEqual(status, 200)
+        for term in (b"#solutions", b"catalogue.js", b"solution.html", b"MineFleet360"):
+            self.assertNotIn(term, data)
+        for route in ("/catalogue.js", "/solution.html?id=minefleet360", "/solution.js", "/internal-catalogue/catalogue.js"):
+            self.assertEqual(self.request("GET", route)[0], 404)
+        self.assertEqual(self.request("GET", "/expertise.html?id=data-engineering")[0], 200)
+
+    def test_non_demo_solution_not_stored(self):
+        self.assertEqual(self.request("POST", "/api/requests", self.payload | {"besoin": "Mission en régie"})[0], 201)
+        with server.connect() as db:
+            self.assertEqual(db.execute("SELECT solution FROM requests").fetchone(), ("",))
+
+    def test_admin_requires_token(self):
+        self.assertEqual(self.request("GET", "/api/admin/requests")[0], 401)
+        self.assertEqual(self.request("GET", "/api/admin/requests", headers={"Authorization":"Bearer wrong"})[0], 401)
+        server.ADMIN_TOKEN = ""
+        self.assertEqual(self.request("GET", "/api/admin/requests")[0], 503)
+
+    def test_password_sessions(self):
+        server.authentication.ATTEMPTS.clear()
+        auth={'Authorization':'Bearer '+server.ADMIN_TOKEN,'Content-Type':'application/json'}
+        s,body,_=self.request('POST','/api/admin/accounts',{'username':'finance.test','role':'COMPTABLE','consultant_id':''},auth);self.assertEqual(s,201);a=json.loads(body)
+        initial={'Authorization':'Bearer '+a['key']}
+        credentials={'username':'finance.test','password':'fictitious-test-password-123'}
+        self.assertEqual(self.request('POST','/api/auth/activate',credentials|{'key':a['key']})[0],200)
+        self.assertEqual(self.request('GET','/api/admin/billing',headers=initial)[0],401)
+        self.assertEqual(self.request('POST','/api/auth/login',credentials|{'password':'incorrect-password'})[0],401)
+        s,body,_=self.request('POST','/api/auth/login',credentials);self.assertEqual(s,200);token=json.loads(body)['token']
+        session={'Authorization':'Bearer '+token,'Content-Type':'application/json'}
+        self.assertEqual(self.request('GET','/api/admin/billing',headers=session)[0],200)
+        self.assertEqual(self.request('GET','/api/admin/accounts',headers=session)[0],403)
+        self.assertEqual(self.request('POST','/api/auth/logout',{},session)[0],200)
+        self.assertEqual(self.request('GET','/api/admin/billing',headers=session)[0],401)
+        s,body,_=self.request('POST','/api/auth/login',credentials);self.assertEqual(s,200)
+        session={'Authorization':'Bearer '+json.loads(body)['token']}
+        with server.connect() as db:db.execute('UPDATE sessions SET expires=0')
+        self.assertEqual(self.request('GET','/api/admin/billing',headers=session)[0],401)
+        self.assertEqual(self.request('GET','/connexion.html')[0],200)
+
+    def test_named_accounts(self):
+        auth={'Authorization':'Bearer '+server.ADMIN_TOKEN,'Content-Type':'application/json'}
+        path='/api/admin/accounts'
+        s,body,_=self.request('POST',path,{'username':'audit.test','role':'AUDITEUR','consultant_id':''},auth);self.assertEqual(s,201);a=json.loads(body)
+        user={'Authorization':'Bearer '+a['key'],'Content-Type':'application/json'}
+        self.assertEqual(self.request('GET','/api/admin/direction',headers=user)[0],200)
+        self.assertEqual(self.request('GET','/api/admin/audit',headers=user)[0],200)
+        self.assertEqual(self.request('GET','/api/admin/billing',headers=user)[0],403)
+        self.assertEqual(self.request('POST',path,{'username':'bad','role':'ADMIN','consultant_id':''},user)[0],403)
+        self.assertNotIn(a['key'].encode(),self.request('GET',path,headers=auth)[1])
+        self.assertEqual(self.request('PATCH',path+'/'+a['id'],{'action':'DISABLE'},auth)[0],200)
+        self.assertEqual(self.request('GET','/api/admin/direction',headers=user)[0],401)
+        s,body,_=self.request('PATCH',path+'/'+a['id'],{'action':'ROTATE'},auth);self.assertEqual(s,200)
+        self.assertEqual(self.request('GET','/api/admin/direction',headers=user)[0],401)
+        self.assertEqual(self.request('GET','/api/admin/direction',headers={'Authorization':'Bearer '+json.loads(body)['key']})[0],200)
+
+    def test_mission_lifecycle(self):
+        auth={'Authorization':'Bearer '+server.ADMIN_TOKEN,'Content-Type':'application/json'}
+        path='/api/admin/missions'
+        self.assertEqual(self.request('GET',path)[0],401)
+        profile={'name':'Test','email':'qa@example.invalid','role':'Data Engineer','skills':'Python','location':'Guinée','experience':'5','availability':'Immédiate','notes':'','status':'DISPONIBLE'}
+        _,body,_=self.request('POST','/api/admin/consultants',profile,auth);cid=json.loads(body)['id']
+        opp={'company':'Test','contact':'','email':'','title':'Analytics','mode':'REGIE','skills':'','consultant_id':cid,'next_action':'','followup':'','notes':'','status':'GAGNE'}
+        _,body,_=self.request('POST','/api/admin/crm',opp,auth);oid=json.loads(body)['id']
+        v=dict(opportunity_id=oid,title='Analytics',scope='Audit',mode='REGIE',currency='EUR',days='10',rate='600',daily_cost='400',expenses='50',fixed_price='0',status='ACCEPTE')
+        _,body,_=self.request('POST','/api/admin/quotes',v,auth);qid=json.loads(body)['id']
+        m=dict(quote_id=qid,consultant_id=cid,contract_ref='FICTIF-01',start_date='2020-01-01',end_date='2020-01-31')
+        s,body,_=self.request('POST',path,m,auth);self.assertEqual(s,201);mid=json.loads(body)['id']
+        self.assertEqual(self.request('POST',path,m,auth)[0],409)
+        a=dict(work_date='2020-01-08',worked='1',billable='0.75',expenses='25',description='Test')
+        route=path+'/'+mid+'/activity'
+        s,body,_=self.request('POST','/api/admin/accounts',{'username':'consultant.test','role':'CONSULTANT','consultant_id':cid},auth);self.assertEqual(s,201)
+        own={'Authorization':'Bearer '+json.loads(body)['key'],'Content-Type':'application/json'}
+        self.assertEqual(self.request('GET',path,headers=own)[0],403)
+        personal='/api/admin/my-activity'
+        s,body,_=self.request('GET',personal,headers=own);self.assertEqual(s,200);self.assertEqual(json.loads(body)['missions'][0]['id'],mid);self.assertNotIn(b'daily_cost',body)
+        self.assertEqual(self.request('POST',personal,a|{'mission_id':'00000000-0000-0000-0000-000000000000'},own)[0],403)
+        self.assertEqual(self.request('POST',route,a|{'billable':'2'},auth)[0],400)
+        s,body,_=self.request('POST',personal,a|{'mission_id':mid},own);self.assertEqual(s,201);aid=json.loads(body)['id']
+        self.assertEqual(self.request('PATCH',path+'/activity/'+aid,{'status':'VALIDE'},own)[0],403)
+        self.assertEqual(self.request('POST',route,a,auth)[0],409)
+        self.assertEqual(self.request('PATCH',path+'/'+mid,{'status':'TERMINE'},auth)[0],409)
+        self.assertEqual(json.loads(self.request('GET',path,headers=auth)[1])['items'][0]['actual_cost'],'0.00')
+        self.assertEqual(self.request('PATCH',path+'/activity/'+aid,{'status':'VALIDE'},auth)[0],200)
+        self.assertEqual(self.request('PATCH',path+'/activity/'+aid,{'status':'REFUSE'},auth)[0],409)
+        row=json.loads(self.request('GET',path,headers=auth)[1])['items'][0];self.assertEqual(row['actual_cost'],'425.00');self.assertEqual(row['actual_margin'],'25.00')
+        finance='/api/admin/billing'
+        self.assertEqual(self.request('GET',finance)[0],401)
+        inv=dict(mission_id=mid,reference='TEST-001',amount='450',due_date='2020-02-01')
+        self.assertEqual(self.request('POST',finance+'/invoices',inv|{'amount':'451'},auth)[0],409)
+        s,body,_=self.request('POST',finance+'/invoices',inv,auth);self.assertEqual(s,201);iid=json.loads(body)['id']
+        self.assertEqual(self.request('POST',finance+'/invoices',inv|{'reference':'TEST-002','amount':'1'},auth)[0],409)
+        p=dict(invoice_id=iid,reference='PAY-001',amount='100',paid_date='2020-02-01')
+        self.assertEqual(self.request('POST',finance+'/payments',p,auth)[0],201)
+        self.assertEqual(self.request('POST',finance+'/payments',p|{'reference':'PAY-002','amount':'351'},auth)[0],409)
+        d=json.loads(self.request('GET',finance,headers=auth)[1]);self.assertEqual(d['totals']['EUR']['balance'],'350');self.assertEqual(d['totals']['EUR']['overdue'],'350')
+        self.assertEqual(self.request('POST',finance+'/milestones',{'mission_id':mid,'title':'Test','amount':'10'},auth)[0],400)
+        self.assertEqual(self.request('GET','/billing.html')[0],200)
+        self.assertEqual(self.request('PATCH',path+'/'+mid,{'status':'TERMINE'},auth)[0],200)
+        self.assertEqual(self.request('POST',route,a|{'work_date':'2020-01-09'},auth)[0],400)
+        self.assertEqual(self.request('GET','/missions.html')[0],200)
+        _,body,_=self.request('POST','/api/admin/crm',opp|{'mode':'FORFAIT'},auth);oid2=json.loads(body)['id']
+        _,body,_=self.request('POST','/api/admin/quotes',v|{'opportunity_id':oid2,'mode':'FORFAIT','fixed_price':'1000'},auth);qid2=json.loads(body)['id']
+        s,body,_=self.request('POST',path,m|{'quote_id':qid2},auth);self.assertEqual(s,201);mid2=json.loads(body)['id']
+        j={'mission_id':mid2,'title':'Livrable','amount':'600'}
+        s,body,_=self.request('POST',finance+'/milestones',j,auth);self.assertEqual(s,201);jid=json.loads(body)['id']
+        self.assertEqual(self.request('POST',finance+'/milestones',j|{'amount':'401'},auth)[0],409)
+        inv2=inv|{'mission_id':mid2,'reference':'TEST-F','amount':'600'}
+        self.assertEqual(self.request('POST',finance+'/invoices',inv2,auth)[0],409)
+        self.assertEqual(self.request('PATCH',finance+'/milestones/'+jid,{'status':'VALIDE'},auth)[0],200)
+        self.assertEqual(self.request('POST',finance+'/invoices',inv2,auth)[0],201)
+
+    def test_direction_and_backup(self):
+        auth={'Authorization':'Bearer '+server.ADMIN_TOKEN,'Content-Type':'application/json'}
+        path='/api/admin/direction'
+        self.assertEqual(self.request('GET',path)[0],401)
+        self.assertEqual(self.request('GET',path,headers=auth|{'Origin':'https://other.invalid'})[0],403)
+        opp={'company':'Test','contact':'','email':'','title':'Analytics','mode':'REGIE','skills':'','consultant_id':'','next_action':'','followup':'2000-01-01','notes':'','status':'QUALIFIE'}
+        _,body,_=self.request('POST','/api/admin/crm',opp,auth)
+        v=dict(opportunity_id=json.loads(body)['id'],title='Analytics',scope='Audit',mode='REGIE',currency='EUR',days='10',rate='600',daily_cost='400',expenses='50',fixed_price='0',status='ACCEPTE')
+        self.assertEqual(self.request('POST','/api/admin/quotes',v,auth)[0],201)
+        d=json.loads(self.request('GET',path,headers=auth)[1]); self.assertEqual(d['overdue'],1); self.assertEqual(d['financial'][0]['margin'],'1950.00')
+        self.assertEqual(self.request('POST','/api/admin/quotes',v|{'currency':'GNF'},auth)[0],201)
+        d=json.loads(self.request('GET',path,headers=auth)[1]); self.assertEqual(d['ambiguous_opportunities'],1); self.assertEqual(d['financial'],[])
+        target=Path(self.tmp.name)/'backup.sqlite3';server.backup_database(target)
+        with server.sqlite3.connect(target) as db:self.assertEqual(db.execute('SELECT count(*) FROM quotes').fetchone()[0],2)
+        with self.assertRaises(FileExistsError):server.backup_database(target)
+        self.assertEqual(self.request('GET','/en.html')[0],200)
+        self.assertEqual(self.request('GET','/direction.html')[0],200)
+
+    def test_quote_lifecycle(self):
+        auth={"Authorization":"Bearer "+server.ADMIN_TOKEN,"Content-Type":"application/json"}
+        path='/api/admin/quotes'
+        self.assertEqual(self.request('GET',path)[0],401)
+        opp={"company":"Test","contact":"","email":"","title":"Analytics","mode":"REGIE","skills":"","consultant_id":"","next_action":"","followup":"","notes":"","status":"PROSPECT"}
+        status,body,_=self.request('POST','/api/admin/crm',opp,auth)
+        self.assertEqual(status,201)
+        v=dict(opportunity_id=json.loads(body)['id'],title='Analytics',scope='Audit',mode='REGIE',currency='EUR',days='10.50',rate='600.01',daily_cost='400',expenses='50',fixed_price='0',status='BROUILLON')
+        self.assertEqual(self.request('POST',path,v|{'rate':'NaN'},auth)[0],400)
+        self.assertEqual(self.request('POST',path,v|{'opportunity_id':'00000000-0000-0000-0000-000000000000'},auth)[0],400)
+        status,body,_=self.request('POST',path,v,auth)
+        self.assertEqual(status,201)
+        d=json.loads(body); self.assertEqual(d['revenue'],'6300.11'); self.assertEqual(d['margin'],'2050.11')
+        item=path+'/'+d['id']
+        self.assertEqual(self.request('PATCH',item,v|{'version':2},auth)[0],409)
+        status,body,_=self.request('PATCH',item,v|{'version':1,'mode':'FORFAIT','fixed_price':'9000','status':'ACCEPTE'},auth)
+        self.assertEqual(status,200); self.assertEqual(json.loads(body)['margin'],'4750.00')
+        self.assertEqual(self.request('PATCH',item,v|{'version':2},auth)[0],409)
+        self.assertEqual(json.loads(self.request('GET',path,headers=auth)[1])['total'],1)
+        with server.connect() as db: self.assertEqual(db.execute('SELECT count(*) FROM quote_events').fetchone()[0],2)
+
+    def test_crm_lifecycle(self):
+        path="/api/admin/crm"
+        auth={"Authorization":"Bearer "+server.ADMIN_TOKEN,"Content-Type":"application/json"}
+        profile={"name":"Consultant fictif","email":"qa@example.invalid","role":"Data Engineer","skills":"Python","location":"Guinée","experience":"5","availability":"Immédiate","notes":"","status":"DISPONIBLE"}
+        status, result, _=self.request("POST","/api/admin/consultants",profile,auth)
+        self.assertEqual(status,201)
+        cid=json.loads(result)["id"]
+        data={"company":"Client fictif","contact":"Test","email":"contact@example.invalid","title":"Mission Data","mode":"REGIE","skills":"Python","consultant_id":cid,"next_action":"Relancer","followup":"2027-01-15","notes":"","status":"PROSPECT"}
+        self.assertEqual(self.request("GET",path)[0],401)
+        self.assertEqual(self.request("POST",path,data)[0],401)
+        self.assertEqual(self.request("POST",path,data|{"mode":"INVALID"},auth)[0],400)
+        self.assertEqual(self.request("POST",path,data|{"consultant_id":"00000000-0000-0000-0000-000000000000"},auth)[0],400)
+        self.assertEqual(self.request("POST",path,data,auth|{"Origin":"https://other.invalid"})[0],403)
+        status,result,_=self.request("POST",path,data,auth)
+        self.assertEqual(status,201)
+        oid=json.loads(result)["id"]
+        self.assertEqual(self.request("PATCH",path+"/"+oid,data|{"status":"EN_MISSION","version":1},auth)[0],200)
+        self.assertEqual(self.request("PATCH",path+"/"+oid,data|{"status":"PERDU","version":1},auth)[0],409)
+        status,result,_=self.request("GET",path+"?status=EN_MISSION&q=Python",headers=auth)
+        self.assertEqual(status,200)
+        self.assertEqual(json.loads(result)["items"][0]["consultant_name"],"Consultant fictif")
+        with server.connect() as db:
+            self.assertEqual(db.execute("SELECT status FROM opportunity_events WHERE opportunity_id=? ORDER BY id",(oid,)).fetchall(),[("PROSPECT",),("EN_MISSION",)])
+        self.assertEqual(self.request("GET","/crm.html")[0],200)
+
+    def test_consultant_lifecycle(self):
+        path = "/api/admin/consultants"
+        auth = {"Authorization": "Bearer " + server.ADMIN_TOKEN, "Content-Type": "application/json"}
+        data = {"name":"Consultant fictif","email":"qa@example.invalid","role":"Data Architect",
+                "skills":"Python, Snowflake","location":"Guinée","experience":"12",
+                "availability":"Immédiate","notes":"Test","status":"A_QUALIFIER"}
+        self.assertEqual(self.request("GET",path)[0],401)
+        self.assertEqual(self.request("POST",path,data)[0],401)
+        self.assertEqual(self.request("POST",path,data|{"email":"invalid"},auth)[0],400)
+        self.assertEqual(self.request("POST",path,data|{"experience":"99"},auth)[0],400)
+        self.assertEqual(self.request("POST",path,data|{"status":"INVALID"},auth)[0],400)
+        self.assertEqual(self.request("POST",path,data,auth|{"Origin":"https://other.invalid"})[0],403)
+        status, result, _ = self.request("POST",path,data,auth)
+        self.assertEqual(status,201)
+        cid=json.loads(result)["id"]
+        self.assertEqual(self.request("PATCH",path+"/"+cid,data|{"status":"DISPONIBLE","version":1},auth)[0],200)
+        self.assertEqual(self.request("PATCH",path+"/"+cid,data|{"status":"ARCHIVE","version":1},auth)[0],409)
+        status, result, _ = self.request("GET",path+"?status=DISPONIBLE&q=Snowflake",headers=auth)
+        self.assertEqual(status,200)
+        self.assertEqual(json.loads(result)["total"],1)
+        self.assertEqual(self.request("PATCH",path+"/"+cid,data|{"status":"ARCHIVE","version":2},auth)[0],200)
+        with server.connect() as db:
+            self.assertEqual(db.execute("SELECT status FROM consultant_events WHERE consultant_id=? ORDER BY id",(cid,)).fetchall(),[("A_QUALIFIER",),("DISPONIBLE",),("ARCHIVE",)])
+        self.assertEqual(self.request("GET","/consultants.html")[0],200)
+
+    def test_tender_lifecycle(self):
+        path = "/api/admin/tenders"
+        auth = {"Authorization": "Bearer " + server.ADMIN_TOKEN, "Content-Type": "application/json"}
+        data = {"title":"Plateforme BI", "client":"Organisation fictive", "reference":"AO-001",
+                "deadline":"2027-01-15", "owner":"Test", "notes":"Qualification",
+                "currency":"GNF", "budget":"12000000", "stage":"VEILLE"}
+        self.assertEqual(self.request("GET",path)[0],401)
+        self.assertEqual(self.request("POST",path,data)[0],401)
+        self.assertEqual(self.request("POST",path,data|{"deadline":"2027-02-30"},auth)[0],400)
+        self.assertEqual(self.request("POST",path,data|{"budget":"-1"},auth)[0],400)
+        self.assertEqual(self.request("POST",path,data,auth|{"Origin":"https://other.invalid"})[0],403)
+        status, result, _ = self.request("POST",path,data,auth)
+        self.assertEqual(status,201)
+        tid=json.loads(result)["id"]
+        self.assertEqual(self.request("PATCH",path+"/"+tid,data|{"stage":"GO","version":1},auth)[0],200)
+        self.assertEqual(self.request("PATCH",path+"/"+tid,data|{"stage":"PERDU","version":1},auth)[0],409)
+        status, result, _ = self.request("GET",path+"?stage=GO&q=BI",headers=auth)
+        self.assertEqual(status,200)
+        self.assertEqual(json.loads(result)["total"],1)
+        with server.connect() as db:
+            self.assertEqual(db.execute("SELECT stage FROM tender_events WHERE tender_id=? ORDER BY id",(tid,)).fetchall(),[("VEILLE",),("GO",)])
+        self.assertEqual(self.request("GET","/tenders.html")[0],200)
+
+    def test_new_expertise_and_career_intake(self):
+        from urllib.parse import urlencode
+        for need in ("Conseil & expertise", "Contrôle de gestion & finance", "Audit & contrôle interne",
+                     "Avant-vente & appels d’offres", "Candidature spontanée"):
+            self.assertEqual(self.request("POST", "/api/requests", self.payload | {"besoin": need})[0], 201)
+        auth = {"Authorization": "Bearer " + server.ADMIN_TOKEN}
+        query = urlencode({"besoin": "Candidature spontanée"})
+        status, data, _ = self.request("GET", "/api/admin/requests?" + query, headers=auth)
+        self.assertEqual(status, 200)
+        self.assertEqual(json.loads(data)["total"], 1)
+        self.assertEqual(json.loads(data)["items"][0]["besoin"], "Candidature spontanée")
+        self.assertEqual(self.request("GET", "/api/admin/requests?besoin=invalid", headers=auth)[0], 400)
+
+    def test_admin_filter_workflow_and_audit(self):
+        auth = {"Authorization":"Bearer "+server.ADMIN_TOKEN, "Content-Type":"application/json"}
+        _, data, _ = self.request("POST", "/api/requests", self.payload)
+        rid = json.loads(data)["id"]
+        route = "/api/admin/requests/"+rid
+        self.assertEqual(self.request("PATCH", route, {"status":"QUALIFIEE","previous":"NOUVELLE"})[0], 401)
+        self.assertEqual(self.request("PATCH", route, {"status":"INVALID","previous":"NOUVELLE"}, auth)[0], 400)
+        self.assertEqual(self.request("PATCH", route, {"status":"QUALIFIEE","previous":"NOUVELLE"}, auth)[0], 200)
+        self.assertEqual(self.request("PATCH", route, {"status":"GAGNEE","previous":"NOUVELLE"}, auth)[0], 409)
+        _, data, _ = self.request("GET", "/api/admin/requests?status=QUALIFIEE&q=MineFleet", headers=auth)
+        self.assertEqual(json.loads(data)["total"], 1)
+        self.assertEqual(json.loads(data)["counts"]["QUALIFIEE"], 1)
+        with server.connect() as db:
+            self.assertEqual(db.execute("SELECT previous_status,new_status FROM request_events WHERE request_id=?", (rid,)).fetchone(), ("NOUVELLE","QUALIFIEE"))
+
+
+if __name__ == "__main__":
+    unittest.main()
