@@ -14,7 +14,7 @@ ROLES={
  'CONSULTANT': {'my-activity':'RW'},
 }
 
-RESOURCES=frozenset({'requests','crm','quotes','tenders','consultants','missions','billing','direction','accounts','audit','my-activity'})
+RESOURCES=frozenset({'requests','crm','quotes','tenders','consultants','missions','billing','direction','accounts','audit','documents','my-activity'})
 def mfa_required(role):
     return role=='ADMIN' or role in {x.strip() for x in os.environ.get('DSIG_MFA_REQUIRED_ROLES','DIRECTION,CONTROLE,COMPTABLE,AUDITEUR').split(',')}
 

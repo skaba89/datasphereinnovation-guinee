@@ -6,6 +6,7 @@ services:
       DSIG_ADMIN_TOKEN: "${DSIG_ADMIN_TOKEN:?Generate a private local administration key}"
       DSIG_MFA_KEY: "${DSIG_MFA_KEY:-}"
       DSIG_BACKUP_KEY: "${DSIG_BACKUP_KEY:-}"
+      DSIG_DOCUMENT_KEY: "${DSIG_DOCUMENT_KEY:-}"
       DSIG_MFA_REQUIRED_ROLES: "${DSIG_MFA_REQUIRED_ROLES-DIRECTION,CONTROLE,COMPTABLE,AUDITEUR}"
     ports:
       - "127.0.0.1:${DSIG_PORT:-8080}:8080"

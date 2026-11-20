@@ -47,7 +47,7 @@ class IntakeTests(unittest.TestCase):
         return result
 
     def test_accessibility_assets_and_local_csp(self):
-        for name in ('index','en','expertise','confidentialite','connexion','admin','accounts','audit','billing','consultants','crm','direction','missions','my-activity','quotes','tenders'):
+        for name in ('index','en','expertise','confidentialite','connexion','admin','accounts','audit','billing','consultants','crm','direction','missions','my-activity','quotes','tenders','documents'):
             with self.subTest(page=name):
                 s,b,h=self.request('GET','/'+name+'.html');self.assertEqual(s,200)
                 self.assertIn(b'class="skip-link"',b);self.assertIn(b'accessibility.css',b);self.assertIn(b'tabindex="-1"',b)
@@ -271,6 +271,29 @@ class IntakeTests(unittest.TestCase):
         s,body,_=self.request('PATCH',path+'/'+a['id'],{'action':'ROTATE'},auth);self.assertEqual(s,200)
         self.assertEqual(self.request('GET','/api/admin/direction',headers=user)[0],401)
         self.assertEqual(self.request('GET','/api/admin/direction',headers={'Authorization':'Bearer '+json.loads(body)['key']})[0],200)
+
+    def test_private_documents(self):
+        import base64,hashlib
+        import accounts
+        path='/api/admin/documents';auth={'Authorization':'Bearer '+server.ADMIN_TOKEN,'Content-Type':'application/json'}
+        self.assertEqual(self.request('GET',path)[0],401)
+        self.assertFalse(accounts.allowed('CONSULTANT','documents','GET'))
+        self.assertFalse(accounts.allowed('DIRECTION','documents','GET'))
+        profile={'name':'Test','email':'qa@example.invalid','role':'Data Engineer','skills':'Python','location':'Guinée','experience':'5','availability':'Immédiate','notes':'','status':'DISPONIBLE'}
+        status,body,_=self.request('POST','/api/admin/consultants',profile,auth);self.assertEqual(status,201);cid=json.loads(body)['id']
+        raw=b'%PDF-1.4\nsynthetic test only\n%%EOF';payload={'category':'CV','entity_id':cid,'title':'Fictif','content':base64.b64encode(raw).decode()}
+        with patch.dict(os.environ,{'DSIG_DOCUMENT_KEY':''}):self.assertEqual(self.request('POST',path,payload,auth)[0],503)
+        with patch.dict(os.environ,{'DSIG_DOCUMENT_KEY':Fernet.generate_key().decode()}):
+            self.assertEqual(self.request('POST',path,payload|{'content':'YWJj'},auth)[0],400)
+            self.assertEqual(self.request('POST',path,payload|{'entity_id':'bad'},auth)[0],400)
+            self.assertEqual(self.request('POST',path,payload|{'category':'CONTRAT'},auth)[0],400)
+            s,b,_=self.request('POST',path,payload,auth);self.assertEqual(s,201);oid=json.loads(b)['id']
+            self.assertEqual(self.request('POST',path,payload,auth)[0],409)
+            s,b,h=self.request('GET',path+'/'+oid,headers=auth);self.assertEqual((s,b),(200,raw));self.assertIn('attachment',h['Content-Disposition']);self.assertEqual(h['Cache-Control'],'no-store')
+            s,b,_=self.request('GET',path,headers=auth);self.assertEqual(s,200);item=json.loads(b)['items'][0];self.assertNotIn('ciphertext',item);self.assertEqual(item['sha256'],hashlib.sha256(raw).hexdigest())
+            with server.connect() as db:
+                self.assertNotIn(raw,db.execute('SELECT ciphertext FROM documents').fetchone()[0]);self.assertEqual(db.execute("SELECT count(*) FROM access_events WHERE action IN ('DOCUMENT_DEPOSE','DOCUMENT_TELECHARGE')").fetchone()[0],2)
+        with patch.dict(os.environ,{'DSIG_DOCUMENT_KEY':Fernet.generate_key().decode()}):self.assertEqual(self.request('GET',path+'/'+oid,headers=auth)[0],503)
 
     def test_mission_activity_migration(self):
         import missions

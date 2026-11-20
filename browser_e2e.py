@@ -115,8 +115,8 @@ class BrowserTests(unittest.TestCase):
         code = self.page.locator('#recovery-codes').inner_text().splitlines()[0]
         self.page.locator('#dismiss-recovery').click()
         self.login('admin.e2e', code)
-        expect(self.page.locator('#modules a')).to_have_count(10)
-        for module in ('admin','crm','quotes','tenders','consultants','missions','billing','direction','accounts','audit'):
+        expect(self.page.locator('#modules a')).to_have_count(11)
+        for module in ('admin','crm','quotes','tenders','consultants','missions','billing','direction','accounts','audit','documents'):
             with self.subTest(module=module):
                 self.page.goto('/'+module+'.html')
                 if module=='audit': expect(self.page.locator('#notice')).to_contain_text('100 derniers événements')
