@@ -17,10 +17,11 @@ cleanup() {
 }
 trap cleanup EXIT
 git archive "$commit" | tar -xf - -C "$stage"
-chmod 755 "$stage"
 # Git-tracked source only. No .env or active database.
 test ! -e "$stage/.env"
 test ! -e "$stage/data"
+# Archive is tracked source only; allow the unprivileged container to read it.
+chmod -R a+rX "$stage"
 image="dsig-rec-suite:$commit"
 docker build -t "$image" "$stage"
 echo "Candidate commit: $commit"
