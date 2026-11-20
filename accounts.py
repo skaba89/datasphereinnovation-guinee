@@ -3,7 +3,7 @@ import hashlib, secrets, json, re, sqlite3, uuid, time, os
 from urllib.parse import urlsplit
 
 ROLES={
- 'ADMIN': {'*':'RW'},
+ 'ADMIN': {'*':'RW','my-activity':''},
  'DIRECTION': {'direction':'R','billing':'R','missions':'R','quotes':'R','crm':'R','tenders':'R'},
  'COMMERCIAL': {'requests':'RW','crm':'RW','quotes':'RW','tenders':'RW','consultants':'R'},
  'RH': {'consultants':'RW','requests':'R'},
