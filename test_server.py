@@ -337,6 +337,36 @@ class IntakeTests(unittest.TestCase):
         self.assertEqual(self.request('GET','/en.html')[0],200)
         self.assertEqual(self.request('GET','/direction.html')[0],200)
 
+    def test_encrypted_backup_restore_and_readiness(self):
+        import operations
+        root=Path(self.tmp.name); encrypted=root/'snapshot.dsigbak'; restored=root/'restored.sqlite3'
+        self.assertEqual(self.request('GET','/api/ready')[0],503)
+        self.assertFalse(server.DB.exists())
+        self.assertEqual(self.request('POST','/api/requests',self.payload)[0],201)
+        self.assertEqual(self.request('GET','/api/ready')[0],200)
+        with server.connect() as db:db.execute("INSERT INTO sessions VALUES('fake-hash','fictional-account',9999999999)")
+        with patch.dict(os.environ,{'DSIG_BACKUP_KEY':Fernet.generate_key().decode()}):
+            operations.encrypted_backup(server.DB,encrypted,server.ROOT/'dist')
+            self.assertNotIn(b'SQLite format 3',encrypted.read_bytes())
+            self.assertNotIn(b'Organisation fictive',encrypted.read_bytes())
+            with self.assertRaises(FileExistsError):operations.encrypted_backup(server.DB,encrypted,server.ROOT/'dist')
+            with self.assertRaises(ValueError):operations.restore_isolated(encrypted,server.DB,server.DB,server.ROOT/'dist')
+            with self.assertRaises(ValueError):operations.restore_isolated(encrypted,server.ROOT/'dist'/'private.sqlite3',server.DB,server.ROOT/'dist')
+            with patch.dict(os.environ,{'DSIG_BACKUP_KEY':Fernet.generate_key().decode()}):
+                with self.assertRaises(ValueError):operations.restore_isolated(encrypted,restored,server.DB,server.ROOT/'dist')
+            self.assertFalse(restored.exists())
+            damaged=root/'damaged.dsigbak';damaged.write_bytes(encrypted.read_bytes()[:-4])
+            with self.assertRaises(ValueError):operations.restore_isolated(damaged,restored,server.DB,server.ROOT/'dist')
+            operations.restore_isolated(encrypted,restored,server.DB,server.ROOT/'dist')
+            operations.verify(restored)
+            with self.assertRaises(FileExistsError):operations.restore_isolated(encrypted,restored,server.DB,server.ROOT/'dist')
+        with server.sqlite3.connect(restored) as db:
+            self.assertEqual(db.execute('SELECT count(*) FROM requests').fetchone()[0],1)
+            self.assertEqual(db.execute('SELECT count(*) FROM sessions').fetchone()[0],0)
+        with server.connect() as db:self.assertEqual(db.execute('SELECT count(*) FROM sessions').fetchone()[0],1)
+        with patch.dict(os.environ,{'DSIG_BACKUP_KEY':''}):
+            with self.assertRaises(ValueError):operations.encrypted_backup(server.DB,root/'no-key.dsigbak',server.ROOT/'dist')
+
     def test_quote_lifecycle(self):
         auth={"Authorization":"Bearer "+server.ADMIN_TOKEN,"Content-Type":"application/json"}
         path='/api/admin/quotes'

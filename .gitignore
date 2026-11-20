@@ -8,6 +8,7 @@ __pycache__/
 !.env.example
 *.db
 *.dump
+*.dsigbak
 *.pem
 *.key
 *.zip
