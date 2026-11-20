@@ -50,7 +50,7 @@ def authorize(h,connect,bootstrap):
     if cookie_mode:
         if h.headers.get('Sec-Fetch-Site')=='cross-site':
             h.json_response(403,{'error':'Origine non autorisée.'});return False
-        if h.command!='GET' and h.headers.get('Origin')!='http://'+h.headers.get('Host',''):
+        if h.command!='GET' and h.headers.get('Origin')!=h.expected_origin():
             h.json_response(403,{'error':'Origine non autorisée.'});return False
         header='Bearer '+session_cookie(h)
     if not cookie_mode and len(bootstrap)>=32 and hmac.compare_digest(header.encode(),('Bearer '+bootstrap).encode()):
@@ -77,7 +77,7 @@ def authorize(h,connect,bootstrap):
 
 def handle(h,connect,method):
     if not h.admin_authorized():return
-    if (h.headers.get('Origin') and h.headers['Origin']!='http://'+h.headers.get('Host','')) or h.headers.get('Sec-Fetch-Site')=='cross-site':return h.json_response(403,{'error':'Origine non autorisée.'})
+    if (h.headers.get('Origin') and h.headers['Origin']!=h.expected_origin()) or h.headers.get('Sec-Fetch-Site')=='cross-site':return h.json_response(403,{'error':'Origine non autorisée.'})
     path=urlsplit(h.path).path
     if method=='GET':
         with connect() as db:

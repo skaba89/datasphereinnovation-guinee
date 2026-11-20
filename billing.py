@@ -28,7 +28,7 @@ def billable(db,m):
 
 def handle(h,connect,method):
     if not h.admin_authorized():return
-    if (h.headers.get('Origin') and h.headers['Origin']!='http://'+h.headers.get('Host','')) or h.headers.get('Sec-Fetch-Site')=='cross-site':return h.json_response(403,{'error':'Origine interdite.'})
+    if (h.headers.get('Origin') and h.headers['Origin']!=h.expected_origin()) or h.headers.get('Sec-Fetch-Site')=='cross-site':return h.json_response(403,{'error':'Origine interdite.'})
     path=urlsplit(h.path).path; kind=path.split('/')[4] if len(path.split('/'))>4 else ''
     if method=='GET':
         try:page=max(1,min(10000,int(parse_qs(urlsplit(h.path).query).get('page',['1'])[0])))

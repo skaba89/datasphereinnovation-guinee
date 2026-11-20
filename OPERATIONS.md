@@ -2,6 +2,12 @@
 
 Ces procédures utilisent uniquement des données fictives. Aucun déploiement Internet. Le mode PROD reste bloqué.
 
+## Recette derrière un reverse proxy HTTPS
+
+`DSIG_HTTPS_ORIGIN=https://rec.dsig-consulting.com` (sans slash final) active l'origine HTTPS exacte et les cookies Secure. Sans cette variable, le fonctionnement HTTP local est inchangé. Le serveur ne fait confiance à aucun en-tête X-Forwarded-* pour déterminer l'origine. Le proxy doit préserver Host et terminer TLS. Les sondes GET /api/health et /api/ready restent accessibles en interne. Le port Docker doit rester lié à loopback et le réseau backend privé ; ne pas publier le port Python. En mode HTTPS les pages ne sont plus accessibles avec Host localhost, ce qui est intentionnel.
+
+Avant de publier une recette, limiter l'accès au proxy avec une liste d'IP autorisées ou un VPN dédié, en conservant Authorization pour le Bearer DSIG (ne pas superposer Basic Auth). Ne pas modifier la protection des autres sites. Les limites de débit actuelles sont par IP du proxy, pas par IP cliente ; aucun en-tête client ne doit être considéré comme fiable sans configuration dédiée. Valider TLS, contrôle des origines, activation, connexion, MFA et révocation dans la vraie recette avant d'utiliser des données réelles. Aucun mode PROD n'est autorisé par cette configuration.
+
 ## Sauvegarde et restauration (PowerShell)
 
 1. Installer les dépendances : `python -m pip install -r requirements.txt`.

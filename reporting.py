@@ -35,7 +35,7 @@ def report(db,start,end):
 
 def handle(h,connect):
     if not h.admin_authorized():return
-    if h.headers.get('Sec-Fetch-Site')=='cross-site' or (h.headers.get('Origin') and h.headers['Origin']!='http://'+h.headers.get('Host','')):return h.json_response(403,{'error':'Origine non autorisée.'})
+    if h.headers.get('Sec-Fetch-Site')=='cross-site' or (h.headers.get('Origin') and h.headers['Origin']!=h.expected_origin()):return h.json_response(403,{'error':'Origine non autorisée.'})
     try:
         q=parse_qs(urlsplit(h.path).query);start=q.get('start',[''])[0];end=q.get('end',[''])[0];format=q.get('format',['json'])[0]
         a,b=date.fromisoformat(start),date.fromisoformat(end)

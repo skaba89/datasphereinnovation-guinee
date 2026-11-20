@@ -61,6 +61,32 @@ class IntakeTests(unittest.TestCase):
         self.assertEqual(headers["X-Robots-Tag"], "noindex, nofollow")
         self.assertIn("frame-ancestors 'none'", headers["Content-Security-Policy"])
 
+    def test_https_origin_and_secure_session(self):
+        origin='https://rec.dsig-consulting.com'
+        admin={'Authorization':'Bearer '+server.ADMIN_TOKEN,'Content-Type':'application/json','Host':'rec.dsig-consulting.com','Origin':origin}
+        server.authentication.ATTEMPTS.clear()
+        with server.connect():pass
+        with patch.dict(os.environ,{'DSIG_HTTPS_ORIGIN':origin}):
+            self.assertEqual(self.request('GET','/api/ready')[0],200)
+            self.assertEqual(self.request('GET','/connexion.html')[0],403)
+            self.assertEqual(self.request('GET','/connexion.html',headers=admin)[0],200)
+            self.assertEqual(self.request('GET','/api/admin/requests',headers=admin|{'Origin':'http://rec.dsig-consulting.com','X-Forwarded-Proto':'https'})[0],403)
+            self.assertEqual(self.request('GET','/api/admin/requests',headers=admin|{'Origin':'https://evil.invalid'})[0],403)
+            s,b,_=self.request('POST','/api/admin/accounts',{'username':'https.test','role':'COMPTABLE','consultant_id':''},admin)
+            self.assertEqual(s,201)
+            credentials={'username':'https.test','password':'fictitious-password-123'}
+            browser={'Host':'rec.dsig-consulting.com','Origin':origin,'Content-Type':'application/json','X-DSIG-Session':'cookie'}
+            self.assertEqual(self.request('POST','/api/auth/activate',credentials|{'key':json.loads(b)['key']},browser)[0],200)
+            s,b,h=self.request('POST','/api/auth/login',credentials,browser)
+            self.assertEqual(s,200);self.assertIn('; Secure',h['Set-Cookie'])
+            session=browser|{'Authorization':'Bearer session','Cookie':h['Set-Cookie'].split(';')[0]}
+            self.assertEqual(self.request('GET','/api/admin/billing',headers=session)[0],200)
+            self.assertEqual(self.request('POST','/api/auth/mfa-setup',{'password':credentials['password']},session)[0],200)
+            s,_,h=self.request('POST','/api/auth/logout',{},session)
+            self.assertEqual(s,200);self.assertIn('; Secure',h['Set-Cookie'])
+        with patch.dict(os.environ,{'DSIG_HTTPS_ORIGIN':'http://rec.dsig-consulting.com'}):
+            with self.assertRaises(ValueError):server.configured_origin()
+
     def test_security_transport(self):
         import socket
         auth={'Authorization':'Bearer '+server.ADMIN_TOKEN,'Origin':'https://example.invalid'}

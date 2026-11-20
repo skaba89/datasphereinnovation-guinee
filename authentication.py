@@ -36,6 +36,7 @@ def verify_code(secret,code,last):
 
 def cookie(h,token='',ttl=0):
     h.session_cookie_header=f'dsig_session={token}; Path=/; HttpOnly; SameSite=Strict; Max-Age={ttl}'
+    if h.secure_cookie():h.session_cookie_header+='; Secure'
 
 def me(h,connect):
     if h.headers.get('Authorization')!='Bearer session' or h.headers.get('Sec-Fetch-Site')=='cross-site':return h.json_response(401,{'error':'Session invalide.'})
@@ -47,7 +48,7 @@ def me(h,connect):
         return h.json_response(200,{'role':row['role'],'expires':row['expires'],'permissions':accounts.effective_permissions(row['role'],row['mfa']),'active_sessions':count,'mfa_enabled':bool(row['mfa']),'mfa_required':accounts.mfa_required(row['role'])})
 
 def handle(h,connect):
-    if (h.headers.get('Origin') and h.headers['Origin']!='http://'+h.headers.get('Host','')) or h.headers.get('Sec-Fetch-Site')=='cross-site':return h.json_response(403,{'error':'Origine interdite.'})
+    if (h.headers.get('Origin') and h.headers['Origin']!=h.expected_origin()) or h.headers.get('Sec-Fetch-Site')=='cross-site':return h.json_response(403,{'error':'Origine interdite.'})
     try:
         n=int(h.headers.get('Content-Length','0'))
         if not 0<n<=4000 or h.headers.get_content_type()!='application/json':raise ValueError()
@@ -59,7 +60,7 @@ def handle(h,connect):
         if v!={}:return h.json_response(400,{'error':'Champs invalides.'})
         token=h.headers.get('Authorization','')
         if token=='Bearer session':
-            if h.headers.get('Origin')!='http://'+h.headers.get('Host',''):return h.json_response(403,{'error':'Origine interdite.'})
+            if h.headers.get('Origin')!=h.expected_origin():return h.json_response(403,{'error':'Origine interdite.'})
             token='Bearer '+accounts.session_cookie(h)
         if not re.fullmatch(r'Bearer dsig_[A-Za-z0-9_-]{43}',token):return h.json_response(401,{'error':'Session invalide.'})
         with connect() as db:
@@ -77,7 +78,7 @@ def handle(h,connect):
         if sum(map(len,ATTEMPTS.values()))>=120 or len(ATTEMPTS.get(ip,()))>=10:return h.json_response(429,{'error':'Réessayez dans une minute.'})
         ATTEMPTS.setdefault(ip,[]).append(now)
     if action=='revoke-others':
-        if h.headers.get('Origin')!='http://'+h.headers.get('Host','') or h.headers.get('Authorization')!='Bearer session':return h.json_response(403,{'error':'Origine interdite.'})
+        if h.headers.get('Origin')!=h.expected_origin() or h.headers.get('Authorization')!='Bearer session':return h.json_response(403,{'error':'Origine interdite.'})
         if set(v)!={'password'}:return h.json_response(400,{'error':'Champs invalides.'})
         token_hash=accounts.digest(accounts.session_cookie(h))
         with connect() as db:
@@ -90,7 +91,7 @@ def handle(h,connect):
             accounts.event(db,row['username'],'SESSIONS_REVOQUEES','auth')
             return h.json_response(200,{'revoked':count})
     if action in ('mfa-setup','mfa-confirm'):
-        if h.headers.get('Origin')!='http://'+h.headers.get('Host','') or h.headers.get('Authorization')!='Bearer session':return h.json_response(403,{'error':'Origine interdite.'})
+        if h.headers.get('Origin')!=h.expected_origin() or h.headers.get('Authorization')!='Bearer session':return h.json_response(403,{'error':'Origine interdite.'})
         if set(v)!=({'password'} if action=='mfa-setup' else {'code'}):return h.json_response(400,{'error':'Champs invalides.'})
         with connect() as db:
             db.row_factory=sqlite3.Row;db.execute('BEGIN IMMEDIATE')
