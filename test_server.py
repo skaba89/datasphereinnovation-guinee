@@ -47,7 +47,7 @@ class IntakeTests(unittest.TestCase):
         return result
 
     def test_accessibility_assets_and_local_csp(self):
-        for name in ('index','en','expertise','confidentialite','connexion','admin','accounts','audit','billing','consultants','crm','direction','missions','my-activity','quotes','tenders','documents'):
+        for name in ('index','en','expertise','confidentialite','connexion','admin','accounts','audit','billing','consultants','crm','direction','missions','my-activity','quotes','tenders','documents','alerts'):
             with self.subTest(page=name):
                 s,b,h=self.request('GET','/'+name+'.html');self.assertEqual(s,200)
                 self.assertIn(b'class="skip-link"',b);self.assertIn(b'accessibility.css',b);self.assertIn(b'tabindex="-1"',b)
@@ -214,7 +214,7 @@ class IntakeTests(unittest.TestCase):
         import accounts
         expected={
             'ADMIN':(set(accounts.RESOURCES)-{'my-activity'},set(accounts.RESOURCES)-{'my-activity'}),
-            'DIRECTION':({'direction','billing','missions','quotes','crm','tenders'},set()),
+            'DIRECTION':({'direction','billing','missions','quotes','crm','tenders','alerts'},set()),
             'COMMERCIAL':({'requests','crm','quotes','tenders','consultants'},{'requests','crm','quotes','tenders'}),
             'RH':({'consultants','requests'},{'consultants'}),
             'PROJET':({'missions','consultants','quotes'},{'missions'}),
@@ -271,6 +271,28 @@ class IntakeTests(unittest.TestCase):
         s,body,_=self.request('PATCH',path+'/'+a['id'],{'action':'ROTATE'},auth);self.assertEqual(s,200)
         self.assertEqual(self.request('GET','/api/admin/direction',headers=user)[0],401)
         self.assertEqual(self.request('GET','/api/admin/direction',headers={'Authorization':'Bearer '+json.loads(body)['key']})[0],200)
+
+    def test_business_alerts(self):
+        import alerts,accounts
+        from datetime import date
+        auth={'Authorization':'Bearer '+server.ADMIN_TOKEN,'Content-Type':'application/json'};path='/api/admin/alerts'
+        self.assertEqual(self.request('GET',path)[0],401);self.assertFalse(accounts.allowed('CONSULTANT','alerts','GET'));self.assertTrue(accounts.allowed('DIRECTION','alerts','GET'))
+        self.assertEqual(self.request('GET',path+'?page=0',headers=auth)[0],400)
+        with server.connect() as db:
+            db.execute("INSERT INTO missions(id,quote_id,opportunity_id,consultant_id,contract_ref,start_date,end_date) VALUES('m','q','o','c','TEST','2020-01-01','2020-02-01')")
+            db.execute("INSERT INTO activity(id,mission_id,consultant_id,work_date,worked,billable,expenses,description) VALUES('a','m','c','2020-01-01','1','1','0','fictif')")
+            db.execute("INSERT INTO opportunities(id,company,contact,email,title,mode,skills,consultant_id,next_action,followup,notes,status) VALUES('o','Test','','','Relance','REGIE','','','','2020-02-02','','PROSPECT')")
+            db.execute("INSERT INTO contract_renewals(id,mission_id,old_end,new_end,reference,reason,requester) VALUES('r','m','2020-02-01','2021-01-01','R','Test','test')")
+            db.execute("INSERT INTO quotes(id,opportunity_id,title,scope,mode,currency,days,rate,daily_cost,expenses,fixed_price,status) VALUES('q','o','Test','','REGIE','EUR','1','100','0','0','0','ACCEPTE')")
+            db.execute("INSERT INTO invoices(id,mission_id,reference,amount,due_date) VALUES('i','m','FICTIF','100.25','2020-02-01')")
+            db.execute("INSERT INTO payments(id,invoice_id,reference,amount,paid_date) VALUES('p','i','P','40.15','2020-01-01')")
+            results=alerts.snapshot(db,date(2020,1,15));self.assertEqual({x['kind'] for x in results},{'CONTRAT','CRA','RELANCE','RENOUVELLEMENT','FACTURE'})
+            self.assertEqual(next(x['details'] for x in results if x['kind']=='FACTURE'),'60.10 EUR restant')
+            db.execute("INSERT INTO payments(id,invoice_id,reference,amount,paid_date) VALUES('p2','i','P2','60.10','2020-01-02')")
+            self.assertFalse(any(x['kind']=='FACTURE' for x in alerts.snapshot(db,date(2020,1,15))))
+        s,b,_=self.request('GET',path+'?kind=CRA&priority=URGENT',headers=auth);self.assertEqual(s,200);self.assertEqual(json.loads(b)['total'],1)
+        with server.connect() as db:db.execute("UPDATE activity SET status='VALIDE' WHERE id='a'")
+        self.assertEqual(json.loads(self.request('GET',path+'?kind=CRA',headers=auth)[1])['total'],0)
 
     def test_private_documents(self):
         import base64,hashlib
