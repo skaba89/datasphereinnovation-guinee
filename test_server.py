@@ -46,6 +46,15 @@ class IntakeTests(unittest.TestCase):
         conn.close()
         return result
 
+    def test_accessibility_assets_and_local_csp(self):
+        for name in ('index','en','expertise','confidentialite','connexion','admin','accounts','audit','billing','consultants','crm','direction','missions','my-activity','quotes','tenders'):
+            with self.subTest(page=name):
+                s,b,h=self.request('GET','/'+name+'.html');self.assertEqual(s,200)
+                self.assertIn(b'class="skip-link"',b);self.assertIn(b'accessibility.css',b);self.assertIn(b'tabindex="-1"',b)
+                self.assertNotIn('fonts.googleapis.com',h['Content-Security-Policy'])
+        self.assertEqual(self.request('GET','/accessibility.css')[0],200)
+        self.assertNotIn(b'fonts.googleapis.com',self.request('GET','/studio.css')[1])
+
     def test_health_and_security(self):
         status, _, headers = self.request("GET", "/api/health")
         self.assertEqual(status, 200)

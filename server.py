@@ -97,7 +97,7 @@ class Handler(SimpleHTTPRequestHandler):
         self.send_header("Referrer-Policy", "no-referrer")
         self.send_header("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
         self.send_header("X-Robots-Tag", "noindex, nofollow")
-        self.send_header("Content-Security-Policy", "default-src 'self'; script-src 'self'; style-src 'self' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'; form-action 'self'")
+        self.send_header("Content-Security-Policy", "default-src 'self'; script-src 'self'; style-src 'self'; font-src 'self'; img-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'; form-action 'self'")
         super().end_headers()
 
     def list_directory(self, path):
