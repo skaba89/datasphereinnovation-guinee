@@ -1,6 +1,6 @@
 # Exploitation et continuité de recette locale
 
-Ces procédures utilisent uniquement des données fictives. Aucun déploiement Internet. Le mode PROD reste bloqué.
+Ces procédures utilisent uniquement des données fictives. La recette HTTPS peut être accessible sur une liste d’IP autorisées. Le mode PROD reste bloqué.
 
 ## Recette derrière un reverse proxy HTTPS
 
@@ -34,3 +34,41 @@ Pour tester l'application restaurée dans une instance distincte, ouvrir un autr
 - Journaliser chaque exercice (date, environnement, résultat, durée, écarts) sans secret ni données personnelles. Vérifier l'espace disque et l'accès aux clés. Une sauvegarde non restaurée avec succès ne vaut pas preuve de reprise.
 
 En production : sauvegardes hors site, rétention formalisée, chiffrement des volumes, supervision centralisée et alertes, rotation des clés, tests de restauration représentatifs, revue indépendante et objectifs de service approuvés restent nécessaires. Avant toute promotion d'une restauration, réconcilier les comptes désactivés, mots de passe, MFA et codes de secours depuis la date de l'archive : un retour dans le temps peut rétablir des secrets ou codes déjà utilisés. Cette procédure n'autorise pas la promotion automatique.
+
+## Exercice de restauration isolée — VPS OVHCloud, recette HTTPS
+
+Ne pas remplacer la base active. Les commandes supposent le conteneur de recette déjà démarré et les clés existantes chargées dans son environnement, sans les afficher. Le fichier restauré est en clair dans le tmpfs du conteneur ; ne pas le copier vers l'hôte.
+
+```bash
+cd /home/ubuntu/datasphereinnovation-guinee
+(
+  set -euo pipefail
+  umask 077
+  stamp=$(date -u +%Y%m%dT%H%M%SZ)
+  c=dsig-rec-dsig-1
+  archive="/tmp/dsig-rec-${stamp}.dsigbak"
+  restored="/tmp/dsig-restore-${stamp}.sqlite3"
+  mkdir -p -m 700 "$HOME/dsig-backups"
+  destination="$HOME/dsig-backups/dsig-rec-${stamp}.dsigbak"
+  test ! -e "$destination"
+  docker exec "$c" python server.py --check-db
+  docker exec "$c" python server.py --backup-encrypted "$archive"
+  docker exec "$c" python server.py --restore-isolated "$archive" "$restored"
+  docker cp "$c:$archive" "$destination"
+  chmod 600 "$destination"
+  sha256sum "$destination"
+  docker exec "$c" rm -- "$archive" "$restored"
+  curl -fsS http://127.0.0.1:8300/api/ready
+)
+```
+
+En cas d'erreur, arrêter l'exercice, identifier le fichier temporaire exact avant nettoyage et conserver les journaux sans secrets. Le résultat prouve l'intégrité et la restauration isolée, mais pas une reprise applicative complète. Conserver une copie chiffrée hors VPS et les clés séparément. Ne jamais utiliser `docker compose down -v`.
+
+### Critères GO/NO GO avant production
+
+- [ ] Vérifier le commit et les tests CI de la version effectivement déployée.
+- [ ] Vérifier TLS, accès REC autorisé / refusé, MFA et séparation des rôles.
+- [ ] Parcourir les modules métier avec données fictives, y compris exports CSV.
+- [ ] Exécuter l'exercice de sauvegarde/restauration, mesurer les durées et tester une instance restaurée isolée.
+- [ ] Confirmer la supervision, les clés, les sauvegardes hors site, l'antivirus et la capacité du VPS.
+- [ ] Lever explicitement les blocages PROD dans une version dédiée, après revue de sécurité et validation humaine.
