@@ -2,6 +2,8 @@ import json
 import tempfile
 import threading
 import unittest
+import time
+from unittest.mock import patch
 from http.client import HTTPConnection
 from pathlib import Path
 import server
@@ -113,6 +115,37 @@ class IntakeTests(unittest.TestCase):
         with server.connect() as db:db.execute('UPDATE sessions SET expires=0')
         self.assertEqual(self.request('GET','/api/admin/billing',headers=session)[0],401)
         self.assertEqual(self.request('GET','/connexion.html')[0],200)
+
+    def test_mfa_and_shared_session(self):
+        server.authentication.ATTEMPTS.clear()
+        admin={'Authorization':'Bearer '+server.ADMIN_TOKEN,'Content-Type':'application/json'}
+        s,b,_=self.request('POST','/api/admin/accounts',{'username':'mfa.test','role':'COMPTABLE','consultant_id':''},admin)
+        self.assertEqual(s,201)
+        credentials={'username':'mfa.test','password':'fictitious-password-123'}
+        self.assertEqual(self.request('POST','/api/auth/activate',credentials|{'key':json.loads(b)['key']})[0],200)
+        login={'Content-Type':'application/json','X-DSIG-Session':'cookie','Origin':f'http://127.0.0.1:{self.port}'}
+        s,b,h=self.request('POST','/api/auth/login',credentials,login)
+        self.assertEqual(s,200);self.assertNotIn('token',json.loads(b));self.assertIn('HttpOnly; SameSite=Strict',h['Set-Cookie'])
+        session=login|{'Authorization':'Bearer session','Cookie':h['Set-Cookie'].split(';')[0]}
+        self.assertEqual(self.request('GET','/api/auth/me',headers=session)[0],200)
+        self.assertEqual(self.request('GET','/api/admin/billing',headers=session)[0],200)
+        self.assertEqual(self.request('GET','/api/admin/accounts',headers=session)[0],403)
+        self.assertEqual(self.request('POST','/api/auth/mfa-setup',{'password':credentials['password']},session|{'Origin':'https://evil.invalid'})[0],403)
+        s,b,_=self.request('POST','/api/auth/mfa-setup',{'password':credentials['password']},session)
+        self.assertEqual(s,200);secret=json.loads(b)['secret']
+        now=int(time.time());step=now//30
+        with patch('authentication.time.time',return_value=now):
+            code=server.authentication.totp(secret,step)
+            self.assertEqual(self.request('POST','/api/auth/mfa-confirm',{'code':code},session)[0],200)
+            self.assertEqual(self.request('GET','/api/auth/me',headers=session)[0],401)
+            self.assertEqual(self.request('POST','/api/auth/login',credentials,login)[0],401)
+            self.assertEqual(self.request('POST','/api/auth/login',credentials|{'otp':code},login)[0],401)
+            s,b,h=self.request('POST','/api/auth/login',credentials|{'otp':server.authentication.totp(secret,step+1)},login)
+            self.assertEqual(s,200)
+            session['Cookie']=h['Set-Cookie'].split(';')[0]
+            self.assertEqual(self.request('GET','/api/auth/me',headers=session)[0],200)
+            self.assertEqual(self.request('POST','/api/auth/logout',{},session)[0],200)
+            self.assertEqual(self.request('GET','/api/auth/me',headers=session)[0],401)
 
     def test_named_accounts(self):
         auth={'Authorization':'Bearer '+server.ADMIN_TOKEN,'Content-Type':'application/json'}

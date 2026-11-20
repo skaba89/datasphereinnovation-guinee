@@ -108,10 +108,12 @@ class Handler(SimpleHTTPRequestHandler):
         self.send_header("Content-Type", "application/json; charset=utf-8")
         self.send_header("Cache-Control", "no-store")
         self.send_header("Content-Length", str(len(data)))
+        if getattr(self,'session_cookie_header',None):self.send_header('Set-Cookie',self.session_cookie_header)
         self.end_headers()
         self.wfile.write(data)
 
     def do_GET(self):
+        if urlsplit(self.path).path=='/api/auth/me':return authentication.me(self,connect)
         if urlsplit(self.path).path=='/api/admin/my-activity':return own_activity.handle(self,connect,'GET')
         if urlsplit(self.path).path in ('/api/admin/accounts','/api/admin/audit'):return accounts.handle(self,connect,'GET')
         if re.fullmatch(r'/api/admin/billing(?:/milestones)?',urlsplit(self.path).path): return billing.handle(self,connect,'GET')
@@ -205,7 +207,7 @@ class Handler(SimpleHTTPRequestHandler):
         self.json_response(200, {"status": payload["status"]})
 
     def do_POST(self):
-        if self.path in ('/api/auth/activate','/api/auth/login','/api/auth/logout'):return authentication.handle(self,connect)
+        if self.path in ('/api/auth/activate','/api/auth/login','/api/auth/logout','/api/auth/mfa-setup','/api/auth/mfa-confirm'):return authentication.handle(self,connect)
         if self.path=='/api/admin/my-activity':return own_activity.handle(self,connect,'POST')
         if self.path=='/api/admin/accounts':return accounts.handle(self,connect,'POST')
         if re.fullmatch(r'/api/admin/billing/(?:milestones|invoices|payments)',self.path): return billing.handle(self,connect,'POST')
