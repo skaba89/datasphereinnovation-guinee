@@ -397,6 +397,31 @@ class IntakeTests(unittest.TestCase):
         self.assertEqual(json.loads(self.request('GET',path,headers=auth)[1])['total'],1)
         with server.connect() as db: self.assertEqual(db.execute('SELECT count(*) FROM quote_events').fetchone()[0],2)
 
+    def test_organization_directory(self):
+        path='/api/admin/crm/organizations'
+        auth={'Authorization':'Bearer '+server.ADMIN_TOKEN,'Content-Type':'application/json'}
+        org={'name':'Client fictif','kind':'CLIENT','country':'Guinée','notes':''}
+        self.assertEqual(self.request('GET',path)[0],401)
+        self.assertEqual(self.request('POST',path,org,auth|{'Origin':'https://other.invalid'})[0],403)
+        status,body,_=self.request('POST',path,org,auth)
+        self.assertEqual(status,201)
+        oid=json.loads(body)['id']
+        self.assertEqual(self.request('POST',path,org|{'name':' CLIENT  FICTIF '},auth)[0],409)
+        self.assertEqual(self.request('PATCH',path+'/'+oid,org|{'kind':'PARTENAIRE','version':1},auth)[0],200)
+        self.assertEqual(self.request('PATCH',path+'/'+oid,org|{'version':1},auth)[0],409)
+        data={'company':'Libellé historique','contact':'','email':'','title':'Mission','mode':'REGIE','skills':'','consultant_id':'','next_action':'','followup':'','notes':'','status':'PROSPECT'}
+        crm_path='/api/admin/crm'
+        self.assertEqual(self.request('POST',crm_path,data|{'organization_id':'00000000-0000-0000-0000-000000000000'},auth)[0],400)
+        status,body,_=self.request('POST',crm_path,data|{'organization_id':oid},auth)
+        self.assertEqual(status,201)
+        pid=json.loads(body)['id']
+        self.assertEqual(self.request('PATCH',crm_path+'/'+pid,data|{'version':1},auth)[0],200)
+        item=json.loads(self.request('GET',crm_path,headers=auth)[1])['items'][0]
+        self.assertEqual((item['company'],item['organization_id']),('Libellé historique',oid))
+        self.assertEqual(json.loads(self.request('GET',path+'?q=CLIENT',headers=auth)[1])['items'][0]['opportunities'],1)
+        self.assertEqual(self.request('PATCH',crm_path+'/'+pid,data|{'version':2,'organization_id':''},auth)[0],200)
+        self.assertEqual(json.loads(self.request('GET',path,headers=auth)[1])['items'][0]['opportunities'],0)
+
     def test_crm_lifecycle(self):
         path="/api/admin/crm"
         auth={"Authorization":"Bearer "+server.ADMIN_TOKEN,"Content-Type":"application/json"}

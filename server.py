@@ -12,6 +12,7 @@ import uuid
 import tenders
 import consultants
 import crm
+import organizations
 import quotes
 import direction
 import missions
@@ -55,6 +56,7 @@ def connect():
     tenders.schema(db)
     consultants.schema(db)
     crm.schema(db)
+    organizations.schema(db)
     quotes.schema(db)
     missions.schema(db)
     billing.schema(db)
@@ -114,6 +116,8 @@ class Handler(SimpleHTTPRequestHandler):
         self.wfile.write(data)
 
     def do_GET(self):
+        if urlsplit(self.path).path == '/api/admin/crm/organizations':
+            return organizations.handle(self,connect,'GET')
         if self.path=='/api/ready':
             ready=operations.ready(DB)
             return self.json_response(200 if ready else 503,{'status':'ready' if ready else 'unavailable'})
@@ -169,6 +173,8 @@ class Handler(SimpleHTTPRequestHandler):
         return accounts.authorize(self,connect,ADMIN_TOKEN)
 
     def do_PATCH(self):
+        if re.fullmatch(r'/api/admin/crm/organizations/[0-9a-f-]{36}',self.path):
+            return organizations.handle(self,connect,'PATCH')
         if re.fullmatch(r'/api/admin/accounts/[0-9a-f-]{36}',self.path):return accounts.handle(self,connect,'PATCH')
         if re.fullmatch(r'/api/admin/billing/milestones/[0-9a-f-]{36}',self.path): return billing.handle(self,connect,'PATCH')
         if re.fullmatch(r'/api/admin/missions/(?:[0-9a-f-]{36}|activity/[0-9a-f-]{36})',self.path):
@@ -211,6 +217,8 @@ class Handler(SimpleHTTPRequestHandler):
         self.json_response(200, {"status": payload["status"]})
 
     def do_POST(self):
+        if self.path == '/api/admin/crm/organizations':
+            return organizations.handle(self,connect,'POST')
         if self.path in ('/api/auth/activate','/api/auth/login','/api/auth/logout','/api/auth/mfa-setup','/api/auth/mfa-confirm','/api/auth/revoke-others'):return authentication.handle(self,connect)
         if self.path=='/api/admin/my-activity':return own_activity.handle(self,connect,'POST')
         if self.path=='/api/admin/accounts':return accounts.handle(self,connect,'POST')

@@ -53,7 +53,7 @@ def handle(h,connect,method):
         with connect() as db:
             db.row_factory=sqlite3.Row
             total=db.execute("SELECT count(*) FROM opportunities o"+where,args).fetchone()[0]
-            rows=[dict(r) for r in db.execute("SELECT o.*, c.name consultant_name,c.status consultant_status FROM opportunities o LEFT JOIN consultants c ON c.id=o.consultant_id"+where+" ORDER BY (o.followup=''),o.followup,o.id LIMIT 25 OFFSET ?",(*args,(page-1)*25))]
+            rows=[dict(r) for r in db.execute("SELECT o.*, c.name consultant_name,c.status consultant_status, coalesce(l.organization_id,'') organization_id, g.name organization_name FROM opportunities o LEFT JOIN consultants c ON c.id=o.consultant_id LEFT JOIN organization_links l ON l.opportunity_id=o.id LEFT JOIN organizations g ON g.id=l.organization_id"+where+" ORDER BY (o.followup=''),o.followup,o.id LIMIT 25 OFFSET ?",(*args,(page-1)*25))]
             counts=dict(db.execute("SELECT status,count(*) FROM opportunities GROUP BY status").fetchall())
         return h.json_response(200,{"items":rows,"counts":counts,"total":total})
     try:
@@ -61,6 +61,8 @@ def handle(h,connect,method):
         if not 0<length<=16000 or h.headers.get_content_type()!="application/json": raise ValueError()
         data=json.loads(h.rfile.read(length))
         version=data.pop("version",None) if isinstance(data,dict) else None
+        organization_id=data.pop('organization_id',None) if isinstance(data,dict) else None
+        if organization_id is not None and (not isinstance(organization_id,str) or (organization_id and str(uuid.UUID(organization_id))!=organization_id)): raise ValueError()
         values=validate(data)
         if method=="PATCH" and (type(version) is not int or version<1): raise ValueError()
         if method=="POST" and version is not None: raise ValueError()
@@ -69,6 +71,8 @@ def handle(h,connect,method):
     keys=list(values)
     with connect() as db:
         db.execute("BEGIN IMMEDIATE")
+        if organization_id and not db.execute('SELECT 1 FROM organizations WHERE id=?',(organization_id,)).fetchone():
+            return h.json_response(400,{'error':'Organisation introuvable.'})
         if values["consultant_id"]:
             match=db.execute("SELECT status FROM consultants WHERE id=?",(values["consultant_id"],)).fetchone()
             if not match: return h.json_response(400,{"error":"Consultant introuvable."})
@@ -83,5 +87,8 @@ def handle(h,connect,method):
             if row[0]!=version: return h.json_response(409,{"error":"Dossier modifié. Actualisez."})
             version+=1
             db.execute("UPDATE opportunities SET "+",".join(k+"=?" for k in keys)+",version=? WHERE id=?",(*values.values(),version,oid))
+        if organization_id is not None:
+            db.execute('DELETE FROM organization_links WHERE opportunity_id=?',(oid,))
+            if organization_id: db.execute('INSERT INTO organization_links VALUES(?,?)',(oid,organization_id))
         db.execute("INSERT INTO opportunity_events(opportunity_id,status,version) VALUES(?,?,?)",(oid,values["status"],version))
     return h.json_response(201 if method=="POST" else 200,{"id":oid,"version":version})
