@@ -61,6 +61,24 @@ class IntakeTests(unittest.TestCase):
         self.assertEqual(headers["X-Robots-Tag"], "noindex, nofollow")
         self.assertIn("frame-ancestors 'none'", headers["Content-Security-Policy"])
 
+    def test_security_transport(self):
+        import socket
+        auth={'Authorization':'Bearer '+server.ADMIN_TOKEN,'Origin':'https://example.invalid'}
+        self.assertEqual(self.request('GET','/api/admin/requests',headers=auth)[0],403)
+        self.assertEqual(self.request('HEAD','/api/admin/requests')[0],404)
+        for target in ('/../server.py','/%2e%2e/server.py','/.env','/data/requests.sqlite3'):
+            self.assertEqual(self.request('GET',target)[0],404)
+        for headers in (b'Content-Length: 0\r\nContent-Length: 1\r\n',b'Transfer-Encoding: chunked\r\n'):
+            with socket.create_connection(('127.0.0.1',self.port),timeout=3) as sock:
+                sock.sendall(b'POST /api/requests HTTP/1.0\r\nHost: localhost\r\n'+headers+b'\r\n')
+                self.assertIn(b'400',sock.recv(1024).split(b'\r\n')[0])
+        link=server.ROOT/'dist'/'test-security-link.html'
+        try:
+            link.symlink_to(server.ROOT/'server.py')
+            self.assertEqual(self.request('GET','/test-security-link.html')[0],404)
+        finally:
+            if link.is_symlink():link.unlink()
+
     def test_valid_request_persists(self):
         status, data, _ = self.request("POST", "/api/requests", self.payload)
         self.assertEqual(status, 201)

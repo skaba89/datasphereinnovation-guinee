@@ -30,8 +30,8 @@ import operations
 from collections import defaultdict
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from threading import Lock
-from urllib.parse import urlsplit, parse_qs
+from threading import Lock, BoundedSemaphore
+from urllib.parse import urlsplit, parse_qs, unquote
 
 ROOT = Path(__file__).resolve().parent
 DB = Path(os.environ.get("DSIG_DB", ROOT / "data" / "requests.sqlite3"))
@@ -100,8 +100,33 @@ def validate(payload):
 
 
 class Handler(SimpleHTTPRequestHandler):
+    timeout = 10
+
     def __init__(self, *args, **kwargs):
         super().__init__(*args, directory=str(ROOT / "dist"), **kwargs)
+
+    def parse_request(self):
+        if not super().parse_request():return False
+        lengths=self.headers.get_all('Content-Length',[])
+        if self.headers.get('Transfer-Encoding') is not None or len(lengths)>1 or (lengths and not re.fullmatch(r'[0-9]{1,10}',lengths[0])):
+            self.send_error(400,'Invalid request framing');return False
+        if not self.path.startswith('/') or self.path.startswith('//'):
+            self.send_error(400,'Invalid request target');return False
+        return True
+
+    def log_request(self, code='-', size='-'):
+        # Never log query strings or submitted credentials.
+        self.log_message('%s %s %s',self.command,str(code),str(size))
+
+    def send_head(self):
+        # The site is a flat bundle; refuse unpublished files and symlink escape.
+        path=unquote(urlsplit(self.path).path)
+        name='index.html' if path=='/' else path[1:]
+        if not re.fullmatch(r'[A-Za-z0-9_-]+\.(?:html|css|js|svg|webp|txt)',name):
+            self.send_error(404);return None
+        target=ROOT/'dist'/name
+        if target.is_symlink() or not target.is_file():self.send_error(404);return None
+        return super().send_head()
 
     def end_headers(self):
         self.send_header("X-Content-Type-Options", "nosniff")
@@ -187,6 +212,8 @@ class Handler(SimpleHTTPRequestHandler):
             super().do_GET()
 
     def admin_authorized(self):
+        if self.headers.get('Sec-Fetch-Site')=='cross-site' or (self.headers.get('Origin') and self.headers['Origin']!='http://'+self.headers.get('Host','')):
+            self.json_response(403,{'error':'Origine non autorisée.'});return False
         return accounts.authorize(self,connect,ADMIN_TOKEN)
 
     def do_PATCH(self):
@@ -272,6 +299,8 @@ class Handler(SimpleHTTPRequestHandler):
         now = time.monotonic()
         ip = self.client_address[0]
         with RATE_LOCK:
+            for stale in [k for k,v in RATE.items() if not v or now-v[-1]>=60]:del RATE[stale]
+            if ip not in RATE and len(RATE)>=2048:return self.json_response(429,{'error':'Veuillez patienter une minute.'})
             RATE[ip] = [t for t in RATE[ip] if now - t < 60]
             if len(RATE[ip]) >= 5:
                 return self.json_response(429, {"error": "Veuillez patienter une minute."})
@@ -310,6 +339,17 @@ def backup_database(destination):
         path.unlink()
         raise
 
+
+class BoundedHTTPServer(ThreadingHTTPServer):
+    """Cap simultaneous handlers; the reverse proxy must provide additional limits."""
+    slots=BoundedSemaphore(32)
+    def process_request(self,request,client_address):
+        if not self.slots.acquire(blocking=False):self.shutdown_request(request);return
+        try:super().process_request(request,client_address)
+        except BaseException:self.slots.release();raise
+    def process_request_thread(self,request,client_address):
+        try:super().process_request_thread(request,client_address)
+        finally:self.slots.release()
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
@@ -352,7 +392,7 @@ def main():
     if mode not in ('DEV','REC'):
         raise SystemExit('Production bloquée : validation de sécurité requise.')
     bind='0.0.0.0' if os.environ.get('DSIG_CONTAINER')=='1' else '127.0.0.1'
-    server = ThreadingHTTPServer((bind, args.port), Handler)
+    server = BoundedHTTPServer((bind, args.port), Handler)
     print(f"DSIG local : http://127.0.0.1:{args.port}", flush=True)
     server.serve_forever()
 
