@@ -24,9 +24,10 @@ def me(h,connect):
     if h.headers.get('Authorization')!='Bearer session' or h.headers.get('Sec-Fetch-Site')=='cross-site':return h.json_response(401,{'error':'Session invalide.'})
     with connect() as db:
         db.row_factory=sqlite3.Row
-        row=db.execute('SELECT a.role,s.expires FROM sessions s JOIN accounts a ON a.id=s.account_id WHERE s.token_hash=? AND s.expires>? AND a.enabled=1',(accounts.digest(accounts.session_cookie(h)),int(time.time()))).fetchone()
+        row=db.execute('SELECT a.id,a.role,s.expires,COALESCE(m.enabled,0) AS mfa FROM sessions s JOIN accounts a ON a.id=s.account_id LEFT JOIN mfa m ON m.account_id=a.id WHERE s.token_hash=? AND s.expires>? AND a.enabled=1',(accounts.digest(accounts.session_cookie(h)),int(time.time()))).fetchone()
         if not row:return h.json_response(401,{'error':'Session invalide.'})
-        return h.json_response(200,{'role':row['role'],'expires':row['expires'],'permissions':accounts.ROLES[row['role']]})
+        count=db.execute('SELECT COUNT(*) FROM sessions WHERE account_id=? AND expires>?',(row['id'],int(time.time()))).fetchone()[0]
+        return h.json_response(200,{'role':row['role'],'expires':row['expires'],'permissions':accounts.ROLES[row['role']],'active_sessions':count,'mfa_enabled':bool(row['mfa'])})
 
 def handle(h,connect):
     if (h.headers.get('Origin') and h.headers['Origin']!='http://'+h.headers.get('Host','')) or h.headers.get('Sec-Fetch-Site')=='cross-site':return h.json_response(403,{'error':'Origine interdite.'})
@@ -44,7 +45,10 @@ def handle(h,connect):
             if h.headers.get('Origin')!='http://'+h.headers.get('Host',''):return h.json_response(403,{'error':'Origine interdite.'})
             token='Bearer '+accounts.session_cookie(h)
         if not re.fullmatch(r'Bearer dsig_[A-Za-z0-9_-]{43}',token):return h.json_response(401,{'error':'Session invalide.'})
-        with connect() as db:db.execute('DELETE FROM sessions WHERE token_hash=?',(accounts.digest(token[7:]),))
+        with connect() as db:
+            row=db.execute('SELECT a.username FROM sessions s JOIN accounts a ON a.id=s.account_id WHERE s.token_hash=?',(accounts.digest(token[7:]),)).fetchone()
+            db.execute('DELETE FROM sessions WHERE token_hash=?',(accounts.digest(token[7:]),))
+            if row:accounts.event(db,row[0],'DECONNEXION','auth')
         cookie(h)
         return h.json_response(200,{'status':'ok'})
     now=time.monotonic()
@@ -52,6 +56,19 @@ def handle(h,connect):
         ATTEMPTS[:]=[x for x in ATTEMPTS if now-x<60]
         if len(ATTEMPTS)>=10:return h.json_response(429,{'error':'Réessayez dans une minute.'})
         ATTEMPTS.append(now)
+    if action=='revoke-others':
+        if h.headers.get('Origin')!='http://'+h.headers.get('Host','') or h.headers.get('Authorization')!='Bearer session':return h.json_response(403,{'error':'Origine interdite.'})
+        if set(v)!={'password'}:return h.json_response(400,{'error':'Champs invalides.'})
+        token_hash=accounts.digest(accounts.session_cookie(h))
+        with connect() as db:
+            db.row_factory=sqlite3.Row;db.execute('BEGIN IMMEDIATE')
+            row=db.execute('SELECT a.id,a.username,c.salt,c.verifier FROM sessions s JOIN accounts a ON a.id=s.account_id JOIN credentials c ON c.account_id=a.id WHERE s.token_hash=? AND s.expires>? AND a.enabled=1',(token_hash,int(time.time()))).fetchone()
+            if not row:return h.json_response(401,{'error':'Session invalide.'})
+            if not hmac.compare_digest(derive(v['password'],row['salt']),row['verifier']):
+                accounts.event(db,row['username'],'REVOCATION_REFUSEE','auth');return h.json_response(401,{'error':'Mot de passe invalide.'})
+            count=db.execute('DELETE FROM sessions WHERE account_id=? AND token_hash<>?',(row['id'],token_hash)).rowcount
+            accounts.event(db,row['username'],'SESSIONS_REVOQUEES','auth')
+            return h.json_response(200,{'revoked':count})
     if action in ('mfa-setup','mfa-confirm'):
         if h.headers.get('Origin')!='http://'+h.headers.get('Host','') or h.headers.get('Authorization')!='Bearer session':return h.json_response(403,{'error':'Origine interdite.'})
         if set(v)!=({'password'} if action=='mfa-setup' else {'code'}):return h.json_response(400,{'error':'Champs invalides.'})

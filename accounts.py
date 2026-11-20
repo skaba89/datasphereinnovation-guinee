@@ -39,10 +39,12 @@ def authorize(h,connect,bootstrap):
     header=h.headers.get('Authorization','');resource=urlsplit(h.path).path.split('/')[3]
     cookie_mode=header=='Bearer session'
     if cookie_mode:
+        if h.headers.get('Sec-Fetch-Site')=='cross-site':
+            h.json_response(403,{'error':'Origine non autorisée.'});return False
         if h.command!='GET' and h.headers.get('Origin')!='http://'+h.headers.get('Host',''):
             h.json_response(403,{'error':'Origine non autorisée.'});return False
         header='Bearer '+session_cookie(h)
-    if len(bootstrap)>=32 and hmac.compare_digest(header.encode(),('Bearer '+bootstrap).encode()):
+    if not cookie_mode and len(bootstrap)>=32 and hmac.compare_digest(header.encode(),('Bearer '+bootstrap).encode()):
         h.actor='bootstrap';h.role='ADMIN';h.consultant_id=''
         with connect() as db:event(db,h.actor,'AUTORISE',h.command+' '+resource)
         return True
