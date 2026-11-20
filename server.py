@@ -46,6 +46,14 @@ STATUSES = ("NOUVELLE", "QUALIFIEE", "EN_COURS", "GAGNEE", "PERDUE")
 ADMIN_TOKEN = os.environ.get("DSIG_ADMIN_TOKEN", "")
 
 
+def configured_origin():
+    """An explicit HTTPS origin, never derived from forwarded headers."""
+    origin = os.environ.get('DSIG_HTTPS_ORIGIN', '')
+    if origin and not re.fullmatch(r'https://(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?', origin):
+        raise ValueError('DSIG_HTTPS_ORIGIN must be an exact HTTPS hostname')
+    return origin
+
+
 def connect():
     DB.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
     db = sqlite3.connect(DB, timeout=10)
@@ -105,6 +113,12 @@ class Handler(SimpleHTTPRequestHandler):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, directory=str(ROOT / "dist"), **kwargs)
 
+    def expected_origin(self):
+        return configured_origin() or 'http://' + self.headers.get('Host', '')
+
+    def secure_cookie(self):
+        return bool(configured_origin())
+
     def parse_request(self):
         if not super().parse_request():return False
         lengths=self.headers.get_all('Content-Length',[])
@@ -112,6 +126,12 @@ class Handler(SimpleHTTPRequestHandler):
             self.send_error(400,'Invalid request framing');return False
         if not self.path.startswith('/') or self.path.startswith('//'):
             self.send_error(400,'Invalid request target');return False
+        if len(self.headers.get_all('Host', [])) > 1 or len(self.headers.get_all('Origin', [])) > 1:
+            self.send_error(400,'Ambiguous origin or host');return False
+        origin = configured_origin()
+        if origin and not (self.command == 'GET' and self.path in ('/api/health', '/api/ready')):
+            if self.headers.get('Host', '') != origin.removeprefix('https://'):
+                self.send_error(403,'Invalid host');return False
         return True
 
     def log_request(self, code='-', size='-'):
@@ -170,7 +190,7 @@ class Handler(SimpleHTTPRequestHandler):
             return missions.handle(self,connect,'GET')
         if urlsplit(self.path).path == "/api/admin/direction":
             if not self.admin_authorized(): return
-            if self.headers.get("Sec-Fetch-Site") == "cross-site" or (self.headers.get("Origin") and self.headers["Origin"] != "http://" + self.headers.get("Host", "")):
+            if self.headers.get("Sec-Fetch-Site") == "cross-site" or (self.headers.get("Origin") and self.headers["Origin"] != self.expected_origin()):
                 return self.json_response(403, {"error": "Origine non autorisée."})
             with connect() as db:
                 db.execute('BEGIN')
@@ -212,7 +232,7 @@ class Handler(SimpleHTTPRequestHandler):
             super().do_GET()
 
     def admin_authorized(self):
-        if self.headers.get('Sec-Fetch-Site')=='cross-site' or (self.headers.get('Origin') and self.headers['Origin']!='http://'+self.headers.get('Host','')):
+        if self.headers.get('Sec-Fetch-Site')=='cross-site' or (self.headers.get('Origin') and self.headers['Origin']!=self.expected_origin()):
             self.json_response(403,{'error':'Origine non autorisée.'});return False
         return accounts.authorize(self,connect,ADMIN_TOKEN)
 
@@ -237,7 +257,7 @@ class Handler(SimpleHTTPRequestHandler):
             return self.json_response(404, {"error": "Route inconnue."})
         if not self.admin_authorized():
             return
-        if (self.headers.get("Origin") and self.headers["Origin"] != "http://" + self.headers.get("Host", "")) or self.headers.get("Sec-Fetch-Site") == "cross-site":
+        if (self.headers.get("Origin") and self.headers["Origin"] != self.expected_origin()) or self.headers.get("Sec-Fetch-Site") == "cross-site":
             return self.json_response(403, {"error": "Origine non autorisée."})
         try:
             size = int(self.headers.get("Content-Length", "0"))
@@ -284,7 +304,7 @@ class Handler(SimpleHTTPRequestHandler):
             return tenders.handle(self, connect, "POST")
         if self.path != "/api/requests":
             return self.json_response(404, {"error": "Route inconnue."})
-        if (self.headers.get("Origin") and self.headers["Origin"] != "http://" + self.headers.get("Host", "")) or self.headers.get("Sec-Fetch-Site") == "cross-site":
+        if (self.headers.get("Origin") and self.headers["Origin"] != self.expected_origin()) or self.headers.get("Sec-Fetch-Site") == "cross-site":
             return self.json_response(403, {"error": "Origine non autorisée."})
         if self.headers.get_content_type() != "application/json":
             return self.json_response(415, {"error": "Format non pris en charge."})
@@ -391,6 +411,7 @@ def main():
     mode=os.environ.get('DSIG_ENV','REC')
     if mode not in ('DEV','REC'):
         raise SystemExit('Production bloquée : validation de sécurité requise.')
+    configured_origin()
     bind='0.0.0.0' if os.environ.get('DSIG_CONTAINER')=='1' else '127.0.0.1'
     server = BoundedHTTPServer((bind, args.port), Handler)
     print(f"DSIG local : http://127.0.0.1:{args.port}", flush=True)

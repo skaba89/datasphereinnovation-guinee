@@ -50,7 +50,7 @@ def validate(data):
 def handle(handler, connect, method):
     if not handler.admin_authorized():
         return
-    if (handler.headers.get("Origin") and handler.headers["Origin"] != "http://" + handler.headers.get("Host", "")) or handler.headers.get("Sec-Fetch-Site") == "cross-site":
+    if (handler.headers.get("Origin") and handler.headers["Origin"] != handler.expected_origin()) or handler.headers.get("Sec-Fetch-Site") == "cross-site":
         return handler.json_response(403, {"error": "Origine non autorisée."})
     path = urlsplit(handler.path).path
     if method == "GET":

@@ -20,7 +20,7 @@ def schema(db):
 
 def handle(h, connect, method):
     if not h.admin_authorized(): return
-    if h.headers.get('Sec-Fetch-Site') == 'cross-site' or (h.headers.get('Origin') and h.headers['Origin'] != 'http://' + h.headers.get('Host', '')):
+    if h.headers.get('Sec-Fetch-Site') == 'cross-site' or (h.headers.get('Origin') and h.headers['Origin'] != h.expected_origin()):
         return h.json_response(403, {'error': 'Origine non autorisée.'})
     if method == 'GET':
         query = parse_qs(urlsplit(h.path).query)

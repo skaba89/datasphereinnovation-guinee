@@ -6,7 +6,7 @@ from decimal import Decimal
 def handle(h,connect,method):
     if not h.admin_authorized():return
     if h.role!='CONSULTANT' or not h.consultant_id:return h.json_response(403,{'error':'Réservé au consultant associé.'})
-    if (h.headers.get('Origin') and h.headers['Origin']!='http://'+h.headers.get('Host','')) or h.headers.get('Sec-Fetch-Site')=='cross-site':return h.json_response(403,{'error':'Origine interdite.'})
+    if (h.headers.get('Origin') and h.headers['Origin']!=h.expected_origin()) or h.headers.get('Sec-Fetch-Site')=='cross-site':return h.json_response(403,{'error':'Origine interdite.'})
     if method=='GET':
         with connect() as db:
             db.row_factory=sqlite3.Row
