@@ -39,7 +39,12 @@ La recherche dans le vivier propose les consultants disponibles ; une associatio
 reste visible si le statut du consultant change. Le registre ne crée ni contrat
 ni affectation automatique de disponibilité. Les enregistrements et historiques
 sont conservés dans SQLite. Les prospects et clients sont identifiés dans les
-opportunités ; un référentiel client distinct sera une évolution ultérieure.
+opportunités. Depuis V22, le référentiel CRM permet de créer et modifier les
+prospects, clients et partenaires, de rechercher par nom et de rattacher une
+opportunité à une organisation. Le libellé historique reste inchangé ; les
+anciennes opportunités ne sont pas rattachées automatiquement. Les doublons de
+nom normalisé et les modifications concurrentes sont refusés. Les permissions
+CRM existantes s'appliquent aussi au référentiel.
 
 ## V6 — Vivier de consultants
 
