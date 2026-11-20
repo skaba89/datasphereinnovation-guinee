@@ -19,6 +19,7 @@ import billing
 import accounts
 import own_activity
 import authentication
+import operations
 from collections import defaultdict
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -113,6 +114,9 @@ class Handler(SimpleHTTPRequestHandler):
         self.wfile.write(data)
 
     def do_GET(self):
+        if self.path=='/api/ready':
+            ready=operations.ready(DB)
+            return self.json_response(200 if ready else 503,{'status':'ready' if ready else 'unavailable'})
         if urlsplit(self.path).path=='/api/auth/me':return authentication.me(self,connect)
         if urlsplit(self.path).path=='/api/admin/my-activity':return own_activity.handle(self,connect,'GET')
         if urlsplit(self.path).path in ('/api/admin/accounts','/api/admin/audit'):return accounts.handle(self,connect,'GET')
@@ -282,7 +286,18 @@ def main():
     parser.add_argument("--port", type=int, default=8080)
     parser.add_argument("--export", action="store_true")
     parser.add_argument("--backup", metavar="FILE", help="Sauvegarde SQLite privée, fichier inexistant")
+    parser.add_argument("--backup-encrypted", metavar="FILE", help="Sauvegarde chiffrée, fichier inexistant")
+    parser.add_argument("--restore-isolated", nargs=2, metavar=("BACKUP","DESTINATION"), help="Restauration chiffrée vers une nouvelle base isolée")
+    parser.add_argument("--check-db", action="store_true", help="Vérification de l'intégrité SQLite, lecture seule")
     args = parser.parse_args()
+    if sum(bool(x) for x in (args.export,args.backup,args.backup_encrypted,args.restore_isolated,args.check_db))>1:
+        parser.error('Une seule opération à la fois.')
+    if args.backup_encrypted:
+        operations.encrypted_backup(DB,args.backup_encrypted,ROOT/'dist');print('Sauvegarde chiffrée vérifiée.');return
+    if args.restore_isolated:
+        operations.restore_isolated(*args.restore_isolated,DB,ROOT/'dist');print('Restauration isolée vérifiée.');return
+    if args.check_db:
+        operations.verify(DB);print('Intégrité SQLite vérifiée.');return
     if args.export:
         return export_requests()
     if args.backup:

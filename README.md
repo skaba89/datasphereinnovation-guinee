@@ -121,6 +121,8 @@ Le tableau de bord permet de filtrer les demandes et de suivre les statuts Nouve
 
 ## Avant production
 
+V20 : voir `OPERATIONS.md` pour les sauvegardes chiffrées, la restauration isolée, les contrôles SQLite et la supervision locale. Le point `/api/ready` vérifie la disponibilité du schéma de la base sans la créer ; Docker l'utilise comme healthcheck. La sauvegarde historique `--backup` reste disponible en clair pour compatibilité ; privilégier `--backup-encrypted`. Ne jamais stocker les clés dans Git.
+
 V19.1 : cinq pôles d'expertise et 25 fiches détaillées, dont sept spécialités cybersécurité et résilience supplémentaires, avec formulaire prérempli, qualification des demandes et profils cyber dans le vivier. Les prestations spécialisées sont à cadrer selon les ressources mobilisables et les autorisations ; aucune certification, service SOC 24/7 ou habilitation n'est revendiqué.
 
 V19 : tests navigateur locaux avec `python -m pip install -r requirements-dev.txt`, `python -m playwright install chromium`, puis `python -m unittest -v browser_e2e`. Ils démarrent un serveur loopback sur port aléatoire et une base temporaire, sans données réelles. Le job CI browser-acceptance exécute les mêmes parcours. Le compte administrateur affiche dix espaces métier ; Mes CRA est réservé aux consultants associés.

@@ -8,5 +8,5 @@ COPY dist /app/dist
 USER 10001:10001
 ENV PYTHONDONTWRITEBYTECODE=1 DSIG_CONTAINER=1 DSIG_DB=/app/data/requests.sqlite3
 EXPOSE 8080
-HEALTHCHECK --interval=30s --timeout=5s --retries=3 CMD ["python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/api/health', timeout=3).read()"]
+HEALTHCHECK --interval=30s --timeout=5s --retries=3 CMD ["python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/api/ready', timeout=3).read()"]
 CMD ["python","server.py"]
