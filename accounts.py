@@ -19,6 +19,7 @@ def schema(db):
     db.execute('''CREATE TABLE IF NOT EXISTS access_events(id INTEGER PRIMARY KEY, actor TEXT NOT NULL, action TEXT NOT NULL, resource TEXT NOT NULL, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)''')
     db.execute('''CREATE TABLE IF NOT EXISTS credentials(account_id TEXT PRIMARY KEY, salt TEXT NOT NULL, verifier TEXT NOT NULL)''')
     db.execute('''CREATE TABLE IF NOT EXISTS sessions(token_hash TEXT PRIMARY KEY, account_id TEXT NOT NULL, expires INTEGER NOT NULL)''')
+    db.execute('''CREATE TABLE IF NOT EXISTS mfa(account_id TEXT PRIMARY KEY, secret TEXT NOT NULL, enabled INTEGER NOT NULL DEFAULT 0, last_step INTEGER NOT NULL DEFAULT -1)''')
 
 def digest(token):return hashlib.sha256(token.encode()).hexdigest()
 def event(db,actor,action,resource):db.execute('INSERT INTO access_events(actor,action,resource) VALUES(?,?,?)',(actor,action,resource))
@@ -26,9 +27,21 @@ def allowed(role,resource,method):
     mode=ROLES.get(role,{}).get(resource,ROLES.get(role,{}).get('*',''))
     return ('R' if method=='GET' else 'W') in mode
 
+def session_cookie(h):
+    from http.cookies import SimpleCookie, CookieError
+    try:
+        cookie=SimpleCookie();cookie.load(h.headers.get('Cookie',''));value=cookie['dsig_session'].value
+        return value if re.fullmatch(r'dsig_[A-Za-z0-9_-]{43}',value) else ''
+    except (CookieError,KeyError):return ''
+
 def authorize(h,connect,bootstrap):
     import hmac
     header=h.headers.get('Authorization','');resource=urlsplit(h.path).path.split('/')[3]
+    cookie_mode=header=='Bearer session'
+    if cookie_mode:
+        if h.command!='GET' and h.headers.get('Origin')!='http://'+h.headers.get('Host',''):
+            h.json_response(403,{'error':'Origine non autorisée.'});return False
+        header='Bearer '+session_cookie(h)
     if len(bootstrap)>=32 and hmac.compare_digest(header.encode(),('Bearer '+bootstrap).encode()):
         h.actor='bootstrap';h.role='ADMIN';h.consultant_id=''
         with connect() as db:event(db,h.actor,'AUTORISE',h.command+' '+resource)
@@ -37,7 +50,7 @@ def authorize(h,connect,bootstrap):
         h.json_response(503 if len(bootstrap)<32 and not header else 401,{'error':'Accès non autorisé.'});return False
     with connect() as db:
         db.row_factory=sqlite3.Row
-        row=db.execute('SELECT id,username,role,consultant_id FROM accounts WHERE key_hash=? AND enabled=1 AND NOT EXISTS(SELECT 1 FROM credentials WHERE account_id=accounts.id)',(digest(header[7:]),)).fetchone()
+        row=None if cookie_mode else db.execute('SELECT id,username,role,consultant_id FROM accounts WHERE key_hash=? AND enabled=1 AND NOT EXISTS(SELECT 1 FROM credentials WHERE account_id=accounts.id)',(digest(header[7:]),)).fetchone()
         if not row:
             row=db.execute('SELECT a.id,a.username,a.role,a.consultant_id FROM sessions s JOIN accounts a ON a.id=s.account_id WHERE s.token_hash=? AND s.expires>? AND a.enabled=1',(digest(header[7:]),int(time.time()))).fetchone()
         if not row:
@@ -83,6 +96,7 @@ def handle(h,connect,method):
                 else:
                     key='dsig_'+secrets.token_urlsafe(32);db.execute('UPDATE accounts SET enabled=1,key_hash=? WHERE id=?',(digest(key),oid));result={'id':oid,'key':key}
                     db.execute('DELETE FROM credentials WHERE account_id=?',(oid,))
+                    db.execute('DELETE FROM mfa WHERE account_id=?',(oid,))
                 db.execute('DELETE FROM sessions WHERE account_id=?',(oid,))
                 event(db,h.actor,v['action'],row[0])
         return h.json_response(201 if method=='POST' else 200,result)
