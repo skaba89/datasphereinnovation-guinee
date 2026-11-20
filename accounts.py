@@ -1,5 +1,5 @@
 """Local named accounts with hashed random access keys and server-side RBAC."""
-import hashlib, secrets, json, re, sqlite3, uuid, time
+import hashlib, secrets, json, re, sqlite3, uuid, time, os
 from urllib.parse import urlsplit
 
 ROLES={
@@ -14,6 +14,13 @@ ROLES={
  'CONSULTANT': {'my-activity':'RW'},
 }
 
+RESOURCES=frozenset({'requests','crm','quotes','tenders','consultants','missions','billing','direction','accounts','audit','my-activity'})
+def mfa_required(role):
+    return role=='ADMIN' or role in {x.strip() for x in os.environ.get('DSIG_MFA_REQUIRED_ROLES','DIRECTION,CONTROLE,COMPTABLE,AUDITEUR').split(',')}
+
+def effective_permissions(role,mfa_enabled):
+    return {} if mfa_required(role) and not mfa_enabled else ROLES.get(role,{})
+
 def schema(db):
     db.execute('''CREATE TABLE IF NOT EXISTS accounts(id TEXT PRIMARY KEY, username TEXT NOT NULL UNIQUE COLLATE NOCASE, role TEXT NOT NULL, key_hash TEXT NOT NULL UNIQUE, consultant_id TEXT NOT NULL DEFAULT '', enabled INTEGER NOT NULL DEFAULT 1, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)''')
     db.execute('''CREATE TABLE IF NOT EXISTS access_events(id INTEGER PRIMARY KEY, actor TEXT NOT NULL, action TEXT NOT NULL, resource TEXT NOT NULL, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)''')
@@ -25,6 +32,7 @@ def schema(db):
 def digest(token):return hashlib.sha256(token.encode()).hexdigest()
 def event(db,actor,action,resource):db.execute('INSERT INTO access_events(actor,action,resource) VALUES(?,?,?)',(actor,action,resource))
 def allowed(role,resource,method):
+    if resource not in RESOURCES or method not in ('GET','POST','PATCH','DELETE'):return False
     mode=ROLES.get(role,{}).get(resource,ROLES.get(role,{}).get('*',''))
     return ('R' if method=='GET' else 'W') in mode
 
@@ -59,6 +67,9 @@ def authorize(h,connect,bootstrap):
         if not row:
             h.json_response(401,{'error':'Accès non autorisé.'});return False
         h.actor=row['username'];h.role=row['role'];h.consultant_id=row['consultant_id']
+        if mfa_required(h.role) and not db.execute('SELECT 1 FROM mfa WHERE account_id=? AND enabled=1',(row['id'],)).fetchone():
+            event(db,h.actor,'MFA_REQUISE',h.command+' '+resource)
+            h.json_response(403,{'error':'Activation MFA obligatoire avant accès aux modules.'});return False
         permit=allowed(h.role,resource,h.command)
         event(db,h.actor,'AUTORISE' if permit else 'REFUSE',h.command+' '+resource)
     if not permit:h.json_response(403,{'error':'Permission insuffisante.'});return False

@@ -13,7 +13,8 @@ import server
 
 class IntakeTests(unittest.TestCase):
     def setUp(self):
-        self.mfa_env=patch.dict(os.environ,{'DSIG_MFA_KEY':Fernet.generate_key().decode()});self.mfa_env.start();self.addCleanup(self.mfa_env.stop)
+        # Existing lifecycle tests explicitly preserve the legacy local policy; a separate test exercises the strict default.
+        self.mfa_env=patch.dict(os.environ,{'DSIG_MFA_KEY':Fernet.generate_key().decode(),'DSIG_MFA_REQUIRED_ROLES':''});self.mfa_env.start();self.addCleanup(self.mfa_env.stop)
         self.tmp = tempfile.TemporaryDirectory()
         self.original = server.DB
         self.original_token = server.ADMIN_TOKEN
@@ -199,6 +200,52 @@ class IntakeTests(unittest.TestCase):
         with server.connect() as db:
             actions=[r[0] for r in db.execute("SELECT action FROM access_events WHERE actor='sessions.test'")]
         self.assertIn('REVOCATION_REFUSEE',actions);self.assertIn('SESSIONS_REVOQUEES',actions);self.assertIn('DECONNEXION',actions)
+
+    def test_role_matrix(self):
+        import accounts
+        expected={
+            'ADMIN':(set(accounts.RESOURCES),set(accounts.RESOURCES)),
+            'DIRECTION':({'direction','billing','missions','quotes','crm','tenders'},set()),
+            'COMMERCIAL':({'requests','crm','quotes','tenders','consultants'},{'requests','crm','quotes','tenders'}),
+            'RH':({'consultants','requests'},{'consultants'}),
+            'PROJET':({'missions','consultants','quotes'},{'missions'}),
+            'CONTROLE':({'direction','missions','billing','quotes'},set()),
+            'COMPTABLE':({'billing','missions'},{'billing'}),
+            'AUDITEUR':({'direction','audit'},set()),
+            'CONSULTANT':({'my-activity'},{'my-activity'}),
+        }
+        self.assertEqual(set(expected),set(accounts.ROLES))
+        for role,(read,write) in expected.items():
+            for resource in accounts.RESOURCES|{'unknown'}:
+                for method in ('GET','POST','PATCH','DELETE','OPTIONS'):
+                    with self.subTest(role=role,resource=resource,method=method):
+                        self.assertEqual(accounts.allowed(role,resource,method),resource in (read if method=='GET' else write if method in ('POST','PATCH','DELETE') else set()))
+
+    def test_sensitive_role_mfa_gate(self):
+        import accounts
+        server.authentication.ATTEMPTS.clear()
+        with patch.dict(os.environ,{'DSIG_MFA_REQUIRED_ROLES':'DIRECTION,CONTROLE,COMPTABLE,AUDITEUR'}):
+            for role in accounts.ROLES:
+                self.assertEqual(accounts.mfa_required(role),role in {'ADMIN','DIRECTION','CONTROLE','COMPTABLE','AUDITEUR'})
+            admin={'Authorization':'Bearer '+server.ADMIN_TOKEN,'Content-Type':'application/json'}
+            s,b,_=self.request('POST','/api/admin/accounts',{'username':'secure.test','role':'ADMIN','consultant_id':''},admin)
+            self.assertEqual(s,201);key=json.loads(b)['key']
+            self.assertEqual(self.request('GET','/api/admin/accounts',headers={'Authorization':'Bearer '+key})[0],403)
+            credentials={'username':'secure.test','password':'fictitious-password-123'}
+            self.assertEqual(self.request('POST','/api/auth/activate',credentials|{'key':key})[0],200)
+            login={'Content-Type':'application/json','Origin':f'http://127.0.0.1:{self.port}','X-DSIG-Session':'cookie'}
+            s,b,h=self.request('POST','/api/auth/login',credentials,login);self.assertEqual(s,200);self.assertEqual(json.loads(b)['permissions'],{})
+            session=login|{'Authorization':'Bearer session','Cookie':h['Set-Cookie'].split(';')[0]}
+            self.assertEqual(self.request('GET','/api/admin/accounts',headers=session)[0],403)
+            self.assertEqual(json.loads(self.request('GET','/api/auth/me',headers=session)[1])['permissions'],{})
+            s,b,_=self.request('POST','/api/auth/mfa-setup',{'password':credentials['password']},session);self.assertEqual(s,200)
+            secret=json.loads(b)['secret'];now=int(time.time());step=now//30
+            with patch('authentication.time.time',return_value=now):
+                self.assertEqual(self.request('POST','/api/auth/mfa-confirm',{'code':server.authentication.totp(secret,step)},session)[0],200)
+                self.assertEqual(self.request('GET','/api/admin/accounts',headers=session)[0],401)
+                s,b,h=self.request('POST','/api/auth/login',credentials|{'otp':server.authentication.totp(secret,step+1)},login);self.assertEqual(s,200)
+                session['Cookie']=h['Set-Cookie'].split(';')[0]
+                self.assertEqual(self.request('GET','/api/admin/accounts',headers=session)[0],200)
 
     def test_named_accounts(self):
         auth={'Authorization':'Bearer '+server.ADMIN_TOKEN,'Content-Type':'application/json'}
