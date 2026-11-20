@@ -4,7 +4,7 @@ from cryptography.fernet import Fernet, InvalidToken
 from threading import Lock
 import accounts
 
-LOCK=Lock();ATTEMPTS=[];TTL=1800;ITERATIONS=600000
+LOCK=Lock();ATTEMPTS={};TTL=1800;ITERATIONS=600000
 def mfa_cipher():
     return Fernet(os.environ.get('DSIG_MFA_KEY','').encode())
 
@@ -70,9 +70,12 @@ def handle(h,connect):
         return h.json_response(200,{'status':'ok'})
     now=time.monotonic()
     with LOCK:
-        ATTEMPTS[:]=[x for x in ATTEMPTS if now-x<60]
-        if len(ATTEMPTS)>=10:return h.json_response(429,{'error':'Réessayez dans une minute.'})
-        ATTEMPTS.append(now)
+        for ip in list(ATTEMPTS):
+            ATTEMPTS[ip]=[x for x in ATTEMPTS[ip] if now-x<60]
+            if not ATTEMPTS[ip]:del ATTEMPTS[ip]
+        ip=h.client_address[0]
+        if sum(map(len,ATTEMPTS.values()))>=120 or len(ATTEMPTS.get(ip,()))>=10:return h.json_response(429,{'error':'Réessayez dans une minute.'})
+        ATTEMPTS.setdefault(ip,[]).append(now)
     if action=='revoke-others':
         if h.headers.get('Origin')!='http://'+h.headers.get('Host','') or h.headers.get('Authorization')!='Bearer session':return h.json_response(403,{'error':'Origine interdite.'})
         if set(v)!={'password'}:return h.json_response(400,{'error':'Champs invalides.'})
