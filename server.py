@@ -19,6 +19,7 @@ import missions
 import contracts
 import billing
 import treasury
+import reporting
 import accounts
 import own_activity
 import authentication
@@ -120,6 +121,7 @@ class Handler(SimpleHTTPRequestHandler):
         self.wfile.write(data)
 
     def do_GET(self):
+        if urlsplit(self.path).path=='/api/admin/direction/reporting':return reporting.handle(self,connect)
         if urlsplit(self.path).path=='/api/admin/billing/expenses':return treasury.handle(self,connect,'GET')
         if re.fullmatch(r'/api/admin/missions/[0-9a-f-]{36}/renewals',urlsplit(self.path).path):return contracts.handle(self,connect,'GET')
         if urlsplit(self.path).path == '/api/admin/crm/organizations':

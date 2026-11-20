@@ -137,6 +137,11 @@ class BrowserTests(unittest.TestCase):
                     self.page.locator('#control-currency').select_option('GNF')
                     expect(self.page.locator('#control-tables')).to_contain_text('Aucun résultat.')
                     expect(self.page.locator('#control-tables')).to_contain_text('Flux de trésorerie enregistrés')
+                    self.page.locator('#report-start').fill('2020-01-01')
+                    self.page.locator('#report-end').fill('2020-01-31')
+                    self.page.locator('#report-form').get_by_role('button',name='Afficher').click()
+                    expect(self.page.locator('#report-rows')).to_contain_text('-1000')
+                    expect(self.page.locator('#report-export')).to_be_enabled()
                 if module=='billing':
                     self.page.locator('#expense [name=reference]').fill('DEP-E2E')
                     self.page.locator('#expense [name=amount]').fill('1000')

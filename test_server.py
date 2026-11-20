@@ -412,6 +412,22 @@ class IntakeTests(unittest.TestCase):
         self.assertEqual(len(individual),2)
         self.assertTrue(all(x['margin']=='25.00' for x in individual))
         self.assertIsNone(next(x for x in control['consultants'] if x['mission_id']==mid2)['margin'])
+        report='/api/admin/direction/reporting?start=2020-01-01&end=2020-02-29'
+        self.assertEqual(self.request('GET',report)[0],401)
+        self.assertEqual(self.request('GET',report,headers=own)[0],403)
+        self.assertEqual(self.request('GET',report,headers=auth|{'Origin':'https://other.invalid'})[0],403)
+        self.assertEqual(self.request('GET','/api/admin/direction/reporting?start=2020-01-01&end=2022-01-01',headers=auth)[0],400)
+        rows=json.loads(self.request('GET',report,headers=auth)[1])['items']
+        self.assertEqual(len(rows),3)
+        self.assertEqual((rows[0]['period'],rows[0]['currency'],rows[0]['validated_revenue'],rows[0]['validated_cost']),('2020-01','EUR','900.00','850.00'))
+        self.assertEqual((rows[1]['period'],rows[1]['net_flow']),('2020-02','20'))
+        self.assertEqual((rows[2]['currency'],rows[2]['net_flow']),('GNF','-1000'))
+        status,body,headers=self.request('GET',report+'&format=csv',headers=auth)
+        self.assertEqual(status,200);self.assertIn(b'period;currency;',body);self.assertIn(b'2020-02;GNF;',body)
+        today=server.date.today().isoformat() if hasattr(server,'date') else __import__('datetime').date.today().isoformat()
+        today_rows=json.loads(self.request('GET','/api/admin/direction/reporting?start='+today+'&end='+today,headers=auth)[1])['items']
+        self.assertEqual(today_rows[0]['validated_revenue'],'600')
+        self.assertEqual(today_rows[0]['invoiced'],'1050')
         renew2=path+'/'+mid2+'/renewals'
         s,body,_=self.request('POST',renew2,payload,auth);self.assertEqual(s,201);rid3=json.loads(body)['id']
         self.assertEqual(self.request('PATCH',renew2+'/'+rid3,{'status':'VALIDE'},auth)[0],403)
