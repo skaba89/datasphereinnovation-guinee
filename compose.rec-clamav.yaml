@@ -1,0 +1,14 @@
+# Optional REC overlay: use an existing host clamd Unix socket, never TCP.
+services:
+  dsig:
+    environment:
+      DSIG_CLAMD_SOCKET: /run/dsig-clamav/clamd.ctl
+    group_add:
+      - "${DSIG_CLAMD_GID:?Set numeric socket group ID}"
+    volumes:
+      - type: bind
+        source: "${DSIG_CLAMD_HOST_DIR:-/run/clamav}"
+        target: /run/dsig-clamav
+        read_only: true
+        bind:
+          create_host_path: false

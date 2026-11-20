@@ -90,3 +90,18 @@ Après un premier succès réel, ajouter au crontab ubuntu (sans remplacer les t
 ```
 
 Prévoir rotation du journal, surveillance d'espace, alertes et externalisation chiffrée. Le cron utilise le fuseau du VPS. Ne jamais stocker les clés avec les archives. Aucune tâche cron installée automatiquement.
+
+## V36 — ClamAV REC, socket Unix privé
+
+Avant toute installation, vérifier la RAM disponible et si clamd existe déjà : `free -h`, `systemctl status clamav-daemon`, `ls -ld /run/clamav; ls -l /run/clamav/clamd.ctl`. Ne pas modifier un démon partagé sans revue. Le socket doit être accessible au groupe numérique du socket et le dossier traversable. Aucun port TCP ClamAV ne doit être exposé. Vérifier que les signatures sont à jour. Si absent, prévoir installation et capacité RAM avant activation.
+
+Avec un démon hôte opérationnel, renseigner dans le .env REC (sans afficher les secrets) DSIG_CLAMD_HOST_DIR=/run/clamav et DSIG_CLAMD_GID avec le résultat de `stat -c %g /run/clamav/clamd.ctl`. Vérifier que le socket a les permissions groupe nécessaires, sans chmod global. L'overlay monte le dossier en lecture seule et ajoute uniquement ce groupe au service DSIG.
+
+```bash
+docker compose -p dsig-rec -f compose.yaml -f compose.rec-edge.yaml -f compose.rec-clamav.yaml config --quiet
+docker compose -p dsig-rec -f compose.yaml -f compose.rec-edge.yaml -f compose.rec-clamav.yaml build && docker compose -p dsig-rec -f compose.yaml -f compose.rec-edge.yaml -f compose.rec-clamav.yaml up -d --no-build --wait
+docker exec dsig-rec-dsig-1 python check_antivirus.py
+docker exec dsig-rec-dsig-1 python preflight.py
+```
+
+Le contrôle envoie un contenu anodin et la chaîne de test standard EICAR non exécutable, uniquement au scanner privé sans enregistrer de document. Les deux résultats doivent être PASS ; la présence du socket seule ne suffit pas. En cas d'indisponibilité, le mécanisme de dépôt existant reste fail-closed. Conserver l'overlay dans toutes les commandes suivantes. Aucun GO PROD.
