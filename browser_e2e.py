@@ -172,6 +172,11 @@ class BrowserTests(unittest.TestCase):
                     self.page.locator('#report-form').get_by_role('button',name='Afficher').click()
                     expect(self.page.locator('#report-rows')).to_contain_text('-1000')
                     expect(self.page.locator('#report-export')).to_be_enabled()
+                if module=='alerts':
+                    expect(self.page.locator('#alert-counts .count')).to_have_count(6)
+                    self.page.locator('#horizon').select_option('60')
+                    self.page.locator('#filter button').click()
+                    expect(self.page.locator('#summary')).to_contain_text('60 jours')
                 if module=='billing':
                     self.page.locator('#expense [name=reference]').fill('DEP-E2E')
                     self.page.locator('#expense [name=amount]').fill('1000')
