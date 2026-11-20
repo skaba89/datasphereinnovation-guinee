@@ -185,6 +185,24 @@ class IntakeTests(unittest.TestCase):
         self.assertEqual(self.request('GET','/api/admin/billing',headers=session)[0],401)
         self.assertEqual(self.request('GET','/connexion.html')[0],200)
 
+    def test_login_session_committed_before_response(self):
+        import sqlite3
+        admin={'Authorization':'Bearer '+server.ADMIN_TOKEN,'Content-Type':'application/json'}
+        status,body,_=self.request('POST','/api/admin/accounts',{'username':'commit.test','role':'COMPTABLE','consultant_id':''},admin)
+        self.assertEqual(status,201)
+        credentials={'username':'commit.test','password':'fictitious-password-123'}
+        self.assertEqual(self.request('POST','/api/auth/activate',credentials|{'key':json.loads(body)['key']})[0],200)
+        observed=[]
+        original=server.Handler.json_response
+        def check(handler,status,body):
+            if handler.path=='/api/auth/login' and status==200:
+                with sqlite3.connect(server.DB) as reader:
+                    observed.append(reader.execute('SELECT 1 FROM sessions WHERE token_hash=?',(server.accounts.digest(body['token']),)).fetchone())
+            return original(handler,status,body)
+        with patch.object(server.Handler,'json_response',check):
+            self.assertEqual(self.request('POST','/api/auth/login',credentials)[0],200)
+        self.assertEqual(observed,[(1,)])
+
     def test_mfa_and_shared_session(self):
         server.authentication.ATTEMPTS.clear()
         admin={'Authorization':'Bearer '+server.ADMIN_TOKEN,'Content-Type':'application/json'}

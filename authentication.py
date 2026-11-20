@@ -89,6 +89,7 @@ def handle(h,connect):
                 accounts.event(db,row['username'],'REVOCATION_REFUSEE','auth');return h.json_response(401,{'error':'Mot de passe invalide.'})
             count=db.execute('DELETE FROM sessions WHERE account_id=? AND token_hash<>?',(row['id'],token_hash)).rowcount
             accounts.event(db,row['username'],'SESSIONS_REVOQUEES','auth')
+            db.commit()
             return h.json_response(200,{'revoked':count})
     if action in ('mfa-setup','mfa-confirm'):
         if h.headers.get('Origin')!=h.expected_origin() or h.headers.get('Authorization')!='Bearer session':return h.json_response(403,{'error':'Origine interdite.'})
@@ -104,12 +105,12 @@ def handle(h,connect):
                 secret=base64.b32encode(secrets.token_bytes(20)).decode()
                 try: encrypted=encrypt_secret(secret)
                 except (ValueError,TypeError):return h.json_response(503,{'error':'Configuration MFA indisponible.'})
-                db.execute('INSERT OR REPLACE INTO mfa(account_id,secret) VALUES(?,?)',(row['id'],encrypted));return h.json_response(200,{'secret':secret})
+                db.execute('INSERT OR REPLACE INTO mfa(account_id,secret) VALUES(?,?)',(row['id'],encrypted));db.commit();return h.json_response(200,{'secret':secret})
             try: plain=decrypt_secret(m['secret']) if m else None
             except (ValueError,TypeError,InvalidToken):return h.json_response(503,{'error':'Configuration MFA indisponible.'})
             step=verify_code(plain,v['code'],m['last_step']) if m else None
             if step is None:return h.json_response(401,{'error':'Code invalide.'})
-            db.execute('UPDATE mfa SET enabled=1,last_step=?,secret=? WHERE account_id=?',(step,encrypt_secret(plain),row['id']));codes=recovery_codes(db,row['id']);db.execute('DELETE FROM sessions WHERE account_id=?',(row['id'],));accounts.event(db,row['username'],'MFA_ACTIVE','auth');cookie(h);return h.json_response(200,{'status':'ok','recovery_codes':codes})
+            db.execute('UPDATE mfa SET enabled=1,last_step=?,secret=? WHERE account_id=?',(step,encrypt_secret(plain),row['id']));codes=recovery_codes(db,row['id']);db.execute('DELETE FROM sessions WHERE account_id=?',(row['id'],));accounts.event(db,row['username'],'MFA_ACTIVE','auth');db.commit();cookie(h);return h.json_response(200,{'status':'ok','recovery_codes':codes})
     if set(v) not in ([{'username','password','key'}] if action=='activate' else [{'username','password'},{'username','password','otp'}]) or not re.fullmatch(r'[A-Za-z0-9._-]{3,64}',v['username']) or not 12<=len(v['password'])<=128:return h.json_response(400,{'error':'Identifiant ou mot de passe invalide (12 caractères minimum).'})
     with connect() as db:
         db.row_factory=sqlite3.Row;db.execute('BEGIN IMMEDIATE')
@@ -118,6 +119,7 @@ def handle(h,connect):
             if not row or row['salt'] or not hmac.compare_digest(row['key_hash'],accounts.digest(v['key'])):return h.json_response(401,{'error':'Activation refusée.'})
             salt=secrets.token_hex(16);verifier=derive(v['password'],salt)
             db.execute('INSERT INTO credentials VALUES(?,?,?)',(row['id'],salt,verifier));accounts.event(db,row['username'],'MOT_DE_PASSE_ACTIVE','auth')
+            db.commit()
             return h.json_response(200,{'status':'ok'})
         actual=derive(v['password'],row['salt'] if row and row['salt'] else '00'*16)
         if not row or not row['verifier'] or not hmac.compare_digest(actual,row['verifier']):
@@ -135,6 +137,8 @@ def handle(h,connect):
             if not m['secret'].startswith('fernet:'):db.execute('UPDATE mfa SET secret=? WHERE account_id=?',(encrypt_secret(plain),row['id']))
         token='dsig_'+secrets.token_urlsafe(32);expires=int(time.time())+TTL
         db.execute('DELETE FROM sessions WHERE expires<=?',(int(time.time()),));db.execute('INSERT INTO sessions VALUES(?,?,?)',(accounts.digest(token),row['id'],expires));accounts.event(db,row['username'],'CONNEXION_REUSSIE','auth')
+        # Publish the session only after SQLite commits the authentication state.
+        db.commit()
         cookie(h,token,TTL)
         result={'expires':expires,'role':row['role'],'permissions':accounts.effective_permissions(row['role'],bool(m)),'mfa_required':accounts.mfa_required(row['role']),'mfa_enabled':bool(m)}
         if h.headers.get('X-DSIG-Session')!='cookie':result['token']=token
