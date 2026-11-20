@@ -1,0 +1,12 @@
+# Optional mount of a privately managed and updated host ClamAV socket.
+services:
+  dsig:
+    environment:
+      DSIG_CLAMD_SOCKET: /run/dsig-clamd/clamd.sock
+    volumes:
+      - type: bind
+        source: "${DSIG_CLAMD_SOCKET_DIR:?Set the host directory containing clamd.sock}"
+        target: /run/dsig-clamd
+        read_only: true
+        bind:
+          create_host_path: false

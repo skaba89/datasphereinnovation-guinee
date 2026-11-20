@@ -318,7 +318,7 @@ class IntakeTests(unittest.TestCase):
 
     def test_private_documents(self):
         import base64,hashlib
-        import accounts
+        import accounts,antivirus
         path='/api/admin/documents';auth={'Authorization':'Bearer '+server.ADMIN_TOKEN,'Content-Type':'application/json'}
         self.assertEqual(self.request('GET',path)[0],401)
         self.assertFalse(accounts.allowed('CONSULTANT','documents','GET'))
@@ -327,13 +327,21 @@ class IntakeTests(unittest.TestCase):
         status,body,_=self.request('POST','/api/admin/consultants',profile,auth);self.assertEqual(status,201);cid=json.loads(body)['id']
         raw=b'%PDF-1.4\nsynthetic test only\n%%EOF';payload={'category':'CV','entity_id':cid,'title':'Fictif','content':base64.b64encode(raw).decode()}
         with patch.dict(os.environ,{'DSIG_DOCUMENT_KEY':''}):self.assertEqual(self.request('POST',path,payload,auth)[0],503)
+        scanner=patch('antivirus.scan');scan_mock=scanner.start();self.addCleanup(scanner.stop)
         with patch.dict(os.environ,{'DSIG_DOCUMENT_KEY':Fernet.generate_key().decode()}):
             self.assertEqual(self.request('POST',path,payload|{'content':'YWJj'},auth)[0],400)
             self.assertEqual(self.request('POST',path,payload|{'entity_id':'bad'},auth)[0],400)
             self.assertEqual(self.request('POST',path,payload|{'category':'CONTRAT'},auth)[0],400)
+            for exc,code in [(antivirus.Infected,422),(antivirus.Unavailable,503)]:
+                scan_mock.side_effect=exc;self.assertEqual(self.request('POST',path,payload,auth)[0],code)
+                self.assertEqual(json.loads(self.request('GET',path,headers=auth)[1])['total'],0)
+            scan_mock.side_effect=None
             s,b,_=self.request('POST',path,payload,auth);self.assertEqual(s,201);oid=json.loads(b)['id']
             self.assertEqual(self.request('POST',path,payload,auth)[0],409)
             s,b,h=self.request('GET',path+'/'+oid,headers=auth);self.assertEqual((s,b),(200,raw));self.assertIn('attachment',h['Content-Disposition']);self.assertEqual(h['Cache-Control'],'no-store')
+            for exc,code in [(antivirus.Infected,422),(antivirus.Unavailable,503)]:
+                scan_mock.side_effect=exc;self.assertEqual(self.request('GET',path+'/'+oid,headers=auth)[0],code)
+            scan_mock.side_effect=None
             s,b,_=self.request('GET',path,headers=auth);self.assertEqual(s,200);item=json.loads(b)['items'][0];self.assertNotIn('ciphertext',item);self.assertEqual(item['sha256'],hashlib.sha256(raw).hexdigest())
             with server.connect() as db:
                 self.assertNotIn(raw,db.execute('SELECT ciphertext FROM documents').fetchone()[0]);self.assertEqual(db.execute("SELECT count(*) FROM access_events WHERE action IN ('DOCUMENT_DEPOSE','DOCUMENT_TELECHARGE')").fetchone()[0],2)
@@ -350,6 +358,22 @@ class IntakeTests(unittest.TestCase):
             self.assertEqual(self.request('GET',path+'/'+oid,headers=auth)[1],raw)
             with server.connect() as db:self.assertEqual(documents.rotate(db),2)
         with patch.dict(os.environ,{'DSIG_DOCUMENT_KEY':newkey,'DSIG_DOCUMENT_PREVIOUS_KEY':''}):self.assertEqual(self.request('GET',path+'/'+oid,headers=auth)[1],raw)
+
+    def test_antivirus_protocol(self):
+        import antivirus,struct
+        from unittest.mock import MagicMock
+        data=b'fiction'
+        with patch.dict(os.environ,{'DSIG_CLAMD_SOCKET':''}):
+            with self.assertRaises(antivirus.Unavailable):antivirus.scan(data)
+        with patch.dict(os.environ,{'DSIG_CLAMD_SOCKET':'/private/clamd.sock'}),patch('antivirus.socket.socket') as factory:
+            sock=MagicMock();factory.return_value.__enter__.return_value=sock
+            sock.recv.side_effect=[b'stream: ',b'OK\x00'];antivirus.scan(data)
+            self.assertEqual([c.args[0] for c in sock.sendall.call_args_list],[b'zINSTREAM\x00',struct.pack('!I',len(data))+data,b'\0'*4])
+            for response,exc in [(b'stream: Test FOUND\x00',antivirus.Infected),(b'stream: ERROR\x00',antivirus.Unavailable),(b'stream: OK',antivirus.Unavailable),(b'',antivirus.Unavailable)]:
+                sock.recv.side_effect=[response,b'']
+                with self.assertRaises(exc):antivirus.scan(data)
+            sock.connect.side_effect=OSError()
+            with self.assertRaises(antivirus.Unavailable):antivirus.scan(data)
 
     def test_document_rotation_rollback(self):
         import documents,accounts,hashlib
