@@ -1,0 +1,35 @@
+# Rehearsal only: production mode intentionally unavailable.
+name: dsig-prod-candidate
+services:
+  candidate:
+    build: .
+    environment:
+      DSIG_ENV: REC
+      DSIG_HTTPS_ORIGIN: https://candidate.invalid
+      DSIG_ADMIN_TOKEN: "${DSIG_CANDIDATE_ADMIN_TOKEN:?Dedicated candidate key required}"
+      DSIG_MFA_KEY: "${DSIG_CANDIDATE_MFA_KEY:?Dedicated candidate key required}"
+      DSIG_BACKUP_KEY: "${DSIG_CANDIDATE_BACKUP_KEY:?Dedicated candidate key required}"
+      DSIG_DOCUMENT_KEY: "${DSIG_CANDIDATE_DOCUMENT_KEY:?Dedicated candidate key required}"
+      DSIG_MFA_REQUIRED_ROLES: DIRECTION,CONTROLE,COMPTABLE,AUDITEUR
+      DSIG_CLAMD_SOCKET: /run/dsig-clamav/clamd.ctl
+    group_add:
+      - "${DSIG_CLAMD_GID:?Set numeric socket group ID}"
+    ports:
+      - "127.0.0.1:${DSIG_CANDIDATE_PORT:-8310}:8080"
+    volumes:
+      - candidate-data:/app/data
+      - type: bind
+        source: "${DSIG_CLAMD_HOST_DIR:-/run/clamav}"
+        target: /run/dsig-clamav
+        read_only: true
+        bind:
+          create_host_path: false
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+volumes:
+  candidate-data:

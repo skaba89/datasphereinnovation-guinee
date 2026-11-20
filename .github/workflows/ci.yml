@@ -45,6 +45,16 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Validate isolated candidate configuration
+        env:
+          DSIG_CANDIDATE_ADMIN_TOKEN: ci-fictitious-token-not-a-secret-123456
+          DSIG_CANDIDATE_MFA_KEY: ci-placeholder
+          DSIG_CANDIDATE_BACKUP_KEY: ci-placeholder
+          DSIG_CANDIDATE_DOCUMENT_KEY: ci-placeholder
+          DSIG_CLAMD_GID: '109'
+        run: |
+          docker compose -f compose.prod-candidate.yaml config --quiet
+          docker compose -f compose.prod-candidate.yaml config --format json | python -c "import json,sys; c=json.load(sys.stdin); s=c['services']['candidate']; assert c['name']=='dsig-prod-candidate'; assert s['environment']['DSIG_ENV']=='REC'; assert s['ports'][0]['host_ip']=='127.0.0.1'; assert 'candidate-data' in c['volumes']; assert 'edge' not in c['networks']"
       - name: Build local image
         run: docker build -t dsig-ci .
       - name: Verify local container
