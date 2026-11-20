@@ -135,6 +135,17 @@ class BrowserTests(unittest.TestCase):
                 self.page.goto('/'+module+'.html')
                 if module=='audit': expect(self.page.locator('#notice')).to_contain_text('100 derniers événements')
                 else: expect(self.page.locator('#dashboard' if module=='admin' else '#workspace')).to_be_visible()
+                if module in ('crm','missions','billing'):
+                    links=self.page.locator('.workflow-nav a')
+                    self.assertGreaterEqual(links.count(),2)
+                    for link in links.all():
+                        target=link.get_attribute('href')
+                        expect(self.page.locator(target)).to_be_visible()
+                    links.last.click()
+                    self.assertTrue(self.page.evaluate('location.hash.length > 1'))
+                    self.page.set_viewport_size({'width':390,'height':844})
+                    self.assertTrue(self.page.evaluate('document.documentElement.scrollWidth <= innerWidth + 1'))
+                    self.page.set_viewport_size({'width':1280,'height':900})
                 if module=='crm':
                     self.page.locator('#org-editor [name=name]').fill('Organisation fictive E2E')
                     self.page.locator('#org-editor [name=kind]').select_option('CLIENT')
