@@ -24,6 +24,15 @@ const expertiseGroups=[
     ['briefcase','Avant-vente & ingénierie commerciale','Qualification, ateliers, démonstrations sur rendez-vous, POC, chiffrage et propositions techniques.'],
     ['document','Appels d’offres & marchés','Veille, analyse du dossier de consultation, réponse technique, méthodologie, planning et budget.'],
     ['users','Pilotage de projet & produit','PMO, chef de projet, Product Owner, Scrum Master, coordination, conduite du changement et formation.']
+  ]},
+  {name:'Cybersécurité, risques & résilience',items:[
+    ['shield','Audit de cybersécurité & GRC','Analyse des risques, gouvernance SSI, politiques de sécurité, écarts aux référentiels ISO 27001 et NIST, accompagnement RSSI.'],
+    ['lock','Identités, accès & Zero Trust','IAM, MFA, SSO, RBAC, moindre privilège, gouvernance des accès et comptes privilégiés (PAM).'],
+    ['cloud','Sécurité Cloud & infrastructures','Durcissement, segmentation réseau, chiffrement, sécurité des conteneurs et configurations cloud et hybrides.'],
+    ['code','Sécurité applicative & tests autorisés','Revue de code, OWASP, SAST, DAST, SCA, gestion des vulnérabilités et tests d’intrusion sur périmètre autorisé.'],
+    ['radar','Détection, SOC & réponse aux incidents','Collecte des journaux, SIEM, EDR, scénarios de détection, qualification et procédures de réponse aux incidents.'],
+    ['backup','Cyberrésilience & continuité d’activité','Sauvegardes, restauration, plans PCA/PRA, exercices de crise et maîtrise des risques de rançongiciel.'],
+    ['users','Sensibilisation & protection des données','Formation, simulations de phishing autorisées, classification, confidentialité et bonnes pratiques de protection des données.']
   ]}
 ];
 const expertiseContainer=document.querySelector('#expertise-groups');
@@ -46,7 +55,14 @@ const expertiseDetails=[
   ['Une transformation pragmatique','Diagnostic, priorisation et conduite du changement','Feuille de route et plan d’accompagnement'],
   ['Une proposition adaptée au besoin','Qualification, ateliers, estimation et dossier technique','Note de cadrage, chiffrage et proposition'],
   ['Une réponse structurée aux consultations','Analyse des exigences, conformité documentaire et planning','Matrice de conformité, mémoire technique et budget'],
-  ['Une livraison pilotée par la valeur','Gouvernance, backlog, planification et coordination','Roadmap, reporting projet et critères de recette']
+  ['Une livraison pilotée par la valeur','Gouvernance, backlog, planification et coordination','Roadmap, reporting projet et critères de recette'],
+  ['Un risque cyber identifié et piloté','Diagnostic SSI, cartographie des risques et analyse des écarts','Registre des risques, feuille de route SSI et plan de remédiation'],
+  ['Des accès maîtrisés à chaque ressource','Inventaire des identités, politiques d’accès, MFA et revue des privilèges','Matrice des accès, architecture IAM et recommandations'],
+  ['Une infrastructure durcie et segmentée','Revue de configuration, réseaux, secrets et conteneurs','Architecture sécurisée, liste des écarts et plan de durcissement'],
+  ['Des applications plus résistantes','Revue applicative et tests convenus par écrit, en environnement autorisé','Rapport de vulnérabilités, priorisation et vérification des corrections'],
+  ['Une détection et une réponse structurées','Analyse des journaux, scénarios de détection et préparation aux incidents','Catalogue de cas d’usage, procédures et tableau de bord'],
+  ['Une reprise préparée et vérifiable','Analyse d’impact, RPO/RTO, sauvegarde et exercices de restauration','PCA/PRA, procédures de reprise et rapport d’exercice'],
+  ['Des équipes sensibilisées et des données mieux protégées','Ateliers, classification, pratiques de sécurité et exercices autorisés','Supports de formation, recommandations et plan de sensibilisation']
 ];
 const allExpertises=expertiseGroups.flatMap(g=>g.items.map(item=>({item,group:g.name})));
 if(expertiseContainer){

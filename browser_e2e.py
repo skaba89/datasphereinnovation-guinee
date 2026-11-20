@@ -69,6 +69,17 @@ class BrowserTests(unittest.TestCase):
         expect(self.page.locator('#request-status')).to_contain_text('Demande enregistrée localement')
         self.assertEqual(self.errors, [])
 
+    def test_cybersecurity_expertise_and_prefill(self):
+        self.page.goto('/')
+        expect(self.page.locator('#expertise-groups article')).to_have_count(25)
+        expect(self.page.locator('#expertise-groups h3')).to_have_count(5)
+        self.page.locator('article').filter(has=self.page.get_by_role('heading',name='Audit de cybersécurité & GRC',exact=True)).get_by_role('link').click()
+        expect(self.page.locator('#deliverables')).to_contain_text('Registre des risques')
+        self.page.locator('#expertise-contact').click()
+        expect(self.page.locator('#need')).to_have_value('Cybersécurité & résilience')
+        expect(self.page.locator('#request [name=message]')).to_have_value('Domaine : Audit de cybersécurité & GRC — ')
+        self.assertEqual(self.errors, [])
+
     def test_admin_mfa_all_modules_and_logout(self):
         self.activate('admin.e2e', 'ADMIN')
         expect(self.page.locator('#modules a')).to_have_count(0)
