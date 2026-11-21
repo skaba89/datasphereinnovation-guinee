@@ -23,6 +23,12 @@ def schema(db):
         channel TEXT NOT NULL, note TEXT NOT NULL, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)""")
     db.execute('CREATE INDEX IF NOT EXISTS billing_reminders_invoice ON billing_reminders(invoice_id,created_at)')
 
+    db.execute("""CREATE TABLE IF NOT EXISTS planned_expenses(
+        id TEXT PRIMARY KEY, reference TEXT NOT NULL UNIQUE COLLATE NOCASE, currency TEXT NOT NULL,
+        amount TEXT NOT NULL, due_date TEXT NOT NULL, category TEXT NOT NULL, description TEXT NOT NULL,
+        state TEXT NOT NULL DEFAULT 'PREVU', expense_id TEXT UNIQUE REFERENCES expenses(id),
+        actor TEXT NOT NULL, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)""")
+
 def total(rows):return sum((Decimal(r[0]) for r in rows),Decimal(0))
 def amount(value,currency):
     if not re.fullmatch(r'\d{1,12}(?:\.\d{1,2})?',value):raise ValueError()
@@ -47,10 +53,16 @@ def handle(h,connect,method):
         except ValueError:return h.json_response(400,{'error':'Page invalide.'})
         with connect() as db:
             db.row_factory=sqlite3.Row
+            if kind=='planned-expenses':
+                items=[dict(r) for r in db.execute("""SELECT p.*,e.reference AS expense_reference
+                    FROM planned_expenses p LEFT JOIN expenses e ON e.id=p.expense_id
+                    ORDER BY p.due_date,p.id LIMIT 25 OFFSET ?""",((page-1)*25,))]
+                return h.json_response(200,{'items':items,'total':db.execute('SELECT count(*) FROM planned_expenses').fetchone()[0]})
             if kind=='forecast':
+                db.execute('BEGIN')
                 today=date.today(); buckets={}
                 def bucket(currency):
-                    return buckets.setdefault(currency,{k:Decimal(0) for k in ('overdue','receipts_30','receipts_60','receipts_90','planned_30','planned_60','planned_90','recorded_outflows')})
+                    return buckets.setdefault(currency,{k:Decimal(0) for k in ('overdue','receipts_30','receipts_60','receipts_90','planned_30','planned_60','planned_90','recorded_outflows','outflows_overdue','outflows_30','outflows_60','outflows_90')})
                 def add(currency,due,value,prefix):
                     b=bucket(currency); days=(date.fromisoformat(due)-today).days
                     if days<0:
@@ -65,6 +77,14 @@ def handle(h,connect,method):
                     add(s['currency'],s['due_date'],Decimal(s['amount']),'planned')
                 for e in db.execute('SELECT currency,amount FROM expenses'):
                     bucket(e['currency'])['recorded_outflows']+=Decimal(e['amount'])
+                for e in db.execute("SELECT currency,amount,due_date FROM planned_expenses WHERE state='PREVU'"):
+                    b=bucket(e['currency']); value=Decimal(e['amount']); days=(date.fromisoformat(e['due_date'])-today).days
+                    if days<0:b['outflows_overdue']+=value
+                    for horizon in (30,60,90):
+                        if days<=horizon:b[f'outflows_{horizon}']+=value
+                for b in buckets.values():
+                    for horizon in (30,60,90):
+                        b[f'net_{horizon}']=b[f'receipts_{horizon}']-b[f'outflows_{horizon}']
                 return h.json_response(200,{'as_of':today.isoformat(),'items':[{'currency':c,**{k:str(v) for k,v in b.items()}} for c,b in sorted(buckets.items())]})
             if kind=='receivables':
                 items=[]; aging={}; today=date.today()
@@ -135,7 +155,22 @@ def handle(h,connect,method):
         v={k:x.strip() for k,x in v.items()};oid=str(uuid.uuid4())
         with connect() as db:
             db.row_factory=sqlite3.Row;db.execute('BEGIN IMMEDIATE')
-            if kind=='reminders' and method=='POST':
+            if kind=='planned-expenses' and method=='POST':
+                if set(v)!={'reference','currency','amount','due_date','category','description'} or not v['reference'] or not v['description'] or v['currency'] not in ('GNF','XOF','EUR','USD') or v['category'] not in ('CONSULTANT','REMBOURSEMENT','FONCTIONNEMENT','AUTRE') or date.fromisoformat(v['due_date']).isoformat()!=v['due_date'] or v['due_date']<date.today().isoformat():raise ValueError()
+                a=amount(v['amount'],v['currency'])
+                db.execute('INSERT INTO planned_expenses(id,reference,currency,amount,due_date,category,description,actor) VALUES(?,?,?,?,?,?,?,?)',(oid,v['reference'],v['currency'],str(a),v['due_date'],v['category'],v['description'],h.actor));event='DEPENSE_PLANIFIEE'
+            elif kind=='planned-expenses' and method=='PATCH':
+                oid=path.rsplit('/',1)[-1]
+                p=db.execute("SELECT * FROM planned_expenses WHERE id=? AND state='PREVU'",(oid,)).fetchone()
+                if not p:return h.json_response(409,{'error':'Prévision absente ou déjà traitée.'})
+                if v=={'state':'ANNULE'}:
+                    db.execute("UPDATE planned_expenses SET state='ANNULE' WHERE id=?",(oid,));event='DEPENSE_PREVISION_ANNULEE'
+                elif set(v)=={'expense_reference'} and v['expense_reference']:
+                    e=db.execute('SELECT * FROM expenses WHERE reference=?',(v['expense_reference'],)).fetchone()
+                    if not e or e['currency']!=p['currency'] or Decimal(e['amount'])!=Decimal(p['amount']):return h.json_response(409,{'error':'Décaissement absent, devise ou montant différent.'})
+                    db.execute("UPDATE planned_expenses SET state='RAPPROCHE',expense_id=? WHERE id=?",(e['id'],oid));event='DEPENSE_PREVISION_RAPPROCHEE'
+                else:raise ValueError()
+            elif kind=='reminders' and method=='POST':
                 if set(v)!={'invoice_id','channel','note'} or v['channel'] not in ('EMAIL','TELEPHONE','WHATSAPP','AUTRE') or not v['note']:raise ValueError()
                 i=db.execute('SELECT * FROM invoices WHERE id=?',(v['invoice_id'],)).fetchone()
                 if not i:raise ValueError()
