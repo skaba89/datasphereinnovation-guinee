@@ -137,3 +137,30 @@ sudo journalctl -u dsig-rec-backup.service -u dsig-rec-monitor.service -n 50 --n
 ```
 
 Sauvegarde à 02:15 UTC (03:15 Paris en hiver, 04:15 en été, 02:15 Guinée), rattrapage après arrêt. Monitoring toutes les cinq minutes. Examiner les statuts et les logs, notamment les FAIL ; transmettre les alertes à un canal externe approuvé et conserver une copie hors VPS. Aucune suppression automatique d'archives. Pour rollback : `sudo systemctl disable --now dsig-rec-backup.timer dsig-rec-monitor.timer`, sans toucher aux volumes ni aux autres services. Ne pas activer PROD.
+
+
+## V75 — Dossier de recette et décision de mise en service
+
+Référence de départ : PR 74 fusionnée, commit main `e72cc2ef09c415656ca35c3b8db3f9351996475e`, CI PR run 44895423283 : quatre jobs réussis (Python 3.10/3.12, navigateur, Docker). Cette preuve porte sur V74, pas sur les modifications suivantes ni sur le VPS. Pour chaque candidate, consigner le nouveau SHA et le lien de son run CI.
+
+| Domaine | Preuve attendue pour la candidate | État terrain initial |
+|---|---|---|
+| Non-régression | Quatre jobs CI réussis sur le SHA exact | À confirmer |
+| Site vitrine FR/EN | Navigation, expertise, formulaire et rendu mobile | À confirmer en REC |
+| CRM et Supply Chain | Catalogue privé, opportunité, organisation, diagnostic sans persistance | À confirmer en REC |
+| Recrutement et missions | Profil, affectation, CRA, contrat et renouvellement fictifs | À confirmer en REC |
+| Finance | Devis, échéance, règlement, dépense, marges, export et rapprochement fictifs | À confirmer en REC |
+| Identité | Neuf rôles, MFA, accès refusés, session révoquée | À confirmer en REC |
+| GED | Dépôt et lecture, refus antivirus, indisponibilité fail-closed sur clamd réel | À confirmer en REC |
+| Exploitation | TLS, accès restreint, health/ready, logs, sauvegarde hors site, restauration applicative isolée | À confirmer en REC |
+| Gouvernance | Politique de rétention, sécurité indépendante, validation métier et décision signée | À confirmer |
+
+Ne jamais utiliser de données clients réelles pendant cette recette. Renseigner pour chaque ligne : date UTC, SHA, environnement, responsable, résultat PASS/FAIL/NOT_RUN, lien vers la preuve expurgée, anomalie et action. Les résultats non exécutés ne sont pas des succès. Toute anomalie bloquante ou contrôle obligatoire non exécuté impose NO GO. La V75 renforce les tests navigateur des routes privées anonymes, sous-routes CRM/finance/missions et de la révocation après déconnexion. Elle ne débloque pas le mode PROD.
+
+### Ordre de validation
+
+1. Exécuter la CI et la suite isolée existante sur la candidate.
+2. Déployer uniquement dans REC contrôlée, après validation de la version et sauvegarde (procédures précédentes), sans modifier les autres services.
+3. Exécuter la recette fonctionnelle par rôle, le contrôle préalable, le scanner réel et l'exercice de restauration isolée.
+4. Documenter les écarts, corriger en branche dédiée, rejouer les contrôles et faire valider les résultats par les responsables.
+5. Une décision de production nécessite une version dédiée, revue de sécurité et autorisation humaine explicite. Aucun passage automatique en PROD.
