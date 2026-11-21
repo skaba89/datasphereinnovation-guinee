@@ -367,6 +367,27 @@ class IntakeTests(unittest.TestCase):
         self.assertEqual(self.request('GET','/api/admin/direction',headers=user)[0],401)
         self.assertEqual(self.request('GET','/api/admin/direction',headers={'Authorization':'Bearer '+json.loads(body)['key']})[0],200)
 
+    def test_rec_account_invitation(self):
+        import contact_mail
+        auth={'Authorization':'Bearer '+server.ADMIN_TOKEN,'Content-Type':'application/json'}
+        path='/api/admin/accounts'
+        with patch.dict(os.environ,{'DSIG_ENV':'REC'}):
+            s,b,_=self.request('POST',path,{'username':'invite.test','role':'COMMERCIAL','consultant_id':''},auth)
+            self.assertEqual(s,201);account=json.loads(b)
+            target=path+'/'+account['id']
+            self.assertEqual(self.request('PATCH',target,{'action':'INVITE'},headers={'Authorization':'Bearer '+account['key'],'Content-Type':'application/json'})[0],403)
+            self.assertEqual(self.request('PATCH',target,{'action':'INVITE'},auth)[0],200)
+            self.assertEqual(self.request('PATCH',target,{'action':'INVITE'},auth)[0],409)
+            cfg={'api_key':'re_test','sender':'alerts@dsig-consulting.com','test_recipient':'qa@example.invalid'}
+            calls=[]
+            def deliver(*args):calls.append(args);return 'provider-id'
+            self.assertEqual(contact_mail.run(server.connect,cfg,deliver,invitations=True)['accepted'],1)
+            self.assertEqual(contact_mail.run(server.connect,cfg,deliver,invitations=True)['accepted'],0)
+            self.assertEqual(calls[0][2],'invite')
+            self.assertNotIn(account['key'],str(calls))
+            self.assertEqual(self.request('POST','/api/auth/activate',{'username':'invite.test','password':'fictitious-password-123','key':account['key']})[0],200)
+            self.assertEqual(self.request('PATCH',target,{'action':'INVITE'},auth)[0],409)
+
     def test_scheduled_notifications(self):
         import notifications
         from datetime import date
