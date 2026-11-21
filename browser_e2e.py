@@ -258,5 +258,73 @@ class BrowserTests(unittest.TestCase):
         self.assertEqual(self.errors, [])
 
 
+    def test_non_admin_role_navigation_and_api_matrix(self):
+        # Independent business expectations, not derived from the implementation.
+        matrix = {
+            'DIRECTION': ({'direction','billing','missions','quotes','crm','tenders','alerts'}, {'notifications'}),
+            'COMMERCIAL': ({'consultants'}, {'requests','crm','quotes','tenders'}),
+            'RH': ({'requests'}, {'consultants','recruitment'}),
+            'PROJET': ({'consultants','quotes'}, {'missions'}),
+            'CONTROLE': ({'direction','missions','billing','quotes'}, set()),
+            'COMPTABLE': ({'missions'}, {'billing'}),
+            'AUDITEUR': ({'direction','audit'}, set()),
+        }
+        pages = {
+            'requests':'admin.html', 'crm':'crm.html', 'quotes':'quotes.html',
+            'tenders':'tenders.html', 'consultants':'consultants.html',
+            'recruitment':'recruitment.html', 'missions':'missions.html',
+            'billing':'billing.html', 'direction':'direction.html',
+            'accounts':'accounts.html', 'audit':'audit.html',
+            'documents':'documents.html', 'alerts':'alerts.html',
+            'notifications':'notifications.html',
+        }
+        for role, (read, write) in matrix.items():
+            with self.subTest(role=role):
+                self.context.clear_cookies()
+                # Isolate each fictitious user's login rate-limit fixture.
+                server.authentication.ATTEMPTS.clear()
+                username = role.lower()+'.v56'
+                self.activate(username, role)
+                if role in {'DIRECTION','CONTROLE','COMPTABLE','AUDITEUR'}:
+                    expect(self.page.locator('#modules a')).to_have_count(0)
+                    self.page.locator('#mfa-setup [name=password]').fill(self.password)
+                    self.page.locator('#mfa-setup button').click()
+                    expect(self.page.locator('#mfa-pending')).to_be_visible()
+                    secret = self.page.locator('#secret').input_value()
+                    self.page.locator('#mfa-confirm [name=code]').fill(server.authentication.totp(secret, int(time.time())//30))
+                    self.page.locator('#mfa-confirm button').click()
+                    expect(self.page.locator('#recovery')).to_be_visible()
+                    code = self.page.locator('#recovery-codes').inner_text().splitlines()[0]
+                    self.page.locator('#dismiss-recovery').click()
+                    self.login(username, code)
+                allowed = read | write
+                expected = {pages[resource] for resource in allowed}
+                if 'crm' in allowed:
+                    expected.add('appointments.html')
+                expect(self.page.locator('#modules a')).to_have_count(len(expected))
+                self.assertEqual(set(self.page.locator('#modules a').evaluate_all('(nodes) => nodes.map(a => a.getAttribute("href"))')), expected)
+                for resource in allowed:
+                    mode = 'Lecture / écriture' if resource in write else 'Lecture'
+                    expect(self.page.locator(f'#modules a[href="{pages[resource]}"] .module-mode')).to_have_text(mode)
+                # Direct API checks use the authenticated browser cookie, never bootstrap.
+                headers = {'Authorization':'Bearer session'}
+                for resource in pages:
+                    response = self.context.request.get('/api/admin/'+resource, headers=headers)
+                    self.assertEqual(response.status, 200 if resource in allowed else 403, f'{role}: {resource}')
+                target = sorted(expected)[0]
+                self.page.locator(f'#modules a[href="{target}"]').click()
+                nav = self.page.locator('.app-sidebar nav a')
+                expect(nav).to_have_count(len(expected)+1)
+                self.assertEqual(set(nav.evaluate_all('(nodes) => nodes.map(a => a.getAttribute("href"))')), expected | {'connexion.html'})
+                self.page.goto('/accounts.html')
+                expect(self.page.locator('#notice')).to_contain_text('Permission insuffisante')
+                expect(self.page.locator('#workspace')).to_be_hidden()
+                self.page.goto('/connexion.html')
+                expect(self.page.locator('#workspace')).to_be_visible()
+                self.page.locator('#logout').click()
+                expect(self.page.locator('#login')).to_be_visible()
+        self.assertEqual(self.errors, [])
+
+
 if __name__ == '__main__':
     unittest.main()
