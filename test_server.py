@@ -302,6 +302,27 @@ class IntakeTests(unittest.TestCase):
             actions=[r[0] for r in db.execute("SELECT action FROM access_events WHERE actor='sessions.test'")]
         self.assertIn('REVOCATION_REFUSEE',actions);self.assertIn('SESSIONS_REVOQUEES',actions);self.assertIn('DECONNEXION',actions)
 
+    def test_password_change_revokes_sessions(self):
+        server.authentication.ATTEMPTS.clear()
+        admin={'Authorization':'Bearer '+server.ADMIN_TOKEN,'Content-Type':'application/json'}
+        s,b,_=self.request('POST','/api/admin/accounts',{'username':'password.test','role':'COMMERCIAL','consultant_id':''},admin)
+        self.assertEqual(s,201);key=json.loads(b)['key']
+        credentials={'username':'password.test','password':'fictitious-password-123'}
+        self.assertEqual(self.request('POST','/api/auth/activate',credentials|{'key':key})[0],200)
+        login={'Content-Type':'application/json','X-DSIG-Session':'cookie','Origin':f'http://127.0.0.1:{self.port}'}
+        def sign_in():
+            s,b,h=self.request('POST','/api/auth/login',credentials,login);self.assertEqual(s,200)
+            return login|{'Authorization':'Bearer session','Cookie':h['Set-Cookie'].split(';')[0]}
+        first,second=sign_in(),sign_in()
+        data={'password':credentials['password'],'new_password':'new-fictitious-password-456','otp':''}
+        path='/api/auth/change-password'
+        self.assertEqual(self.request('POST',path,data|{'password':'wrong-password'},first)[0],401)
+        self.assertEqual(self.request('POST',path,data,first|{'Origin':'https://evil.invalid'})[0],403)
+        self.assertEqual(self.request('POST',path,data,first)[0],200)
+        for session in (first,second):self.assertEqual(self.request('GET','/api/auth/me',headers=session)[0],401)
+        self.assertEqual(self.request('POST','/api/auth/login',credentials,login)[0],401)
+        self.assertEqual(self.request('POST','/api/auth/login',credentials|{'password':data['new_password']},login)[0],200)
+
     def test_role_matrix(self):
         import accounts
         expected={
