@@ -33,6 +33,17 @@ function download(x){const lines=['DATASPHERE INNOVATION GUINÉE','PROPOSITION C
 function tracking(x,td,canManage){
  const sent=x.transmission, decision=x.decision;
  const info=document.createElement('p');info.textContent=decision?'Décision '+decision.decision+' · '+decision.created_at:sent?'Transmission enregistrée · '+sent.created_at:'Transmission non enregistrée';td.append(info);
+ if(x.status==='ACCEPTE'){
+  const p=document.createElement('p');p.textContent=x.contract?'Contrat signé enregistré : '+x.contract.reference+' · '+x.contract.signed_date:'Contrat signé non enregistré';td.append(p);
+  if(canManage&&!x.contract){
+   const form=document.createElement('form'), ref=document.createElement('input'), date=document.createElement('input'), evidence=document.createElement('textarea'), submit=document.createElement('button');
+   ref.placeholder='Référence contrat';ref.required=true;ref.maxLength=180;ref.setAttribute('aria-label','Référence contrat');
+   date.type='date';date.required=true;date.setAttribute('aria-label','Date de signature');
+   evidence.placeholder='Référence de la preuve de signature';evidence.required=true;evidence.maxLength=1000;evidence.setAttribute('aria-label','Preuve de signature');
+   submit.textContent='Enregistrer le contrat signé';form.append(ref,date,evidence,submit);td.append(form);
+   form.onsubmit=async e=>{e.preventDefault();submit.disabled=true;try{await api('quotes/'+x.id+'/contract',{method:'POST',body:JSON.stringify({version:x.version,reference:ref.value,signed_date:date.value,evidence:evidence.value})});if(token){await load();notice('Signature existante enregistrée.')}}catch(e){notice(e.message)}finally{submit.disabled=false}};
+  }return;
+ }
  if(!canManage||x.status!=='PROPOSE')return;
  const form=document.createElement('form'), action=document.createElement('select'), evidence=document.createElement('textarea'), submit=document.createElement('button');
  for(const [v,t] of (sent?[['ACCEPTE','Accepté'],['REFUSE','Refusé']]:[['TRANSMIS','Enregistrer la transmission']]))action.append(option(v,t));
