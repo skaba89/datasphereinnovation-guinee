@@ -457,6 +457,78 @@ class BrowserTests(unittest.TestCase):
             self.assertEqual(self.context.request.get('/api/admin/documents/'+current_id).status,401)
         self.assertEqual(self.errors, [])
 
+    def test_tender_pipeline_and_appointment_conflicts(self):
+        opportunity = self.seed('/api/admin/crm', {'company':'Client V86 fictif','contact':'Contact fictif','email':'v86@example.invalid','title':'Mission V86','mode':'CONSEIL','skills':'Data','consultant_id':'','next_action':'','followup':'','notes':'','status':'QUALIFIE'})
+        self.activate('commercial.v86', 'COMMERCIAL')
+        self.page.locator('#modules a[href="tenders.html"]').click()
+        expect(self.page.locator('#workspace')).to_be_visible()
+        values = {'title':'Appel V86 fictif','client':'Client V86 fictif','reference':'AO-V86','deadline':'2020-01-01','owner':'Commercial fictif','notes':'Qualification fictive','budget':'1250.50'}
+        for name, value in values.items():
+            self.page.locator(f'#editor [name={name}]').fill(value)
+        self.page.locator('#editor [name=currency]').select_option('EUR')
+        self.page.locator('#editor-stage').select_option('QUALIFICATION')
+        self.page.locator('#save').click()
+        expect(self.page.locator('#notice')).to_have_text('Dossier enregistré.')
+        row = self.page.locator('#rows tr').filter(has_text='AO-V86')
+        expect(row).to_contain_text('échue')
+        expect(row).to_contain_text('1250.50 EUR')
+        headers = {'Authorization':'Bearer session', 'Origin':self.url}
+        endpoint = '/api/admin/tenders'
+        saved = self.context.request.get(endpoint, headers=headers).json()['items'][0]
+        row.get_by_role('button', name='Modifier').click()
+        self.page.locator('#editor-stage').select_option('GO')
+        self.page.locator('#save').click()
+        expect(row).to_contain_text('Go')
+        stale = dict(values, currency='EUR', stage='PERDU', version=saved['version'])
+        response = self.context.request.patch(endpoint+'/'+saved['id'], headers=headers, data=stale)
+        self.assertEqual(response.status, 409, response.text())
+        self.page.locator('#stage').select_option('PERDU')
+        self.page.locator('#filter button').click()
+        expect(self.page.locator('#rows')).to_contain_text('Aucun dossier.')
+        self.page.locator('#stage').select_option('GO')
+        self.page.locator('#search').fill('AO-V86')
+        self.page.locator('#filter button').click()
+        expect(row).to_contain_text('Go')
+        self.page.goto('/appointments.html')
+        expect(self.page.locator('#workspace')).to_be_visible()
+        expect(self.page.locator('#editor')).to_be_visible()
+
+        def schedule(title, starts, ends):
+            self.page.locator('#editor [name=opportunity_id]').select_option(opportunity['id'])
+            for name, value in {'title':title,'starts':starts,'ends':ends}.items():
+                self.page.locator(f'#editor [name={name}]').fill(value)
+            self.page.locator('#editor button').click()
+
+        schedule('Réunion V86', '2099-05-01T09:00', '2099-05-01T10:00')
+        expect(self.page.locator('#notice')).to_have_text('Rendez-vous planifié.')
+        meeting = self.page.locator('#rows section').filter(has_text='Réunion V86')
+        expect(meeting).to_contain_text('PLANIFIE')
+        schedule('Conflit V86', '2099-05-01T09:30', '2099-05-01T10:30')
+        expect(self.page.locator('#notice')).to_contain_text('Créneau occupé')
+        expect(self.page.locator('#rows')).not_to_contain_text('Conflit V86')
+        schedule('Adjacent V86', '2099-05-01T10:00', '2099-05-01T11:00')
+        adjacent = self.page.locator('#rows section').filter(has_text='Adjacent V86')
+        expect(adjacent).to_contain_text('PLANIFIE')
+        adjacent.get_by_role('button',name='Annuler').click()
+        expect(adjacent).to_contain_text('ANNULE')
+        expect(adjacent.get_by_role('button')).to_have_count(0)
+        schedule('Créneau libéré V86', '2099-05-01T10:00', '2099-05-01T11:00')
+        expect(self.page.locator('#rows')).to_contain_text('Créneau libéré V86')
+        meeting.get_by_role('button',name='Terminer').click()
+        expect(meeting).to_contain_text('TERMINE')
+        expect(meeting.get_by_role('button')).to_have_count(0)
+        appointments = self.context.request.get('/api/admin/crm/appointments', headers=headers).json()['items']
+        finished = next(a for a in appointments if a['title']=='Réunion V86')
+        self.assertEqual([event['status'] for event in finished['history']], ['PLANIFIE','TERMINE'])
+        self.assertEqual(finished['opportunity_id'], opportunity['id'])
+        self.assertEqual(finished['starts'], '2099-05-01T09:00:00+00:00')
+        response = self.context.request.patch('/api/admin/crm/appointments/'+finished['id'], headers=headers, data={'status':'ANNULE','version':1})
+        self.assertEqual(response.status, 409, response.text())
+        with server.connect() as db:
+            events = db.execute('SELECT stage,version FROM tender_events WHERE tender_id=? ORDER BY id',(saved['id'],)).fetchall()
+            self.assertEqual([tuple(event) for event in events], [('QUALIFICATION',1),('GO',2)])
+        self.assertEqual(self.errors, [])
+
     def test_english_parity_and_intake(self):
         self.page.goto('/')
         styles = self.page.locator('link[rel=stylesheet]').evaluate_all('(links) => links.map(x => x.getAttribute("href"))')
