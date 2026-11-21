@@ -12,6 +12,12 @@ def schema(db):
     db.execute('''CREATE TABLE IF NOT EXISTS payments(id TEXT PRIMARY KEY, invoice_id TEXT NOT NULL, reference TEXT NOT NULL UNIQUE, amount TEXT NOT NULL, paid_date TEXT NOT NULL)''')
     db.execute('''CREATE TABLE IF NOT EXISTS billing_events(id INTEGER PRIMARY KEY, entity_id TEXT NOT NULL, event TEXT NOT NULL, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)''')
 
+    db.execute("""CREATE TABLE IF NOT EXISTS billing_schedule(
+        id TEXT PRIMARY KEY, mission_id TEXT NOT NULL REFERENCES missions(id),
+        label TEXT NOT NULL, kind TEXT NOT NULL, amount TEXT NOT NULL, due_date TEXT NOT NULL,
+        state TEXT NOT NULL DEFAULT 'PREVU', invoice_id TEXT UNIQUE REFERENCES invoices(id),
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)""")
+
 def total(rows):return sum((Decimal(r[0]) for r in rows),Decimal(0))
 def amount(value,currency):
     if not re.fullmatch(r'\d{1,12}(?:\.\d{1,2})?',value):raise ValueError()
@@ -36,6 +42,16 @@ def handle(h,connect,method):
         except ValueError:return h.json_response(400,{'error':'Page invalide.'})
         with connect() as db:
             db.row_factory=sqlite3.Row
+            if kind=='schedule':
+                items=[]
+                for record in db.execute("""SELECT s.*,q.currency,q.title,o.company,m.contract_ref,i.reference invoice_reference
+                    FROM billing_schedule s JOIN missions m ON m.id=s.mission_id JOIN quotes q ON q.id=m.quote_id
+                    JOIN opportunities o ON o.id=m.opportunity_id LEFT JOIN invoices i ON i.id=s.invoice_id
+                    ORDER BY s.due_date,s.id LIMIT 25 OFFSET ?""",((page-1)*25,)):
+                    x=dict(record)
+                    x['overdue']=x['state']=='PREVU' and x['due_date']<date.today().isoformat()
+                    items.append(x)
+                return h.json_response(200,{'items':items,'total':db.execute('SELECT count(*) FROM billing_schedule').fetchone()[0]})
             if kind=='contracts':
                 items=[]
                 today=date.today().isoformat()
@@ -77,7 +93,27 @@ def handle(h,connect,method):
         v={k:x.strip() for k,x in v.items()};oid=str(uuid.uuid4())
         with connect() as db:
             db.row_factory=sqlite3.Row;db.execute('BEGIN IMMEDIATE')
-            if method=='PATCH' and kind=='milestones':
+            if kind=='schedule' and method=='POST':
+                if set(v)!={'mission_id','label','kind','amount','due_date'} or not v['label'] or v['kind'] not in ('ACOMPTE','PERIODIQUE','SOLDE') or date.fromisoformat(v['due_date']).isoformat()!=v['due_date']:raise ValueError()
+                m=mission(db,v['mission_id'])
+                if not m:raise ValueError()
+                a=amount(v['amount'],m['currency'])
+                used=total(db.execute("SELECT amount FROM billing_schedule WHERE mission_id=? AND state<>'ANNULE'",(v['mission_id'],)))
+                if used+a>Decimal(quotes.calculate(m)['revenue']):return h.json_response(409,{'error':'Échéancier supérieur au montant prévisionnel du devis.'})
+                if db.execute("SELECT 1 FROM billing_schedule WHERE mission_id=? AND label=? AND due_date=? AND state<>'ANNULE'",(v['mission_id'],v['label'],v['due_date'])).fetchone():return h.json_response(409,{'error':'Échéance déjà planifiée.'})
+                db.execute('INSERT INTO billing_schedule(id,mission_id,label,kind,amount,due_date) VALUES(?,?,?,?,?,?)',(oid,v['mission_id'],v['label'],v['kind'],str(a),v['due_date']));event='ECHEANCE_PLANIFIEE'
+            elif kind=='schedule' and method=='PATCH':
+                oid=path.rsplit('/',1)[-1]
+                s=db.execute("SELECT * FROM billing_schedule WHERE id=? AND state='PREVU'",(oid,)).fetchone()
+                if not s:return h.json_response(409,{'error':'Échéance absente ou déjà traitée.'})
+                if v=={'state':'ANNULE'}:
+                    db.execute("UPDATE billing_schedule SET state='ANNULE' WHERE id=?",(oid,));event='ECHEANCE_ANNULEE'
+                elif set(v)=={'invoice_reference'} and v['invoice_reference']:
+                    i=db.execute('SELECT * FROM invoices WHERE reference=? AND mission_id=?',(v['invoice_reference'],s['mission_id'])).fetchone()
+                    if not i or Decimal(i['amount'])!=Decimal(s['amount']):return h.json_response(409,{'error':'Créance absente ou montant différent.'})
+                    db.execute("UPDATE billing_schedule SET state='RAPPROCHE',invoice_id=? WHERE id=?",(i['id'],oid));event='ECHEANCE_RAPPROCHEE'
+                else:raise ValueError()
+            elif method=='PATCH' and kind=='milestones':
                 oid=path.rsplit('/',1)[-1]
                 if v!={'status':'VALIDE'}:raise ValueError()
                 if db.execute("UPDATE milestones SET status='VALIDE' WHERE id=? AND status='PREVU'",(oid,)).rowcount!=1:return h.json_response(409,{'error':'Jalon absent ou déjà validé.'})
