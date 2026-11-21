@@ -18,6 +18,16 @@ def schema(db):
         attempts INTEGER NOT NULL DEFAULT 0, state TEXT NOT NULL DEFAULT 'PENDING',
         provider_id TEXT, PRIMARY KEY(request_id,kind))''')
 
+    db.execute('''CREATE TABLE IF NOT EXISTS account_invitation (
+        request_id TEXT PRIMARY KEY REFERENCES accounts(id), kind TEXT NOT NULL DEFAULT 'invite',
+        language TEXT NOT NULL DEFAULT 'fr', created REAL NOT NULL, next_attempt REAL NOT NULL,
+        attempts INTEGER NOT NULL DEFAULT 0, state TEXT NOT NULL DEFAULT 'PENDING', provider_id TEXT)''')
+
+
+def enqueue_invitation(db, account_id):
+    now = time.time()
+    return db.execute('INSERT OR IGNORE INTO account_invitation(request_id,created,next_attempt) VALUES (?,?,?)',(account_id,now,now)).rowcount == 1
+
 
 def enqueue(db, request_id, language):
     now = time.time()
@@ -35,7 +45,9 @@ def config(raw):
 
 
 def send(cfg, rid, kind, language):
-    if kind == 'internal':
+    if kind == 'invite':
+        subject, body = '[REC TEST] Invitation espace DSIG', 'Simulation d’invitation au portail DSIG : https://rec.dsig-consulting.com/connexion.html\nLa clé individuelle doit être transmise séparément par un canal sécurisé. Aucun compte réel ni secret dans ce message.'
+    elif kind == 'internal':
         subject, body = '[REC] Nouvelle demande DSIG', f'Consultez le CRM REC. Référence : {rid}'
     elif language == 'en':
         subject, body = '[REC TEST] DSIG request received', f'Thank you for your request. Reference: {rid}. Our team will review it.'
@@ -50,29 +62,32 @@ def send(cfg, rid, kind, language):
     return identifier
 
 
-def run(connect, cfg, deliver=send, limit=10):
+def run(connect, cfg, deliver=send, limit=10, *, invitations=False):
     """Claim with a lease; retry only inside Resend's 24h idempotency window."""
     cfg = config(cfg)
+    table = 'account_invitation' if invitations else 'contact_mail'
     counts = {'accepted':0,'retry':0,'failed':0}
     for _ in range(limit):
         now = time.time()
         with connect() as db:
             db.execute('BEGIN IMMEDIATE')
-            db.execute("UPDATE contact_mail SET state='FAILED' WHERE state='PENDING' AND (created<? OR (attempts>=5 AND next_attempt<=?))",(now-20*3600,now))
-            row = db.execute("SELECT request_id,kind,language,attempts FROM contact_mail WHERE state='PENDING' AND next_attempt<=? ORDER BY created,kind LIMIT 1",(now,)).fetchone()
+            if invitations:
+                db.execute("UPDATE account_invitation SET state='CANCELLED' WHERE state='PENDING' AND (NOT EXISTS(SELECT 1 FROM accounts a WHERE a.id=request_id AND a.enabled=1) OR EXISTS(SELECT 1 FROM credentials c WHERE c.account_id=request_id))")
+            db.execute(f"UPDATE {table} SET state='FAILED' WHERE state='PENDING' AND (created<? OR (attempts>=5 AND next_attempt<=?))",(now-20*3600,now))
+            row = db.execute(f"SELECT request_id,kind,language,attempts FROM {table} WHERE state='PENDING' AND next_attempt<=? ORDER BY created,kind LIMIT 1",(now,)).fetchone()
             if not row:
                 break
             rid,kind,lang,attempts = row
-            db.execute('UPDATE contact_mail SET attempts=attempts+1,next_attempt=? WHERE request_id=? AND kind=?',(now+120,rid,kind))
+            db.execute(f'UPDATE {table} SET attempts=attempts+1,next_attempt=? WHERE request_id=? AND kind=?',(now+120,rid,kind))
         try:
             identifier = deliver(cfg,rid,kind,lang)
         except (OSError, ValueError, KeyError):
             state = 'FAILED' if attempts>=4 else 'PENDING'
             with connect() as db:
-                db.execute('UPDATE contact_mail SET state=?,next_attempt=? WHERE request_id=? AND kind=? AND attempts=?',(state,now+300*2**attempts,rid,kind,attempts+1))
+                db.execute(f'UPDATE {table} SET state=?,next_attempt=? WHERE request_id=? AND kind=? AND attempts=?',(state,now+300*2**attempts,rid,kind,attempts+1))
             counts['failed' if state=='FAILED' else 'retry']+=1
         else:
             with connect() as db:
-                db.execute("UPDATE contact_mail SET state='ACCEPTED',provider_id=? WHERE request_id=? AND kind=? AND attempts=?",(identifier,rid,kind,attempts+1))
+                db.execute(f"UPDATE {table} SET state='ACCEPTED',provider_id=? WHERE request_id=? AND kind=? AND attempts=?",(identifier,rid,kind,attempts+1))
             counts['accepted']+=1
     return counts
