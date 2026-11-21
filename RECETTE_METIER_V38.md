@@ -40,3 +40,19 @@ La CI existante exécute python unittest, contrôles JS, navigateur Playwright e
 Version : ___ ; commit : ___ ; date UTC : ___ ; testeur : ___.
 Pour chaque ID : statut, résultat observé, preuve expurgée, anomalie, priorité, décision et re-test.
 Décision finale : NO GO tant qu'un contrôle critique reste non validé. La recette ne lève pas le verrou PROD du serveur.
+
+## Complément V57 — contrôles avant décision de mise en production
+
+| ID | Contrôle REC | Critère d'acceptation |
+|---|---|---|
+| R21 | Soumettre une demande fictive FR puis EN depuis le site | Deux références distinctes enregistrées dans le CRM ; notification interne complète si configurée ; accusé adapté à la catégorie |
+| R22 | Tester avec deux boîtes de recette distinctes autorisées | Notification interne dans la boîte interne ; accusé au demandeur autorisé ; aucun envoi vers une adresse non autorisée en REC |
+| R23 | Faire évoluer le statut d'une demande dans le CRM | Le demandeur reçoit l'état correspondant, une seule fois par événement ; vérifier la livraison réelle, pas seulement l'acceptation fournisseur |
+| R24 | Vérifier les neuf profils V56 et changer un mot de passe via le portail | Les droits métier, MFA et restrictions restent conformes ; anciennes sessions révoquées |
+| R25 | Exécuter le contrôle des preuves de release | Dossier complet G01–G10, commit identique à HEAD et preuves expurgées ; dossier obsolète refusé |
+
+Ne pas utiliser de vraies données clients en REC. Noter la référence du message, la date et le statut fournisseur sans publier le contenu ou l'adresse. Vérifier aussi réception réelle et absence de doublon dans les boîtes de recette.
+
+Sur le VPS, dans le dépôt de la version candidate, exécuter `git rev-parse HEAD`, `python3 scripts/release-evidence.py` puis `python3 scripts/release-gates.py /chemin/prive/preuves.json`. Le dernier contrôle refuse désormais un dossier portant un autre commit ou une version Git introuvable. Une mise à jour du code rend les anciennes preuves insuffisantes. Les preuves de présence ne constituent pas une attestation d'exactitude ; la validation humaine reste obligatoire.
+
+Conserver le verrou PROD : aucun résultat de ces scripts n'autorise automatiquement une mise en production. Les contrôles réels du VPS, de livraison e-mail, de restauration isolée, de sécurité et la validation humaine doivent être documentés avant décision GO.
