@@ -11,6 +11,7 @@ import time
 import uuid
 import tenders
 import consultants
+import recruitment
 import crm
 import organizations
 import quotes
@@ -70,6 +71,7 @@ def connect():
         previous_status TEXT NOT NULL, new_status TEXT NOT NULL)""")
     tenders.schema(db)
     consultants.schema(db)
+    recruitment.schema(db)
     crm.schema(db)
     organizations.schema(db)
     quotes.schema(db)
@@ -189,6 +191,7 @@ class Handler(SimpleHTTPRequestHandler):
         self.wfile.write(data)
 
     def do_GET(self):
+        if urlsplit(self.path).path=='/api/admin/recruitment':return recruitment.handle(self,connect,'GET')
         if urlsplit(self.path).path=='/api/admin/notifications':return notifications.handle(self,connect,'GET')
         if urlsplit(self.path).path=='/api/admin/alerts':return alerts.handle(self,connect)
         if re.fullmatch(r'/api/admin/documents(?:/[0-9a-f-]{36})?',urlsplit(self.path).path):return documents.handle(self,connect,'GET')
@@ -300,6 +303,7 @@ class Handler(SimpleHTTPRequestHandler):
         self.json_response(200, {"status": payload["status"]})
 
     def do_POST(self):
+        if self.path=='/api/admin/recruitment':return recruitment.handle(self,connect,'POST')
         if self.path=='/api/admin/notifications':return notifications.handle(self,connect,'POST')
         if self.path=='/api/admin/documents':return documents.handle(self,connect,'POST')
         if self.path=='/api/admin/billing/expenses':return treasury.handle(self,connect,'POST')
