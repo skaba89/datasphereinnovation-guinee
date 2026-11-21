@@ -124,6 +124,16 @@ class IntakeTests(unittest.TestCase):
             self.assertEqual(db.execute("SELECT id, solution, status FROM requests").fetchone(),
                              (json.loads(data)["id"], "MineFleet360", "NOUVELLE"))
 
+    def test_recruitment_route(self):
+        s,b,_=self.request('POST','/api/requests',self.payload|{'besoin':'Candidature spontanée','solution':''})
+        self.assertEqual(s,201);rid=json.loads(b)['id']
+        path='/api/admin/recruitment';auth={'Authorization':'Bearer '+server.ADMIN_TOKEN,'Content-Type':'application/json'}
+        self.assertEqual(self.request('GET',path)[0],401)
+        self.assertEqual(json.loads(self.request('GET',path,headers=auth)[1])['items'][0]['id'],rid)
+        payload={'request_id':rid,'role':'Data Engineer','skills':'Python'}
+        self.assertEqual(self.request('POST',path,payload,auth)[0],201)
+        self.assertEqual(self.request('POST',path,payload,auth)[0],200)
+
     def test_contact_mail_atomic_enqueue(self):
         with patch.dict(os.environ,{'DSIG_ENV':'REC'}):
             status,data,_=self.request('POST','/api/requests',self.payload|{'language':'en'})
@@ -298,7 +308,7 @@ class IntakeTests(unittest.TestCase):
             'ADMIN':(set(accounts.RESOURCES)-{'my-activity'},set(accounts.RESOURCES)-{'my-activity'}),
             'DIRECTION':({'direction','billing','missions','quotes','crm','tenders','alerts','notifications'},{'notifications'}),
             'COMMERCIAL':({'requests','crm','quotes','tenders','consultants'},{'requests','crm','quotes','tenders'}),
-            'RH':({'consultants','requests'},{'consultants'}),
+            'RH':({'consultants','requests','recruitment'},{'consultants','recruitment'}),
             'PROJET':({'missions','consultants','quotes'},{'missions'}),
             'CONTROLE':({'direction','missions','billing','quotes'},set()),
             'COMPTABLE':({'billing','missions'},{'billing'}),

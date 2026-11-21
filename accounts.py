@@ -6,7 +6,7 @@ ROLES={
  'ADMIN': {'*':'RW','my-activity':''},
  'DIRECTION': {'direction':'R','billing':'R','missions':'R','quotes':'R','crm':'R','tenders':'R','alerts':'R','notifications':'RW'},
  'COMMERCIAL': {'requests':'RW','crm':'RW','quotes':'RW','tenders':'RW','consultants':'R'},
- 'RH': {'consultants':'RW','requests':'R'},
+ 'RH': {'consultants':'RW','requests':'R','recruitment':'RW'},
  'PROJET': {'missions':'RW','consultants':'R','quotes':'R'},
  'CONTROLE': {'direction':'R','missions':'R','billing':'R','quotes':'R'},
  'COMPTABLE': {'billing':'RW','missions':'R'},
@@ -14,7 +14,7 @@ ROLES={
  'CONSULTANT': {'my-activity':'RW'},
 }
 
-RESOURCES=frozenset({'requests','crm','quotes','tenders','consultants','missions','billing','direction','accounts','audit','documents','alerts','notifications','my-activity'})
+RESOURCES=frozenset({'requests','crm','quotes','tenders','consultants','missions','billing','direction','accounts','audit','documents','alerts','notifications','my-activity','recruitment'})
 def mfa_required(role):
     return role=='ADMIN' or role in {x.strip() for x in os.environ.get('DSIG_MFA_REQUIRED_ROLES','DIRECTION,CONTROLE,COMPTABLE,AUDITEUR').split(',')}
 
@@ -117,3 +117,4 @@ def handle(h,connect,method):
         return h.json_response(201 if method=='POST' else 200,result)
     except (ValueError,TypeError,UnicodeError):return h.json_response(400,{'error':'Champs invalides.'})
     except sqlite3.IntegrityError:return h.json_response(409,{'error':'Compte déjà existant.'})
+
