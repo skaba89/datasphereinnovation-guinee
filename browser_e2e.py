@@ -157,12 +157,24 @@ class BrowserTests(unittest.TestCase):
         code = self.page.locator('#recovery-codes').inner_text().splitlines()[0]
         self.page.locator('#dismiss-recovery').click()
         self.login('admin.e2e', code)
-        expect(self.page.locator('#modules a')).to_have_count(14)
-        for module in ('admin','crm','quotes','tenders','consultants','recruitment','missions','billing','direction','accounts','audit','documents','alerts','notifications'):
+        expect(self.page.locator('#modules a')).to_have_count(15)
+        for module in ('admin','crm','appointments','quotes','tenders','consultants','recruitment','missions','billing','direction','accounts','audit','documents','alerts','notifications'):
             with self.subTest(module=module):
                 self.page.goto('/'+module+'.html')
                 if module=='audit': expect(self.page.locator('#notice')).to_contain_text('100 derniers événements')
                 else: expect(self.page.locator('#dashboard' if module=='admin' else '#workspace')).to_be_visible()
+                if module=='accounts':
+                    own=self.page.locator('#rows tr').filter(has_text='admin.e2e')
+                    expect(own).to_contain_text('Activé')
+                    expect(own.get_by_role('button',name='Désactiver')).to_be_disabled()
+                    expect(own.get_by_role('button',name='Renouveler / réactiver')).to_be_disabled()
+                    self.page.locator('#create [name=username]').fill('commercial.v53')
+                    self.page.locator('#create [name=role]').select_option('COMMERCIAL')
+                    self.page.locator('#create button').click()
+                    expect(self.page.locator('#key')).to_be_visible()
+                    expect(self.page.locator('#rows tr').filter(has_text='commercial.v53')).to_contain_text('À activer')
+                    self.page.locator('#clear-key').click()
+                    expect(self.page.locator('#key')).to_be_hidden()
                 if module in ('crm','missions','billing'):
                     links=self.page.locator('.workflow-nav a')
                     self.assertGreaterEqual(links.count(),2)
