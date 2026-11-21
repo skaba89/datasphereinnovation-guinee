@@ -26,6 +26,7 @@ import documents
 import alerts
 import notifications
 import contact_mail
+import request_workflow
 import contact_delivery
 import accounts
 import own_activity
@@ -86,6 +87,7 @@ def connect():
     documents.schema(db)
     notifications.schema(db)
     contact_mail.schema(db)
+    request_workflow.schema(db)
     return db
 
 
@@ -277,10 +279,14 @@ class Handler(SimpleHTTPRequestHandler):
                     FROM cohort c LEFT JOIN first_event f ON f.request_id=c.id
                     GROUP BY c.besoin ORDER BY c.besoin
                     """, args)]
+                can_manage = self.role in ("ADMIN", "COMMERCIAL")
+                owners = request_workflow.owners(db) if can_manage else []
                 history = contact_delivery.for_requests(db, [row["id"] for row in rows])
                 for row in rows:
                     row["communications"] = history[row["id"]]
-            self.json_response(200, {"items": rows, "total": total, "page": page, "counts": counts, "commercial_metrics": metrics})
+                    if can_manage:
+                        row["workflow"] = request_workflow.read(db, row["id"])
+            self.json_response(200, {"items": rows, "total": total, "page": page, "counts": counts, "commercial_metrics": metrics, "workflow_owners": owners})
         else:
             super().do_GET()
 
@@ -290,6 +296,9 @@ class Handler(SimpleHTTPRequestHandler):
         return accounts.authorize(self,connect,ADMIN_TOKEN)
 
     def do_PATCH(self):
+        workflow_match = re.fullmatch(r"/api/admin/requests/([0-9a-f-]{36})/workflow", self.path)
+        if workflow_match:
+            return request_workflow.handle(self,connect,workflow_match.group(1))
         if re.fullmatch(r'/api/admin/crm/appointments/[0-9a-f-]{36}',self.path):return appointments.handle(self,connect,'PATCH')
         if re.fullmatch(r'/api/admin/missions/[0-9a-f-]{36}/renewals/[0-9a-f-]{36}',self.path):return contracts.handle(self,connect,'PATCH')
         if re.fullmatch(r'/api/admin/crm/organizations/[0-9a-f-]{36}',self.path):
