@@ -46,6 +46,32 @@ class IntakeTests(unittest.TestCase):
         conn.close()
         return result
 
+    def test_qualified_request_conversion(self):
+        auth={'Authorization':'Bearer '+server.ADMIN_TOKEN,'Content-Type':'application/json'}
+        code,body,_=self.request('POST','/api/requests',self.payload)
+        self.assertEqual(code,201)
+        rid=json.loads(body)['id']
+        path='/api/admin/requests/'+rid+'/convert'
+        self.assertEqual(self.request('POST',path)[0],401)
+        self.assertEqual(self.request('POST',path,headers=auth)[0],409)
+        self.assertEqual(self.request('PATCH','/api/admin/requests/'+rid,{'status':'QUALIFIEE','previous':'NOUVELLE'},auth)[0],200)
+        with server.connect() as db:
+            db.execute("INSERT INTO organizations(id,name,name_key,kind,country,notes) VALUES ('existing','Organisation fictive','organisation fictive','CLIENT','','')")
+        code,body,_=self.request('POST',path,headers=auth)
+        self.assertEqual(code,201)
+        result=json.loads(body)
+        self.assertEqual(result['status'],'QUALIFIE')
+        code,body,_=self.request('POST',path,headers=auth)
+        self.assertEqual(code,200)
+        self.assertEqual(json.loads(body),result)
+        with server.connect() as db:
+            self.assertEqual(db.execute('SELECT count(*) FROM opportunities').fetchone()[0],1)
+            self.assertEqual(db.execute('SELECT count(*) FROM organizations').fetchone()[0],1)
+            self.assertEqual(db.execute('SELECT organization_id FROM organization_links').fetchone()[0],'existing')
+            self.assertEqual(db.execute('SELECT status FROM requests WHERE id=?',(rid,)).fetchone()[0],'QUALIFIEE')
+        data=json.loads(self.request('GET','/api/admin/requests',headers=auth)[1])
+        self.assertEqual(data['items'][0]['conversion'],result)
+
     def test_request_workflow_assignment_and_revision(self):
         headers={'Authorization':'Bearer '+server.ADMIN_TOKEN,'Content-Type':'application/json'}
         code,body,_=self.request('POST','/api/requests',self.payload)
