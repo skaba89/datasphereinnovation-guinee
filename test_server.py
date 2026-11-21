@@ -47,6 +47,64 @@ class IntakeTests(unittest.TestCase):
         conn.close()
         return result
 
+    def test_end_to_end_prospect_to_paid_contract(self):
+        admin={'Authorization':'Bearer '+server.ADMIN_TOKEN,'Content-Type':'application/json'}
+        def call(method,path,payload=None,headers=None,status=200):
+            code,body,_=self.request(method,path,payload,headers)
+            self.assertEqual(code,status,(method,path,body))
+            return json.loads(body)
+        def account(role,consultant_id=''):
+            data=call('POST','/api/admin/accounts',{'username':'journey.'+role.lower(),'role':role,'consultant_id':consultant_id},admin,201)
+            return {'Authorization':'Bearer '+data['key'],'Content-Type':'application/json'}
+        commercial=account('COMMERCIAL')
+        rh=account('RH')
+        project=account('PROJET')
+        finance=account('COMPTABLE')
+        direction=account('DIRECTION')
+        request=call('POST','/api/requests',self.payload|{'besoin':'Mission en régie','solution':''},status=201)
+        route='/api/admin/requests/'+request['id']
+        call('PATCH',route,{'status':'QUALIFIEE','previous':'NOUVELLE'},commercial)
+        conversion=call('POST',route+'/convert',headers=commercial,status=201)
+        self.assertEqual(call('POST',route+'/convert',headers=commercial),conversion)
+        oid=conversion['opportunity_id']
+        profile={'name':'Consultant parcours fictif','email':'journey@example.invalid','role':'Data Engineer','skills':'Python','location':'Guinée','experience':'5','availability':'Immédiate','notes':'','status':'DISPONIBLE'}
+        cid=call('POST','/api/admin/consultants',profile,rh,201)['id']
+        consultant=account('CONSULTANT',cid)
+        quote={'opportunity_id':oid,'title':'Audit fictif','scope':'Diagnostic','mode':'REGIE','currency':'EUR','days':'10','rate':'600','daily_cost':'400','expenses':'0','fixed_price':'0','status':'PROPOSE','valid_until':'2099-01-01','terms':'Recette'}
+        qid=call('POST','/api/admin/quotes',quote,commercial,201)['id']
+        qroute='/api/admin/quotes/'+qid
+        decision={'version':1,'action':'TRANSMIS','evidence':'Transmission fictive'}
+        call('POST',qroute+'/transmission',decision,commercial)
+        call('POST',qroute+'/transmission',decision|{'action':'ACCEPTE'},commercial)
+        mission={'quote_id':qid,'consultant_id':cid,'contract_ref':'JOURNEY-001','start_date':'2020-01-01','end_date':'2020-01-31'}
+        call('POST','/api/admin/missions',mission,project,409)
+        call('POST',qroute+'/contract',{'version':2,'reference':'JOURNEY-001','signed_date':'2020-01-01','evidence':'Signature fictive'},commercial,201)
+        mid=call('POST','/api/admin/missions',mission,project,201)['id']
+        activity={'mission_id':mid,'work_date':'2020-01-08','worked':'1','billable':'1','expenses':'25','description':'CRA fictif'}
+        aid=call('POST','/api/admin/my-activity',activity,consultant,201)['id']
+        call('PATCH','/api/admin/missions/activity/'+aid,{'status':'VALIDE'},consultant,403)
+        invoice={'mission_id':mid,'reference':'JOURNEY-INV','amount':'600','due_date':'2020-02-01'}
+        call('POST','/api/admin/billing/invoices',invoice,finance,409)
+        call('PATCH','/api/admin/missions/activity/'+aid,{'status':'VALIDE'},project)
+        iid=call('POST','/api/admin/billing/invoices',invoice,finance,201)['id']
+        payment={'invoice_id':iid,'reference':'JOURNEY-PAY1','amount':'200','paid_date':'2020-02-01'}
+        call('POST','/api/admin/billing/payments',payment,finance,201)
+        call('POST','/api/admin/billing/payments',payment|{'reference':'OVERPAY','amount':'401'},finance,409)
+        call('POST','/api/admin/billing/payments',payment|{'reference':'JOURNEY-PAY2','amount':'400'},finance,201)
+        call('POST','/api/admin/billing/expenses',{'reference':'JOURNEY-DEP','currency':'EUR','amount':'425','paid_date':'2020-02-01','category':'CONSULTANT','description':'Décaissement fictif','mission_id':mid},finance,201)
+        call('PATCH','/api/admin/missions/'+mid,{'status':'TERMINE'},project)
+        self.assertEqual(Decimal(call('GET','/api/admin/billing',headers=finance)['totals']['EUR']['balance']),Decimal('0'))
+        control=call('GET','/api/admin/direction',headers=direction)['controlling']
+        row=next(x for x in control['missions'] if x['mission_id']==mid)
+        self.assertEqual(row['contract_ref'],'JOURNEY-001')
+        self.assertTrue(row['organization_id'])
+        for field,amount in {'validated_revenue':'600','validated_cost':'425','validated_margin':'175','received':'600','receivable':'0','allocated_cash_flow':'175'}.items():
+            self.assertEqual(Decimal(row[field]),Decimal(amount),field)
+        client=next(x for x in control['clients'] if x['organization_id']==row['organization_id'])
+        self.assertEqual(Decimal(client['validated_margin']),Decimal('175'))
+        lead=call('GET','/api/admin/requests',headers=commercial)['items'][0]['conversion']
+        self.assertEqual((lead['opportunity_id'],lead['quotes'],lead['missions']),(oid,1,1))
+
     def test_qualified_request_conversion(self):
         auth={'Authorization':'Bearer '+server.ADMIN_TOKEN,'Content-Type':'application/json'}
         code,body,_=self.request('POST','/api/requests',self.payload)
