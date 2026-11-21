@@ -2,6 +2,7 @@
 import json
 import sqlite3
 import uuid
+from urllib.parse import parse_qs, urlsplit
 import accounts
 import consultants
 
@@ -31,10 +32,21 @@ def qualify(db, request_id, role, skills, actor):
 def handle(h,connect,method):
     if not h.admin_authorized():return
     if method=='GET':
+        query=parse_qs(urlsplit(h.path).query)
+        q=query.get('q',[''])[0].strip()[:120]
+        state=query.get('state',[''])[0]
+        try:
+            page=int(query.get('page',['1'])[0])
+            if not 1<=page<=10000 or state not in ('','PENDING','QUALIFIED'):raise ValueError()
+        except ValueError:return h.json_response(400,{'error':'Filtre invalide.'})
+        where=" WHERE r.besoin='Candidature spontanée' AND (?='' OR instr(lower(r.nom),lower(?))>0 OR instr(lower(r.email),lower(?))>0 OR instr(lower(r.message),lower(?))>0) AND (?='' OR (?='PENDING' AND l.consultant_id IS NULL) OR (?='QUALIFIED' AND l.consultant_id IS NOT NULL))"
+        args=(q,q,q,q,state,state,state)
         with connect() as db:
             schema(db);db.row_factory=sqlite3.Row
-            rows=[dict(r) for r in db.execute("SELECT r.id,r.nom,r.email,r.created_at,r.message,l.consultant_id FROM requests r LEFT JOIN recruitment_links l ON r.id=l.request_id WHERE r.besoin='Candidature spontanée' ORDER BY r.created_at DESC,r.id LIMIT 100")]
-        return h.json_response(200,{'items':rows})
+            source=' FROM requests r LEFT JOIN recruitment_links l ON r.id=l.request_id'+where
+            total=db.execute('SELECT count(*)'+source,args).fetchone()[0]
+            rows=[dict(r) for r in db.execute('SELECT r.id,r.nom,r.email,r.created_at,r.message,l.consultant_id'+source+' ORDER BY r.created_at DESC,r.id LIMIT 25 OFFSET ?',(*args,(page-1)*25))]
+        return h.json_response(200,{'items':rows,'total':total})
     try:
         n=int(h.headers.get('Content-Length','0'))
         if not 0<n<=4096 or h.headers.get_content_type()!='application/json':raise ValueError()
