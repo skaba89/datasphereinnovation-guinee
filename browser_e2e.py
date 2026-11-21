@@ -69,6 +69,34 @@ class BrowserTests(unittest.TestCase):
         expect(self.page.locator('#request-status')).to_contain_text('Demande enregistrée localement')
         self.assertEqual(self.errors, [])
 
+    def test_english_parity_and_intake(self):
+        self.page.goto('/')
+        styles = self.page.locator('link[rel=stylesheet]').evaluate_all('(links) => links.map(x => x.getAttribute("href"))')
+        sections = self.page.locator('main section[id]').evaluate_all('(nodes) => nodes.map(x => x.id)')
+        for width in (390, 1440):
+            self.page.set_viewport_size({'width': width, 'height': 900})
+            self.page.goto('/en.html')
+            self.assertEqual(self.page.locator('link[rel=stylesheet]').evaluate_all('(links) => links.map(x => x.getAttribute("href"))'), styles)
+            self.assertEqual(self.page.locator('main section[id]').evaluate_all('(nodes) => nodes.map(x => x.id)'), sections)
+            expect(self.page.locator('#expertise-groups article')).to_have_count(25)
+            self.assertTrue(self.page.evaluate('document.documentElement.scrollWidth <= innerWidth + 1'))
+        self.page.get_by_role('heading', name='Cybersecurity audit & GRC', exact=True).locator('..').get_by_role('link').click()
+        expect(self.page.locator('#deliverables')).to_contain_text('Risk register')
+        self.page.locator('#expertise-contact').click()
+        expect(self.page.locator('#need')).to_have_value('Cybersécurité & résilience')
+        expect(self.page.locator('#request [name=message]')).to_have_value('Expertise: Cybersecurity audit & GRC — ')
+        for name, value in {'nom':'Fictitious English client','org':'Fictitious organisation','email':'en-qa@example.invalid','message':'English browser test request'}.items():
+            self.page.locator(f'#request [name={name}]').fill(value)
+        self.page.locator('#request [name=consent]').check()
+        self.page.locator('#request [type=submit]').click()
+        expect(self.page.locator('#request-status')).to_contain_text('Request recorded locally. Reference:')
+        response = self.context.request.get('/api/admin/requests', headers={'Authorization': 'Bearer '+server.ADMIN_TOKEN})
+        self.assertEqual(response.status, 200)
+        self.assertIn('English browser test request', response.text())
+        self.page.locator('#contact a[href="privacy-en.html"]').click()
+        expect(self.page.locator('h1')).to_have_text('Privacy and personal data')
+        self.assertEqual(self.errors, [])
+
     def test_mobile_navigation_and_accessibility(self):
         self.page.set_viewport_size({'width':390,'height':844})
         external=[]
