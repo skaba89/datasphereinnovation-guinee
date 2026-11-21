@@ -499,6 +499,9 @@ class BrowserTests(unittest.TestCase):
             response=self.context.request.post(route+'/transmission',data={'version':1,'action':action,'evidence':'Preuve fictive V93'},headers={'Authorization':'Bearer '+server.ADMIN_TOKEN})
             self.assertEqual(response.status,200,response.text())
         self.seed(route+'/contract',{'version':2,'reference':'V93-CONTRAT','signed_date':'2020-01-01','evidence':'Signature fictive'})
+        # Independent fictitious actors share the isolated loopback IP; keep the
+        # production rate limiter intact and reset only the test fixture.
+        server.authentication.ATTEMPTS.clear()
         self.activate('projet.v93','PROJET')
         self.page.locator('#modules a[href="missions.html"]').click()
         expect(self.page.locator('#workspace')).to_be_visible()
@@ -512,6 +515,7 @@ class BrowserTests(unittest.TestCase):
         expect(self.page.locator('#workspace')).to_be_visible()
         self.page.locator('#logout').click()
         expect(self.page.locator('#login')).to_be_visible()
+        server.authentication.ATTEMPTS.clear()
         for name,value in {'username':'consultant.v85','key':consultant_key,'password':self.password}.items():
             self.page.locator(f'#activate [name={name}]').fill(value)
         self.page.locator('#activate button').click()
