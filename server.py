@@ -214,7 +214,7 @@ class Handler(SimpleHTTPRequestHandler):
         if urlsplit(self.path).path=='/api/auth/me':return authentication.me(self,connect)
         if urlsplit(self.path).path=='/api/admin/my-activity':return own_activity.handle(self,connect,'GET')
         if urlsplit(self.path).path in ('/api/admin/accounts','/api/admin/audit'):return accounts.handle(self,connect,'GET')
-        if re.fullmatch(r'/api/admin/billing(?:/milestones|/contracts)?',urlsplit(self.path).path): return billing.handle(self,connect,'GET')
+        if re.fullmatch(r'/api/admin/billing(?:/milestones|/contracts|/schedule)?',urlsplit(self.path).path): return billing.handle(self,connect,'GET')
         if re.fullmatch(r'/api/admin/missions(?:/eligible|/[0-9a-f-]{36}/activity)?',urlsplit(self.path).path):
             return missions.handle(self,connect,'GET')
         if urlsplit(self.path).path == "/api/admin/direction":
@@ -336,7 +336,7 @@ class Handler(SimpleHTTPRequestHandler):
         if re.fullmatch(r'/api/admin/crm/organizations/[0-9a-f-]{36}',self.path):
             return organizations.handle(self,connect,'PATCH')
         if re.fullmatch(r'/api/admin/accounts/[0-9a-f-]{36}',self.path):return accounts.handle(self,connect,'PATCH')
-        if re.fullmatch(r'/api/admin/billing/milestones/[0-9a-f-]{36}',self.path): return billing.handle(self,connect,'PATCH')
+        if re.fullmatch(r'/api/admin/billing/(?:milestones|schedule)/[0-9a-f-]{36}',self.path): return billing.handle(self,connect,'PATCH')
         if re.fullmatch(r'/api/admin/missions/(?:[0-9a-f-]{36}|activity/[0-9a-f-]{36})',self.path):
             return missions.handle(self,connect,'PATCH')
         if re.fullmatch(r"/api/admin/quotes/[0-9a-f-]{36}", self.path):
@@ -397,7 +397,7 @@ class Handler(SimpleHTTPRequestHandler):
         if self.path in ('/api/auth/activate','/api/auth/login','/api/auth/logout','/api/auth/mfa-setup','/api/auth/mfa-confirm','/api/auth/revoke-others','/api/auth/change-password'):return authentication.handle(self,connect)
         if self.path=='/api/admin/my-activity':return own_activity.handle(self,connect,'POST')
         if self.path=='/api/admin/accounts':return accounts.handle(self,connect,'POST')
-        if re.fullmatch(r'/api/admin/billing/(?:milestones|invoices|payments)',self.path): return billing.handle(self,connect,'POST')
+        if re.fullmatch(r'/api/admin/billing/(?:milestones|invoices|payments|schedule)',self.path): return billing.handle(self,connect,'POST')
         if re.fullmatch(r'/api/admin/missions(?:/[0-9a-f-]{36}/(?:activity|team))?',self.path):
             return missions.handle(self,connect,'POST')
         if self.path == "/api/admin/quotes":
