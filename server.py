@@ -12,6 +12,7 @@ import uuid
 import tenders
 import consultants
 import recruitment
+import appointments
 import crm
 import organizations
 import quotes
@@ -72,6 +73,7 @@ def connect():
     tenders.schema(db)
     consultants.schema(db)
     recruitment.schema(db)
+    appointments.schema(db)
     crm.schema(db)
     organizations.schema(db)
     quotes.schema(db)
@@ -191,6 +193,7 @@ class Handler(SimpleHTTPRequestHandler):
         self.wfile.write(data)
 
     def do_GET(self):
+        if urlsplit(self.path).path=='/api/admin/crm/appointments':return appointments.handle(self,connect,'GET')
         if urlsplit(self.path).path=='/api/admin/recruitment':return recruitment.handle(self,connect,'GET')
         if urlsplit(self.path).path=='/api/admin/notifications':return notifications.handle(self,connect,'GET')
         if urlsplit(self.path).path=='/api/admin/alerts':return alerts.handle(self,connect)
@@ -258,6 +261,7 @@ class Handler(SimpleHTTPRequestHandler):
         return accounts.authorize(self,connect,ADMIN_TOKEN)
 
     def do_PATCH(self):
+        if re.fullmatch(r'/api/admin/crm/appointments/[0-9a-f-]{36}',self.path):return appointments.handle(self,connect,'PATCH')
         if re.fullmatch(r'/api/admin/missions/[0-9a-f-]{36}/renewals/[0-9a-f-]{36}',self.path):return contracts.handle(self,connect,'PATCH')
         if re.fullmatch(r'/api/admin/crm/organizations/[0-9a-f-]{36}',self.path):
             return organizations.handle(self,connect,'PATCH')
@@ -303,6 +307,7 @@ class Handler(SimpleHTTPRequestHandler):
         self.json_response(200, {"status": payload["status"]})
 
     def do_POST(self):
+        if self.path=='/api/admin/crm/appointments':return appointments.handle(self,connect,'POST')
         if self.path=='/api/admin/recruitment':return recruitment.handle(self,connect,'POST')
         if self.path=='/api/admin/notifications':return notifications.handle(self,connect,'POST')
         if self.path=='/api/admin/documents':return documents.handle(self,connect,'POST')
