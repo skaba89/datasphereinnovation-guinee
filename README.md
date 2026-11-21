@@ -75,6 +75,10 @@ selon la situation du dossier ; chaque sauvegarde est historisée et protégée
 contre les modifications concurrentes. Aucun dépôt de réponse, e-mail ou
 collecte externe automatisée n'est réalisé. Les données restent dans SQLite.
 
+## V73 — Catalogue commercial interne
+
+Le CRM contient un catalogue réservé aux rôles habilités au CRM (administration, direction, commercial). Guinée Logistique est explicitement classé prototype de démonstration : données fictives uniquement, persistance et autorisations serveur à industrialiser avant pilote. Les autres solutions sont documentées sans promesse de disponibilité. Aucun lien de démonstration public ni changement du site vitrine.
+
 ## V4 — Vitrine de conseil sans catalogue public
 
 Les 18 expertises disposent de fiches détaillées : objectifs, interventions,
