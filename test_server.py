@@ -718,6 +718,17 @@ class IntakeTests(unittest.TestCase):
         self.assertEqual(self.request('PATCH',schedule+'/'+sid,{'state':'ANNULE'},auth)[0],409)
         self.assertEqual(json.loads(self.request('GET',schedule,headers=auth)[1])['items'][0]['state'],'RAPPROCHE')
         self.assertEqual(json.loads(self.request('GET',finance,headers=auth)[1])['totals']['EUR']['balance'],'350')
+        collection=finance+'/receivables'
+        reminders=finance+'/reminders'
+        reminder={'invoice_id':iid,'channel':'EMAIL','note':'Relance effectuée hors plateforme'}
+        self.assertEqual(self.request('GET',collection)[0],401)
+        self.assertEqual(self.request('POST',reminders,reminder,own)[0],403)
+        self.assertEqual(self.request('POST',reminders,reminder|{'channel':'INVALID'},auth)[0],400)
+        self.assertEqual(self.request('POST',reminders,reminder,auth)[0],201)
+        aging=json.loads(self.request('GET',collection,headers=auth)[1])
+        self.assertEqual(aging['aging']['EUR']['d90_plus'],'350')
+        self.assertEqual(aging['items'][0]['reminder_count'],1)
+        self.assertEqual(aging['items'][0]['reminders'][0]['note'],reminder['note'])
         self.assertEqual(c['contract_ref'],'FICTIF-01')
         self.assertEqual((c['planned'],c['earned'],c['invoiced'],c['paid'],c['balance'],c['overdue'],c['remaining_billable'],c['actual_cost'],c['earned_margin']),('6000.00','450.00','450.00','100.00','350.00','350.00','0.00','425.00','25.00'))
         self.assertEqual(json.loads(self.request('GET',finance+'/contracts?page=2',headers=auth)[1])['items'],[])
