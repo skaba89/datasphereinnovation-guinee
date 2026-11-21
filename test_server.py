@@ -259,11 +259,26 @@ class IntakeTests(unittest.TestCase):
     def test_public_site_does_not_expose_product_catalogue(self):
         status, data, _ = self.request("GET", "/")
         self.assertEqual(status, 200)
-        for term in (b"#solutions", b"catalogue.js", b"solution.html", b"MineFleet360"):
+        for term in (b"#solutions", b"catalogue.js", b"solution.html", b"MineFleet360", b"Guin\xc3\xa9e Logistique"):
             self.assertNotIn(term, data)
         for route in ("/catalogue.js", "/solution.html?id=minefleet360", "/solution.js", "/internal-catalogue/catalogue.js"):
             self.assertEqual(self.request("GET", route)[0], 404)
         self.assertEqual(self.request("GET", "/expertise.html?id=data-engineering")[0], 200)
+
+    def test_private_product_catalogue(self):
+        path='/api/admin/crm/catalogue'
+        self.assertEqual(self.request('GET',path)[0],401)
+        auth={'Authorization':'Bearer '+server.ADMIN_TOKEN,'Content-Type':'application/json'}
+        self.assertEqual(self.request('GET',path,headers=auth|{'Origin':'https://other.invalid'})[0],403)
+        status,body,_=self.request('GET',path,headers=auth)
+        self.assertEqual(status,200)
+        rows=json.loads(body)['items']
+        item=next(x for x in rows if x['id']=='guinee-logistique')
+        self.assertEqual(item['status'],'Prototype de démonstration')
+        self.assertIn('Données fictives',item['conditions'])
+        self.assertEqual(len({x['id'] for x in rows}),5)
+        _,body,_=self.request('POST','/api/admin/accounts',{'username':'catalogue.rh','role':'RH','consultant_id':''},auth)
+        self.assertEqual(self.request('GET',path,headers={'Authorization':'Bearer '+json.loads(body)['key']})[0],403)
 
     def test_non_demo_solution_not_stored(self):
         self.assertEqual(self.request("POST", "/api/requests", self.payload | {"besoin": "Mission en régie"})[0], 201)

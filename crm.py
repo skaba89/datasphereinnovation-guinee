@@ -10,6 +10,50 @@ STATUSES=("PROSPECT","QUALIFIE","PROPOSITION","NEGOCIATION","GAGNE","EN_MISSION"
 FIELDS={"company":180,"contact":120,"email":254,"title":180,"mode":20,"skills":1000,
         "consultant_id":36,"next_action":500,"followup":10,"notes":2000,"status":30}
 
+# Catalogue interne : périmètres documentés, sans promesse de disponibilité commerciale.
+CATALOGUE = [
+    {
+        "id": "guinee-logistique",
+        "name": "Guinée Logistique",
+        "sector": "Transport & Supply Chain",
+        "status": "Prototype de démonstration",
+        "scope": "Fret maritime, aérien et terrestre, expéditions, entrepôt, douanes, tarification et suivi.",
+        "conditions": "Données fictives uniquement. Authentification, persistance métier et permissions serveur à industrialiser avant pilote."
+    },
+    {
+        "id": "minefleet360",
+        "name": "MineFleet360",
+        "sector": "Mines & flotte",
+        "status": "Développement actif",
+        "scope": "Gestion des flottes minières, maintenance, carburant et géolocalisation.",
+        "conditions": "Pilote conditionné aux essais terrain, sécurité, sauvegardes et validation du déploiement."
+    },
+    {
+        "id": "gestion-scolaire-pro",
+        "name": "Gestion Scolaire Pro",
+        "sector": "Éducation",
+        "status": "Disponibilité commerciale à qualifier",
+        "scope": "Gestion scolaire multi-établissements et multi-tenant.",
+        "conditions": "Validation métier et déploiement à confirmer avant engagement client."
+    },
+    {
+        "id": "makitiplus",
+        "name": "MakitiPlus",
+        "sector": "Commerce",
+        "status": "Disponibilité commerciale à qualifier",
+        "scope": "Caisse POS, stocks, clients, fournisseurs et fonctionnement hors ligne.",
+        "conditions": "Validation des parcours caisse, synchronisation et paiements avant engagement."
+    },
+    {
+        "id": "kora-finance",
+        "name": "Kora Finance",
+        "sector": "Finance",
+        "status": "Disponibilité commerciale à qualifier",
+        "scope": "Comptabilité SYSCOHADA, rapprochements et reporting financier.",
+        "conditions": "Validation comptable, sécurité et exploitation à confirmer."
+    }
+]
+
 def schema(db):
     db.execute("""CREATE TABLE IF NOT EXISTS opportunities (
       id TEXT PRIMARY KEY, company TEXT NOT NULL, contact TEXT NOT NULL,
@@ -40,6 +84,8 @@ def handle(h,connect,method):
     if (h.headers.get("Origin") and h.headers["Origin"]!=h.expected_origin()) or h.headers.get("Sec-Fetch-Site")=="cross-site":
         return h.json_response(403,{"error":"Origine non autorisée."})
     path=urlsplit(h.path).path
+    if method=="GET" and path=="/api/admin/crm/catalogue":
+        return h.json_response(200,{"items":CATALOGUE})
     if method=="GET":
         query=parse_qs(urlsplit(h.path).query)
         status=query.get("status",[""])[0]

@@ -60,6 +60,8 @@ class BrowserTests(unittest.TestCase):
         self.page.goto('/')
         expect(self.page.locator('h1')).to_be_visible()
         self.assertNotIn('MineFleet360', self.page.content())
+        self.assertNotIn('Guinée Logistique', self.page.content())
+        self.assertEqual(self.context.request.get('/api/admin/crm/catalogue').status,401)
         self.assertEqual(self.context.request.get('/catalogue.js').status, 404)
         for name,value in {'nom':'Client fictif','org':'Entreprise fictive','email':'qa@example.invalid','message':'Demande de recette navigateur'}.items():
             self.page.locator(f'#request [name={name}]').fill(value)
@@ -205,6 +207,8 @@ class BrowserTests(unittest.TestCase):
                     self.assertTrue(self.page.evaluate('document.documentElement.scrollWidth <= innerWidth + 1'))
                     self.page.set_viewport_size({'width':1280,'height':900})
                 if module=='crm':
+                    expect(self.page.locator('#catalogue-rows')).to_contain_text('Guinée Logistique')
+                    expect(self.page.locator('#catalogue-rows')).to_contain_text('Prototype de démonstration')
                     self.page.locator('#org-editor [name=name]').fill('Organisation fictive E2E')
                     self.page.locator('#org-editor [name=kind]').select_option('CLIENT')
                     self.page.locator('#org-editor button').first.click()
