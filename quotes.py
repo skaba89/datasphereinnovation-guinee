@@ -60,7 +60,7 @@ def handle(h,connect,method):
         except ValueError: return h.json_response(400,{'error':'Page invalide.'})
         with connect() as db:
             db.row_factory=sqlite3.Row
-            rows=[dict(r) for r in db.execute('SELECT q.*,o.company,COALESCE(p.valid_until,\\'\\') valid_until,COALESCE(p.terms,\\'\\') terms FROM quotes q JOIN opportunities o ON q.opportunity_id=o.id LEFT JOIN quote_proposal_terms p ON p.quote_id=q.id ORDER BY q.created_at DESC,q.id DESC LIMIT 25 OFFSET ?',((page-1)*25,))]
+            rows=[dict(r) for r in db.execute('SELECT q.*,o.company,COALESCE(p.valid_until,\'\') valid_until,COALESCE(p.terms,\'\') terms FROM quotes q JOIN opportunities o ON q.opportunity_id=o.id LEFT JOIN quote_proposal_terms p ON p.quote_id=q.id ORDER BY q.created_at DESC,q.id DESC LIMIT 25 OFFSET ?',((page-1)*25,))]
             total=db.execute('SELECT count(*) FROM quotes').fetchone()[0]
         return h.json_response(200,{'items':[r|calculate(r) for r in rows],'total':total})
     try:
@@ -70,7 +70,7 @@ def handle(h,connect,method):
         metadata=None
         if isinstance(data,dict) and ('valid_until' in data or 'terms' in data):
             until=data.pop('valid_until','');terms=data.pop('terms','')
-            if not isinstance(until,str) or not isinstance(terms,str) or len(terms)>2000 or '\\x00' in terms or (until and (len(until)!=10 or date.fromisoformat(until).isoformat()!=until)):
+            if not isinstance(until,str) or not isinstance(terms,str) or len(terms)>2000 or '\x00' in terms or (until and (len(until)!=10 or date.fromisoformat(until).isoformat()!=until)):
                 raise ValueError()
             metadata=(until,terms.strip())
         v=validate(data)
