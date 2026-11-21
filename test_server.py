@@ -729,6 +729,16 @@ class IntakeTests(unittest.TestCase):
         self.assertEqual(aging['aging']['EUR']['d90_plus'],'350')
         self.assertEqual(aging['items'][0]['reminder_count'],1)
         self.assertEqual(aging['items'][0]['reminders'][0]['note'],reminder['note'])
+        forecast=finance+'/forecast'
+        self.assertEqual(self.request('GET',forecast)[0],401)
+        self.assertEqual(self.request('GET',forecast,headers=own)[0],403)
+        f=json.loads(self.request('GET',forecast,headers=auth)[1])['items'][0]
+        self.assertEqual((f['currency'],f['overdue'],f['receipts_30'],f['planned_90']),('EUR','350','0','0'))
+        from datetime import date, timedelta
+        future=(date.today()+timedelta(days=45)).isoformat()
+        self.assertEqual(self.request('POST',schedule,plan|{'label':'Prévision future','amount':'100','due_date':future},auth)[0],201)
+        f=json.loads(self.request('GET',forecast,headers=auth)[1])['items'][0]
+        self.assertEqual((f['planned_30'],f['planned_60'],f['planned_90']),('0','100','100'))
         self.assertEqual(c['contract_ref'],'FICTIF-01')
         self.assertEqual((c['planned'],c['earned'],c['invoiced'],c['paid'],c['balance'],c['overdue'],c['remaining_billable'],c['actual_cost'],c['earned_margin']),('6000.00','450.00','450.00','100.00','350.00','350.00','0.00','425.00','25.00'))
         self.assertEqual(json.loads(self.request('GET',finance+'/contracts?page=2',headers=auth)[1])['items'],[])

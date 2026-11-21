@@ -47,6 +47,25 @@ def handle(h,connect,method):
         except ValueError:return h.json_response(400,{'error':'Page invalide.'})
         with connect() as db:
             db.row_factory=sqlite3.Row
+            if kind=='forecast':
+                today=date.today(); buckets={}
+                def bucket(currency):
+                    return buckets.setdefault(currency,{k:Decimal(0) for k in ('overdue','receipts_30','receipts_60','receipts_90','planned_30','planned_60','planned_90','recorded_outflows')})
+                def add(currency,due,value,prefix):
+                    b=bucket(currency); days=(date.fromisoformat(due)-today).days
+                    if days<0:
+                        if prefix=='receipts':b['overdue']+=value
+                        return
+                    for horizon in (30,60,90):
+                        if days<=horizon:b[f'{prefix}_{horizon}']+=value
+                for i in db.execute('SELECT i.*,q.currency FROM invoices i JOIN missions m ON m.id=i.mission_id JOIN quotes q ON q.id=m.quote_id'):
+                    balance=Decimal(i['amount'])-total(db.execute('SELECT amount FROM payments WHERE invoice_id=?',(i['id'],)))
+                    if balance>0:add(i['currency'],i['due_date'],balance,'receipts')
+                for s in db.execute("SELECT s.*,q.currency FROM billing_schedule s JOIN missions m ON m.id=s.mission_id JOIN quotes q ON q.id=m.quote_id WHERE s.state='PREVU' AND s.invoice_id IS NULL"):
+                    add(s['currency'],s['due_date'],Decimal(s['amount']),'planned')
+                for e in db.execute('SELECT currency,amount FROM expenses'):
+                    bucket(e['currency'])['recorded_outflows']+=Decimal(e['amount'])
+                return h.json_response(200,{'as_of':today.isoformat(),'items':[{'currency':c,**{k:str(v) for k,v in b.items()}} for c,b in sorted(buckets.items())]})
             if kind=='receivables':
                 items=[]; aging={}; today=date.today()
                 for record in db.execute("""SELECT i.*,q.currency,o.company,m.contract_ref

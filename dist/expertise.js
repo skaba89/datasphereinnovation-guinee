@@ -33,9 +33,10 @@ const expertiseGroups=[
     ['radar','Détection, SOC & réponse aux incidents','Collecte des journaux, SIEM, EDR, scénarios de détection, qualification et procédures de réponse aux incidents.'],
     ['backup','Cyberrésilience & continuité d’activité','Sauvegardes, restauration, plans PCA/PRA, exercices de crise et maîtrise des risques de rançongiciel.'],
     ['users','Sensibilisation & protection des données','Formation, simulations de phishing autorisées, classification, confidentialité et bonnes pratiques de protection des données.']
-  ]}
+  ]},
+  {"name":"Logistique, transport & Supply Chain","items":[["truck","Logistique & transport","Audit des opérations, gestion des flux, transport routier et multimodal, optimisation des tournées, suivi GPS et performance des flottes."],["network","Supply Chain Management","Planification de la demande, S&OP, approvisionnement, gestion fournisseurs, stocks et pilotage de la chaîne de bout en bout."],["store","Entreposage & gestion des stocks","Organisation des entrepôts, inventaires, traçabilité, préparation de commandes, WMS et optimisation des niveaux de stock."],["chart","Supply Chain Analytics & digitalisation","Tableaux de bord logistiques, prévisions, optimisation Data/IA, intégration ERP–TMS–WMS, traçabilité et logistique minière."]]}
 ];
-const expertiseEnglishGroups=["Data, Analytics & AI","Digital engineering & SaaS","Finance, performance & audit","Consulting, delivery & business development","Cybersecurity, risk & resilience"];
+const expertiseEnglishGroups=["Data, Analytics & AI","Digital engineering & SaaS","Finance, performance & audit","Consulting, delivery & business development","Cybersecurity, risk & resilience","Logistics, transport & Supply Chain"];
 const expertiseEnglish=[
   [
     "Data Engineering",
@@ -211,7 +212,11 @@ const expertiseEnglish=[
     "Aware teams and better protected data",
     "Workshops, classification, security practices and authorised exercises",
     "Training materials, recommendations and awareness plan"
-  ]
+  ],
+  ["Logistics & transportation","Operations audit, freight flows, road and multimodal transport, route optimisation, GPS and fleet performance.","Reliable flows and controlled costs","Flow assessment, route optimisation and carrier monitoring","Flow maps, transport KPIs and TMS roadmap"],
+  ["Supply Chain Management","Demand planning, S&OP, procurement, suppliers, inventory and end-to-end supply chain management.","A resilient supply chain","Assessment, forecasting, planning and inventory optimisation","Supply chain roadmap, OTIF KPIs and improvement plan"],
+  ["Warehousing & inventory management","Warehouse organisation, inventory counts, traceability, order picking, WMS and stock optimisation.","Reliable and available inventory","Warehouse assessment, processes and replenishment settings","Target processes, inventory KPIs and WMS requirements"],
+  ["Supply Chain Analytics & digitalisation","Logistics dashboards, forecasting, data and AI optimisation, ERP–TMS–WMS integration, traceability and mining logistics.","End-to-end operational visibility","Data integration, analytical models and cost monitoring","Target architecture, dashboards and digitalisation roadmap"]
 ];
 const isEnglishExpertise=document.documentElement.lang==='en';
 const expertiseContainer=document.querySelector('#expertise-groups');
@@ -241,7 +246,11 @@ const expertiseDetails=[
   ['Des applications plus résistantes','Revue applicative et tests convenus par écrit, en environnement autorisé','Rapport de vulnérabilités, priorisation et vérification des corrections'],
   ['Une détection et une réponse structurées','Analyse des journaux, scénarios de détection et préparation aux incidents','Catalogue de cas d’usage, procédures et tableau de bord'],
   ['Une reprise préparée et vérifiable','Analyse d’impact, RPO/RTO, sauvegarde et exercices de restauration','PCA/PRA, procédures de reprise et rapport d’exercice'],
-  ['Des équipes sensibilisées et des données mieux protégées','Ateliers, classification, pratiques de sécurité et exercices autorisés','Supports de formation, recommandations et plan de sensibilisation']
+  ['Des équipes sensibilisées et des données mieux protégées','Ateliers, classification, pratiques de sécurité et exercices autorisés','Supports de formation, recommandations et plan de sensibilisation'],
+  ["Des flux fiables et des coûts maîtrisés","Diagnostic des flux, optimisation des itinéraires et suivi des transporteurs","Cartographie des flux, KPI transport et feuille de route TMS"],
+  ["Une chaîne d’approvisionnement résiliente","Diagnostic, prévisions, planification et optimisation des stocks","Schéma directeur Supply Chain, KPI OTIF et plan d’amélioration"],
+  ["Des stocks fiables et disponibles","Audit des entrepôts, processus et paramètres de réapprovisionnement","Processus cibles, indicateurs de stock et cahier des charges WMS"],
+  ["Une visibilité opérationnelle de bout en bout","Intégration des données, modèles analytiques et suivi des coûts","Architecture cible, tableaux de bord et plan de digitalisation"]
 ];
 const allExpertises=expertiseGroups.flatMap(g=>g.items.map(item=>({item,group:g.name})));
 if(expertiseContainer){

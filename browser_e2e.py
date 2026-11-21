@@ -85,7 +85,7 @@ class BrowserTests(unittest.TestCase):
             self.page.goto('/en.html')
             self.assertEqual(self.page.locator('link[rel=stylesheet]').evaluate_all('(links) => links.map(x => x.getAttribute("href"))'), styles)
             self.assertEqual(self.page.locator('main section[id]').evaluate_all('(nodes) => nodes.map(x => x.id)'), sections)
-            expect(self.page.locator('#expertise-groups article')).to_have_count(25)
+            expect(self.page.locator('#expertise-groups article')).to_have_count(29)
             self.assertTrue(self.page.evaluate('document.documentElement.scrollWidth <= innerWidth + 1'))
         self.page.get_by_role('heading', name='Cybersecurity audit & GRC', exact=True).locator('..').get_by_role('link').click()
         expect(self.page.locator('#deliverables')).to_contain_text('Risk register')
@@ -141,13 +141,24 @@ class BrowserTests(unittest.TestCase):
 
     def test_cybersecurity_expertise_and_prefill(self):
         self.page.goto('/')
-        expect(self.page.locator('#expertise-groups article')).to_have_count(25)
-        expect(self.page.locator('#expertise-groups h3')).to_have_count(5)
+        expect(self.page.locator('#expertise-groups article')).to_have_count(29)
+        expect(self.page.locator('#expertise-groups h3')).to_have_count(6)
         self.page.locator('article').filter(has=self.page.get_by_role('heading',name='Audit de cybersécurité & GRC',exact=True)).get_by_role('link').click()
         expect(self.page.locator('#deliverables')).to_contain_text('Registre des risques')
         self.page.locator('#expertise-contact').click()
         expect(self.page.locator('#need')).to_have_value('Cybersécurité & résilience')
         expect(self.page.locator('#request [name=message]')).to_have_value('Domaine : Audit de cybersécurité & GRC — ')
+        self.assertEqual(self.errors, [])
+
+    def test_logistics_expertise_bilingual(self):
+        for path, label, detail in (('/', 'Logistique & transport', 'Cartographie des flux'),('/en.html', 'Logistics & transportation', 'Flow maps')):
+            self.page.goto(path)
+            expect(self.page.get_by_role('heading',name='Supply Chain Management',exact=True)).to_be_visible()
+            self.page.locator('article').filter(has=self.page.get_by_role('heading',name=label,exact=True)).get_by_role('link').click()
+            expect(self.page.locator('#deliverables')).to_contain_text(detail)
+            self.page.locator('#expertise-contact').click()
+            expect(self.page.locator('#need')).to_have_value('Conseil & expertise')
+            expect(self.page.locator('#request [name=message]')).to_have_value(('Domaine : ' if path=='/' else 'Expertise: ')+label+' — ')
         self.assertEqual(self.errors, [])
 
     def test_admin_mfa_all_modules_and_logout(self):
