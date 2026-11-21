@@ -102,5 +102,30 @@ class ContactMailTests(unittest.TestCase):
             self.assertEqual(calls[1][1],{})
             self.assertEqual(contact_mail.run(connect,cfg,deliver)['accepted'],0)
 
+    def test_customer_routing_and_status(self):
+        cfg={'api_key':'re_test','sender':'alerts@dsig-consulting.com','test_recipient':'internal@example.invalid','rec_customer_recipients':['customer@example.invalid']}
+        with tempfile.TemporaryDirectory() as tmp:
+            def connect():
+                db=sqlite3.connect(Path(tmp)/'test.sqlite')
+                db.execute('CREATE TABLE IF NOT EXISTS requests(id TEXT PRIMARY KEY,email TEXT)')
+                contact_mail.schema(db)
+                return db
+            with connect() as db:
+                db.execute('INSERT INTO requests VALUES (?,?)',('rid','customer@example.invalid'))
+                contact_mail.enqueue(db,'rid','en','Mission en régie')
+                contact_mail.enqueue_status(db,'rid',1,'EN_COURS')
+                db.execute('INSERT INTO requests VALUES (?,?)',('other','unapproved@example.invalid'))
+                contact_mail.enqueue(db,'other','fr','Partenariat')
+            with patch('contact_mail.urllib.request.build_opener') as opener:
+                opener.return_value.open.return_value.__enter__.return_value.read.return_value=b'{"id":"provider-id"}'
+                self.assertEqual(contact_mail.run(connect,cfg)['accepted'],5)
+                payloads=[json.loads(call.args[0].data) for call in opener.return_value.open.call_args_list]
+                status=next(p for p in payloads if 'Request in progress' in p['subject'])
+                self.assertEqual(status['to'],['customer@example.invalid'])
+                ack=next(p for p in payloads if 'Staff augmentation' in p['subject'])
+                self.assertEqual(ack['to'],['customer@example.invalid'])
+                self.assertTrue(all(p['to']==['internal@example.invalid'] for p in payloads if 'Nouvelle demande' in p['subject'] or 'Partenariat' in p['subject']))
+                self.assertEqual(contact_mail.run(connect,cfg)['accepted'],0)
+
     def test_config_rejects_unverified_sender(self):
         with self.assertRaises(ValueError):contact_mail.config({'api_key':'re_test','sender':'a@example.com','test_recipient':'qa@example.invalid'})
