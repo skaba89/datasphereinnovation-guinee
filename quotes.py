@@ -4,6 +4,7 @@ import re
 import sqlite3
 import uuid
 from datetime import date
+import accounts
 from decimal import Decimal, ROUND_HALF_UP
 from urllib.parse import urlsplit, parse_qs
 
@@ -24,6 +25,15 @@ def schema(db):
     db.execute("""CREATE TABLE IF NOT EXISTS quote_proposal_terms (
         quote_id TEXT PRIMARY KEY REFERENCES quotes(id), valid_until TEXT NOT NULL,
         terms TEXT NOT NULL)""")
+
+
+    db.execute("""CREATE TABLE IF NOT EXISTS quote_transmissions (
+        quote_id TEXT NOT NULL, version INTEGER NOT NULL, actor TEXT NOT NULL,
+        evidence TEXT NOT NULL, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        PRIMARY KEY(quote_id,version))""")
+    db.execute("""CREATE TABLE IF NOT EXISTS quote_decisions (
+        quote_id TEXT PRIMARY KEY, version INTEGER NOT NULL, actor TEXT NOT NULL,
+        decision TEXT NOT NULL, evidence TEXT NOT NULL, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)""")
 
 
 def calculate(v):
@@ -61,8 +71,11 @@ def handle(h,connect,method):
         with connect() as db:
             db.row_factory=sqlite3.Row
             rows=[dict(r) for r in db.execute('SELECT q.*,o.company,COALESCE(p.valid_until,\'\') valid_until,COALESCE(p.terms,\'\') terms FROM quotes q JOIN opportunities o ON q.opportunity_id=o.id LEFT JOIN quote_proposal_terms p ON p.quote_id=q.id ORDER BY q.created_at DESC,q.id DESC LIMIT 25 OFFSET ?',((page-1)*25,))]
+            for row in rows:
+                row['transmission']=dict(t) if (t:=db.execute('SELECT version,actor,evidence,created_at FROM quote_transmissions WHERE quote_id=? ORDER BY version DESC LIMIT 1',(row['id'],)).fetchone()) else None
+                row['decision']=dict(d) if (d:=db.execute('SELECT version,actor,decision,evidence,created_at FROM quote_decisions WHERE quote_id=?',(row['id'],)).fetchone()) else None
             total=db.execute('SELECT count(*) FROM quotes').fetchone()[0]
-        return h.json_response(200,{'items':[r|calculate(r) for r in rows],'total':total})
+        return h.json_response(200,{'items':[r|calculate(r) for r in rows],'total':total,'can_manage':h.role in ('ADMIN','COMMERCIAL')})
     try:
         n=int(h.headers.get('Content-Length','0'))
         if not 0<n<=16000 or h.headers.get_content_type()!='application/json': raise ValueError()
@@ -89,6 +102,7 @@ def handle(h,connect,method):
             if not row: return h.json_response(404,{'error':'Devis introuvable.'})
             if row[0]!=version: return h.json_response(409,{'error':'Devis modifié. Actualisez.'})
             if row[1] in ('ACCEPTE','REFUSE'): return h.json_response(409,{'error':'Devis clôturé. Créez une nouvelle proposition.'})
+            if db.execute('SELECT 1 FROM quote_transmissions WHERE quote_id=? AND version=?',(oid,version)).fetchone(): return h.json_response(409,{'error':'Proposition transmise : utilisez le suivi de décision.'})
             version+=1
             db.execute('UPDATE quotes SET '+','.join(k+'=?' for k in FIELDS)+',version=? WHERE id=?',(*(v[k] for k in FIELDS),version,oid))
         if metadata is not None:
@@ -98,3 +112,34 @@ def handle(h,connect,method):
         computed=calculate(v)
         db.execute('INSERT INTO quote_events(quote_id,version,snapshot) VALUES(?,?,?)',(oid,version,json.dumps(v|computed|({'valid_until':stored[0],'terms':stored[1]} if stored else {}),ensure_ascii=False)))
     return h.json_response(201 if method=='POST' else 200,{'id':oid,'version':version,**computed})
+
+
+def record_transmission(h,connect,oid):
+    if not h.admin_authorized():return
+    if h.role not in ('ADMIN','COMMERCIAL'):
+        return h.json_response(403,{'error':'Permission insuffisante.'})
+    try:
+        size=int(h.headers.get('Content-Length','0'))
+        if not 0<size<=8192 or h.headers.get_content_type()!='application/json':raise ValueError()
+        v=json.loads(h.rfile.read(size))
+        if not isinstance(v,dict) or set(v)!={'version','action','evidence'} or type(v['version']) is not int or v['action'] not in ('TRANSMIS','ACCEPTE','REFUSE') or not isinstance(v['evidence'],str) or not v['evidence'].strip() or len(v['evidence'])>1000 or '\x00' in v['evidence']:raise ValueError()
+    except (ValueError,TypeError):return h.json_response(400,{'error':'Preuve ou action invalide.'})
+    with connect() as db:
+        db.row_factory=sqlite3.Row
+        db.execute('BEGIN IMMEDIATE')
+        row=db.execute('SELECT q.*,p.valid_until,p.terms FROM quotes q LEFT JOIN quote_proposal_terms p ON p.quote_id=q.id WHERE q.id=?',(oid,)).fetchone()
+        if not row:return h.json_response(404,{'error':'Devis introuvable.'})
+        if row['version']!=v['version'] or row['status']!='PROPOSE':return h.json_response(409,{'error':'Version ou statut incompatible.'})
+        sent=db.execute('SELECT 1 FROM quote_transmissions WHERE quote_id=? AND version=?',(oid,v['version'])).fetchone()
+        if v['action']=='TRANSMIS':
+            if sent or not row['valid_until'] or row['valid_until']<date.today().isoformat():return h.json_response(409,{'error':'Déjà transmis ou validité absente/expirée.'})
+            db.execute('INSERT INTO quote_transmissions(quote_id,version,actor,evidence) VALUES (?,?,?,?)',(oid,v['version'],h.actor,v['evidence'].strip()))
+        else:
+            if not sent:return h.json_response(409,{'error':'Transmission non enregistrée.'})
+            if v['action']=='ACCEPTE' and row['valid_until']<date.today().isoformat():return h.json_response(409,{'error':'Proposition expirée.'})
+            db.execute('INSERT INTO quote_decisions(quote_id,version,actor,decision,evidence) VALUES (?,?,?,?,?)',(oid,v['version'],h.actor,v['action'],v['evidence'].strip()))
+            db.execute('UPDATE quotes SET status=?,version=version+1 WHERE id=?',(v['action'],oid))
+            snapshot={k:row[k] for k in FIELDS}|calculate(row)|{'status':v['action'],'valid_until':row['valid_until'],'terms':row['terms']}
+            db.execute('INSERT INTO quote_events(quote_id,version,snapshot) VALUES (?,?,?)',(oid,v['version']+1,json.dumps(snapshot,ensure_ascii=False)))
+        accounts.event(db,h.actor,'DEVIS_'+v['action'],oid)
+    return h.json_response(200,{'status':v['action']})

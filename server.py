@@ -378,6 +378,9 @@ class Handler(SimpleHTTPRequestHandler):
         self.json_response(200, {"status": payload["status"]})
 
     def do_POST(self):
+        transmission = re.fullmatch(r'/api/admin/quotes/([0-9a-f-]{36})/transmission', self.path)
+        if transmission:
+            return quotes.record_transmission(self,connect,transmission.group(1))
         conversion = re.fullmatch(r'/api/admin/requests/([0-9a-f-]{36})/convert', self.path)
         if conversion:
             return request_conversion.handle(self,connect,conversion.group(1))

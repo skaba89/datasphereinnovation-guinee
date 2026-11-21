@@ -33,6 +33,12 @@ def commercial_reminders(db,today):
         (now,)):
         items.append(dict(kind='DEMANDE_RELANCE',id=rid,due=deadline,priority='URGENT',
             label='Demande '+rid,details='Demande sans changement de statut depuis au moins 48 h'))
+    for oid,due in db.execute("""SELECT q.id,p.valid_until FROM quotes q
+        JOIN quote_proposal_terms p ON p.quote_id=q.id
+        JOIN quote_transmissions t ON t.quote_id=q.id AND t.version=q.version
+        WHERE q.status='PROPOSE' AND p.valid_until<>'' AND p.valid_until<=?""",(horizon,)):
+        items.append(dict(kind='DEVIS_VALIDITE',id=oid,due=due,priority='URGENT' if due<now else 'A_TRAITER',
+            label='Devis '+oid,details='Validité expirée' if due<now else 'Fin de validité proche'))
     return items
 
 
