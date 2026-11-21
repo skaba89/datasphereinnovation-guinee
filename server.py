@@ -303,7 +303,8 @@ class Handler(SimpleHTTPRequestHandler):
                 return self.json_response(409, {"error": "La demande a changé. Actualisez la liste."})
             if row[0] != payload["status"]:
                 db.execute("UPDATE requests SET status=? WHERE id=?", (payload["status"], request_id))
-                db.execute("INSERT INTO request_events(request_id,previous_status,new_status) VALUES (?,?,?)", (request_id,row[0],payload["status"]))
+                event=db.execute("INSERT INTO request_events(request_id,previous_status,new_status) VALUES (?,?,?)", (request_id,row[0],payload["status"]))
+                if os.environ.get("DSIG_ENV","REC")=="REC":contact_mail.enqueue_status(db,request_id,event.lastrowid,payload["status"])
         self.json_response(200, {"status": payload["status"]})
 
     def do_POST(self):
