@@ -187,3 +187,7 @@ La GED utilise ClamAV via le protocole `INSTREAM` sur socket Unix privé. Config
 
 Chaque dépôt et téléchargement (y compris les anciens documents) doit recevoir une réponse propre du scanner ; détection = HTTP 422, indisponibilité ou réponse inattendue = HTTP 503. Aucun fichier refusé n'est enregistré ni servi. Le contenu transite en mémoire, sans fichier temporaire ; les refus sont journalisés sans contenu ni signature. Le scanner est limité à quatre appels simultanés et quinze secondes par appel. Les tests locaux simulent le daemon ; la validation avec ClamAV réel et test antivirus inoffensif reste obligatoire avant production. Le domaine cible est `dsig-consulting.com` ; aucun DNS ou déploiement n'est modifié ici.
 
+
+## V74 — Diagnostic Supply Chain interne
+
+Dans le CRM authentifié, calculateur local sans persistance ni transmission : taux de livraison à l’heure et OTIF (sur expéditions livrées), exactitude des références de stock contrôlées, coût par livraison et par km, dans une devise unique. Les sous-totaux incohérents sont refusés et un dénominateur nul donne un indicateur non calculable. Les mesures sont à saisir pour un périmètre et une période homogènes ; aucune intégration à Guinée Logistique ou donnée réelle en recette. Les résultats sont effacés à la modification, à la réinitialisation et à la déconnexion.

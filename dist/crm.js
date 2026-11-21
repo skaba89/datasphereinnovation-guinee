@@ -16,8 +16,29 @@ for(const item of d.items){const tr=document.createElement('tr');const profile=c
 if(!d.items.length){const tr=document.createElement('tr');cell(tr,'Aucune opportunité.').colSpan=5;byId('rows').append(tr)}byId('pages').textContent='Page '+page+' · '+total+' opportunité(s)';byId('prev').disabled=page===1;byId('next').disabled=page*25>=total}
 async function refresh(){try{await load()}catch(e){notice(e.message)}}
 byId('login-form').onsubmit=async e=>{e.preventDefault();token=byId('token').value;byId('token').value='';page=1;try{await Promise.all([load(),loadCatalogue()]);byId('login').hidden=true;byId('workspace').hidden=false;notice('Connecté.')}catch(e){token='';notice(e.message)}};
-byId('logout').onclick=()=>{epoch++;token='';reset();byId('rows').replaceChildren();byId('counts').replaceChildren();byId('catalogue-rows').replaceChildren();byId('workspace').hidden=true;byId('login').hidden=false;notice('Déconnecté.')};
+byId('logout').onclick=()=>{epoch++;token='';reset();byId('sc-form').reset();byId('rows').replaceChildren();byId('counts').replaceChildren();byId('catalogue-rows').replaceChildren();byId('workspace').hidden=true;byId('login').hidden=false;notice('Déconnecté.')};
 editor.onsubmit=async e=>{e.preventDefault();const data=Object.fromEntries(new FormData(editor));const target=editing;if(target)data.version=target.version;byId('save').disabled=true;try{await api(target?'crm/'+encodeURIComponent(target.id):'crm',{method:target?'PATCH':'POST',body:JSON.stringify(data)});if(token){reset();page=1;await load();notice('Opportunité enregistrée.')}}catch(e){notice(e.message)}finally{byId('save').disabled=false}};
 byId('cancel').onclick=reset;byId('filter').onsubmit=e=>{e.preventDefault();page=1;refresh()};byId('prev').onclick=()=>{if(page>1){page--;refresh()}};byId('next').onclick=()=>{if(page*25<total){page++;refresh()}};
 
 async function loadCatalogue(){const current=token,d=await api('crm/catalogue');if(!token||current!==token)return;const root=byId('catalogue-rows');root.replaceChildren();for(const x of d.items){const tr=document.createElement('tr');for(const k of ['name','sector','status','scope','conditions'])cell(tr,x[k]);root.append(tr)}}
+
+const scForm=byId('sc-form'),scResults=byId('sc-results'),scNotice=byId('sc-notice');
+function clearDiagnostic(){scResults.replaceChildren();scNotice.textContent=''}
+scForm.addEventListener('reset',clearDiagnostic);
+scForm.addEventListener('input',clearDiagnostic);
+scForm.addEventListener('submit',e=>{
+ e.preventDefault();clearDiagnostic();
+ if(!token)return;
+ const data=Object.fromEntries(new FormData(scForm));
+ const keys=['shipments','on_time','otif','checked','accurate','cost','km'];
+ const values=keys.map(k=>Number(data[k]));
+ if(!scForm.checkValidity()||keys.some(k=>data[k].trim()==='')||values.some(v=>!Number.isSafeInteger(v)||v<0)){scNotice.textContent='Mesures invalides.';return}
+ const [shipments,onTime,otif,checked,accurate,cost,km]=values;
+ if(onTime>shipments||otif>onTime||accurate>checked){scNotice.textContent='Incohérence : vérifiez les volumes et les sous-totaux.';return}
+ const format=n=>n.toLocaleString('fr-FR',{maximumFractionDigits:2});
+ const rate=(n,d)=>d?format(100*n/d)+' %':'Non calculable';
+ const unit=(n,d)=>d?format(n/d)+' '+data.currency:'Non calculable';
+ const metrics=[['Livraisons à l’heure',rate(onTime,shipments)],['OTIF (à l’heure et complètes)',rate(otif,shipments)],['Exactitude du stock',rate(accurate,checked)],['Coût par livraison',unit(cost,shipments)],['Coût par km',unit(cost,km)]];
+ for(const [label,value] of metrics){const box=document.createElement('div');box.className='count';const strong=document.createElement('strong');strong.textContent=value;box.append(strong,document.createTextNode(label));scResults.append(box)}
+ scNotice.textContent='Diagnostic calculé pour '+data.period+' — '+data.currency+'. Les valeurs non calculables correspondent aux dénominateurs nuls.';
+});
