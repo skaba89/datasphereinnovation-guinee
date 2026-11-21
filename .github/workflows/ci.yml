@@ -67,6 +67,13 @@ jobs:
           curl -fsS http://127.0.0.1:8080/api/health
           curl -fsS http://127.0.0.1:8080/api/ready
           curl -fsS http://127.0.0.1:8080/ >/dev/null
+      - name: Verify deployed commit content
+        run: |
+          for i in $(seq 1 40); do
+            if [ "$(docker inspect --format '{{.State.Health.Status}}' dsig-ci)" = healthy ]; then break; fi
+            sleep 2
+          done
+          python scripts/verify-rec-release.py "$(git rev-parse HEAD)" --container dsig-ci
       - name: Verify isolated candidate regression suite
         run: bash scripts/acceptance-isolated.sh
       - name: Cleanup
