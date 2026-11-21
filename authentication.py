@@ -77,6 +77,29 @@ def handle(h,connect):
         ip=h.client_address[0]
         if sum(map(len,ATTEMPTS.values()))>=120 or len(ATTEMPTS.get(ip,()))>=10:return h.json_response(429,{'error':'Réessayez dans une minute.'})
         ATTEMPTS.setdefault(ip,[]).append(now)
+    if action=='change-password':
+        if h.headers.get('Origin')!=h.expected_origin() or h.headers.get('Authorization')!='Bearer session':return h.json_response(403,{'error':'Origine interdite.'})
+        if set(v)!={'password','new_password','otp'} or not 12<=len(v['new_password'])<=128 or v['password']==v['new_password']:return h.json_response(400,{'error':'Nouveau mot de passe différent, 12 caractères minimum.'})
+        with connect() as db:
+            db.row_factory=sqlite3.Row;db.execute('BEGIN IMMEDIATE')
+            row=db.execute('SELECT a.id,a.username,a.role,c.salt,c.verifier FROM sessions s JOIN accounts a ON a.id=s.account_id JOIN credentials c ON c.account_id=a.id WHERE s.token_hash=? AND s.expires>? AND a.enabled=1',(accounts.digest(accounts.session_cookie(h)),int(time.time()))).fetchone()
+            if not row:return h.json_response(401,{'error':'Session invalide.'})
+            if not hmac.compare_digest(derive(v['password'],row['salt']),row['verifier']):
+                accounts.event(db,row['username'],'MDP_REFUSE','auth');return h.json_response(401,{'error':'Mot de passe invalide.'})
+            m=db.execute('SELECT * FROM mfa WHERE account_id=? AND enabled=1',(row['id'],)).fetchone()
+            if accounts.mfa_required(row['role']) and not m:return h.json_response(403,{'error':'Activation MFA obligatoire.'})
+            if m:
+                try:plain=decrypt_secret(m['secret'])
+                except (ValueError,TypeError,InvalidToken):return h.json_response(503,{'error':'Configuration MFA indisponible.'})
+                step=verify_code(plain,v['otp'],m['last_step'])
+                if step is None:return h.json_response(401,{'error':'Code MFA invalide ou déjà utilisé.'})
+                db.execute('UPDATE mfa SET last_step=? WHERE account_id=?',(step,row['id']))
+            salt=secrets.token_hex(16)
+            db.execute('UPDATE credentials SET salt=?,verifier=? WHERE account_id=?',(salt,derive(v['new_password'],salt),row['id']))
+            db.execute('DELETE FROM sessions WHERE account_id=?',(row['id'],))
+            accounts.event(db,row['username'],'MDP_MODIFIE','auth')
+            db.commit();cookie(h)
+            return h.json_response(200,{'status':'ok'})
     if action=='revoke-others':
         if h.headers.get('Origin')!=h.expected_origin() or h.headers.get('Authorization')!='Bearer session':return h.json_response(403,{'error':'Origine interdite.'})
         if set(v)!={'password'}:return h.json_response(400,{'error':'Champs invalides.'})

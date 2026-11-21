@@ -8,5 +8,6 @@ $('dismiss-recovery').onclick=()=>{$('recovery-codes').textContent='';$('recover
 $('logout').onclick=async()=>{try{await api('logout',{});reset();notice('Session révoquée.')}catch(e){notice(e.message)}};
 async function refreshSecurity(){const d=await api('me');$('session-status').textContent=`${d.active_sessions} session(s) active(s)`;$('mfa-status').textContent=d.mfa_enabled?'MFA activée':d.mfa_required?'MFA obligatoire — activation nécessaire':'MFA non activée';$('mfa-setup').hidden=d.mfa_enabled;}
 $('revoke-others').onsubmit=async e=>{e.preventDefault();const b=e.submitter;b.disabled=true;try{const d=await api('revoke-others',Object.fromEntries(new FormData(e.target)));await refreshSecurity();notice(`${d.revoked} session(s) révoquée(s).`)}catch(err){notice(err.message)}finally{e.target.reset();b.disabled=false}};
+$('change-password').onsubmit=async e=>{e.preventDefault();const b=e.submitter;b.disabled=true;try{await api('change-password',Object.fromEntries(new FormData(e.target)));reset();notice('Mot de passe modifié. Reconnectez-vous avec votre nouveau mot de passe.')}catch(err){notice(err.message)}finally{e.target.reset();b.disabled=false}};
 const originalShow=show;show=d=>{originalShow(d);refreshSecurity().catch(err=>notice(err.message))};api('me').then(show).catch(()=>{});
 
