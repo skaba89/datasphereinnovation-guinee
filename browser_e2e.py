@@ -652,6 +652,11 @@ class BrowserTests(unittest.TestCase):
                 self.page.goto('/'+module+'.html')
                 if module=='audit': expect(self.page.locator('#notice')).to_contain_text('100 derniers événements')
                 else: expect(self.page.locator('#dashboard' if module=='admin' else '#workspace')).to_be_visible()
+                active = self.page.locator('.app-sidebar nav a[aria-current="page"]')
+                expect(active).to_have_attribute('href', module+'.html')
+                expect(active).to_have_css('min-height','44px')
+                expect(active).to_have_css('font-weight','700')
+                expect(self.page.locator('body')).to_have_css('background-color','rgb(245, 246, 250)')
                 self.assert_responsive(module)
                 if module=='accounts':
                     own=self.page.locator('#rows tr').filter(has_text='admin.e2e')
