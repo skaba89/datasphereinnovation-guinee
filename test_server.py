@@ -887,6 +887,32 @@ class IntakeTests(unittest.TestCase):
             self.assertEqual(db.execute('SELECT count(*) FROM quote_events').fetchone()[0],2)
             self.assertEqual(json.loads(db.execute('SELECT snapshot FROM quote_events ORDER BY version DESC LIMIT 1').fetchone()[0])['terms'],'Acompte à confirmer')
 
+    def test_quote_transmission_tracking(self):
+        auth={"Authorization":"Bearer "+server.ADMIN_TOKEN,"Content-Type":"application/json"}
+        path='/api/admin/quotes'
+        opp={"company":"Test","contact":"","email":"","title":"Analytics","mode":"REGIE","skills":"","consultant_id":"","next_action":"","followup":"","notes":"","status":"PROSPECT"}
+        status,body,_=self.request('POST','/api/admin/crm',opp,auth)
+        self.assertEqual(status,201)
+        v=dict(opportunity_id=json.loads(body)['id'],title='Analytics',scope='Audit',mode='REGIE',currency='EUR',days='10',rate='600',daily_cost='400',expenses='50',fixed_price='0',status='PROPOSE',valid_until='2099-01-01',terms='Acompte')
+        status,body,_=self.request('POST',path,v,auth)
+        self.assertEqual(status,201)
+        item=path+'/'+json.loads(body)['id']
+        tracking=item+'/transmission'
+        data={'version':1,'action':'TRANSMIS','evidence':'Référence interne'}
+        self.assertEqual(self.request('POST',tracking,data)[0],401)
+        self.assertEqual(self.request('POST',tracking,data,auth|{'Origin':'https://other.invalid'})[0],403)
+        self.assertEqual(self.request('POST',tracking,data|{'action':'ACCEPTE'},auth)[0],409)
+        self.assertEqual(self.request('POST',tracking,data|{'evidence':''},auth)[0],400)
+        self.assertEqual(self.request('POST',tracking,data,auth)[0],200)
+        self.assertEqual(self.request('POST',tracking,data,auth)[0],409)
+        self.assertEqual(self.request('PATCH',item,v|{'version':1},auth)[0],409)
+        self.assertEqual(self.request('POST',tracking,data|{'action':'ACCEPTE','version':2},auth)[0],409)
+        self.assertEqual(self.request('POST',tracking,data|{'action':'ACCEPTE'},auth)[0],200)
+        proposal=json.loads(self.request('GET',path,headers=auth)[1])['items'][0]
+        self.assertEqual((proposal['status'],proposal['version']),('ACCEPTE',2))
+        self.assertEqual(proposal['transmission']['version'],1)
+        self.assertEqual(proposal['decision']['decision'],'ACCEPTE')
+
     def test_organization_directory(self):
         path='/api/admin/crm/organizations'
         auth={'Authorization':'Bearer '+server.ADMIN_TOKEN,'Content-Type':'application/json'}
