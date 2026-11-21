@@ -704,6 +704,20 @@ class IntakeTests(unittest.TestCase):
         self.assertEqual(self.request('GET',finance+'/contracts',headers=own)[0],403)
         self.assertEqual(self.request('GET',finance+'/contracts?page=invalid',headers=auth)[0],400)
         c=json.loads(self.request('GET',finance+'/contracts',headers=auth)[1])['items'][0]
+        schedule=finance+'/schedule'
+        plan={'mission_id':mid,'label':'Échéance test','kind':'PERIODIQUE','amount':'450','due_date':'2020-02-01'}
+        self.assertEqual(self.request('GET',schedule)[0],401)
+        self.assertEqual(self.request('POST',schedule,plan,own)[0],403)
+        self.assertEqual(self.request('POST',schedule,plan|{'amount':'6001'},auth)[0],409)
+        status,body,_=self.request('POST',schedule,plan,auth)
+        self.assertEqual(status,201);sid=json.loads(body)['id']
+        self.assertEqual(self.request('POST',schedule,plan,auth)[0],409)
+        self.assertTrue(json.loads(self.request('GET',schedule,headers=auth)[1])['items'][0]['overdue'])
+        self.assertEqual(self.request('PATCH',schedule+'/'+sid,{'invoice_reference':'ABSENTE'},auth)[0],409)
+        self.assertEqual(self.request('PATCH',schedule+'/'+sid,{'invoice_reference':'TEST-001'},auth)[0],200)
+        self.assertEqual(self.request('PATCH',schedule+'/'+sid,{'state':'ANNULE'},auth)[0],409)
+        self.assertEqual(json.loads(self.request('GET',schedule,headers=auth)[1])['items'][0]['state'],'RAPPROCHE')
+        self.assertEqual(json.loads(self.request('GET',finance,headers=auth)[1])['totals']['EUR']['balance'],'350')
         self.assertEqual(c['contract_ref'],'FICTIF-01')
         self.assertEqual((c['planned'],c['earned'],c['invoiced'],c['paid'],c['balance'],c['overdue'],c['remaining_billable'],c['actual_cost'],c['earned_margin']),('6000.00','450.00','450.00','100.00','350.00','350.00','0.00','425.00','25.00'))
         self.assertEqual(json.loads(self.request('GET',finance+'/contracts?page=2',headers=auth)[1])['items'],[])
