@@ -772,6 +772,15 @@ class BrowserTests(unittest.TestCase):
 
 
     def test_non_admin_role_navigation_and_api_matrix(self):
+        profile = self.seed('/api/admin/consultants', {'name':'Consultant V90 fictif','email':'v90@example.invalid','role':'Data Engineer','skills':'Python','location':'Guinée','experience':'5','availability':'Immédiate','notes':'','status':'DISPONIBLE'})
+        opportunity = self.seed('/api/admin/crm', {'company':'Client V90 fictif','contact':'Contact fictif','email':'client90@example.invalid','title':'Forfait V90','mode':'FORFAIT','skills':'Python','consultant_id':'','next_action':'','followup':'','notes':'','status':'QUALIFIE'})
+        quote = self.seed('/api/admin/quotes', {'opportunity_id':opportunity['id'],'title':'Livraison V90','scope':'Livrable fictif','mode':'FORFAIT','currency':'EUR','days':'5','rate':'0','daily_cost':'100','expenses':'0','fixed_price':'1000','status':'PROPOSE','valid_until':'2099-01-01','terms':'Recette fictive'})
+        route = '/api/admin/quotes/'+quote['id']
+        for action in ('TRANSMIS','ACCEPTE'):
+            response = self.context.request.post(route+'/transmission',data={'version':1,'action':action,'evidence':'Preuve fictive V90'},headers={'Authorization':'Bearer '+server.ADMIN_TOKEN})
+            self.assertEqual(response.status,200,response.text())
+        self.seed(route+'/contract',{'version':2,'reference':'V90-CONTRAT','signed_date':'2020-01-01','evidence':'Signature fictive'})
+        self.seed('/api/admin/missions',{'quote_id':quote['id'],'consultant_id':profile['id'],'contract_ref':'V90-CONTRAT','start_date':'2020-01-01','end_date':'2020-01-31'})
         # Independent business expectations, not derived from the implementation.
         matrix = {
             'DIRECTION': ({'direction','billing','missions','quotes','crm','tenders','alerts'}, {'notifications'}),
@@ -845,6 +854,20 @@ class BrowserTests(unittest.TestCase):
                             expect(self.page.locator('#notice')).to_contain_text('100 derniers événements')
                         else:
                             expect(self.page.locator('#dashboard' if target=='admin.html' else '#workspace')).to_be_visible()
+                        if target == 'missions.html':
+                            response = self.context.request.get('/api/admin/missions', headers=headers)
+                            self.assertEqual(response.json()['can_write'], 'missions' in write)
+                            if 'missions' in write:
+                                expect(self.page.locator('#mission')).to_be_visible()
+                            else:
+                                expect(self.page.locator('#mission')).to_be_hidden()
+                                row = self.page.locator('#rows tr').filter(has_text='Livraison V90')
+                                expect(row).to_be_visible()
+                                expect(row.get_by_role('button',name='Clôturer')).to_have_count(0)
+                                row.get_by_role('button',name='CRA',exact=True).click()
+                                expect(self.page.locator('#cra')).to_be_visible()
+                                expect(self.page.locator('#activity')).to_be_hidden()
+                                self.assertEqual(self.context.request.post('/api/admin/missions', headers={**headers,'Origin':self.url}, data={}).status,403)
                         self.assert_responsive(target)
                 self.page.goto('/accounts.html')
                 expect(self.page.locator('#notice')).to_contain_text('Permission insuffisante')
