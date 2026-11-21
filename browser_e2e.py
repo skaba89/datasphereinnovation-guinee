@@ -345,6 +345,118 @@ class BrowserTests(unittest.TestCase):
         expect(self.page.locator('#login')).to_be_visible()
         self.assertEqual(self.errors, [])
 
+    def test_recruitment_consultant_and_private_document_lifecycle(self):
+        import antivirus
+        from datetime import date
+        self.page.goto('/')
+        for name,value in {'nom':'Candidat V85 fictif','org':'Indépendant','email':'candidat85@example.invalid','message':'Candidature fictive Data Engineer'}.items():
+            self.page.locator(f'#request [name={name}]').fill(value)
+        self.page.locator('#need').select_option(label='Candidature spontanée')
+        self.page.locator('#request [name=consent]').check()
+        self.page.locator('#request [type=submit]').click()
+        expect(self.page.locator('#request-status')).to_contain_text('Demande enregistrée localement')
+        self.activate('rh.v85','RH')
+        self.page.locator('#modules a[href="recruitment.html"]').click()
+        expect(self.page.locator('#workspace')).to_be_visible()
+        candidate=self.page.locator('#rows section').filter(has_text='Candidat V85 fictif')
+        candidate.locator('[name=role]').fill('Data Engineer')
+        candidate.locator('[name=skills]').fill('Python, Snowflake')
+        candidate.get_by_role('button',name='Qualifier dans le vivier').click()
+        expect(candidate).to_contain_text('Profil qualifié')
+        expect(candidate.get_by_role('button',name='Qualifier dans le vivier')).to_have_count(0)
+        response=self.context.request.get('/api/admin/recruitment',headers={'Authorization':'Bearer session'})
+        self.assertEqual(response.status,200)
+        cid=response.json()['items'][0]['consultant_id']
+        candidate.get_by_role('link',name='Profil qualifié — ouvrir le vivier').click()
+        expect(self.page.locator('#workspace')).to_be_visible()
+        profile=self.page.locator('#rows tr').filter(has_text='Candidat V85 fictif')
+        expect(profile).to_contain_text('À qualifier')
+        profile.get_by_role('button',name='Modifier').click()
+        expect(self.page.locator('#editor [name=email]')).to_have_value('candidat85@example.invalid')
+        self.page.locator('#editor [name=location]').fill('Guinée')
+        self.page.locator('#editor [name=experience]').fill('5')
+        self.page.locator('#editor [name=availability]').fill('Immédiate')
+        self.page.locator('#editor [name=status]').select_option('DISPONIBLE')
+        self.page.locator('#save').click()
+        expect(profile).to_contain_text('Disponible')
+        expect(profile).to_contain_text('Snowflake')
+        expect(self.page.locator('#rows tr')).to_have_count(1)
+        self.page.goto('/documents.html')
+        expect(self.page.locator('#notice')).to_contain_text('Permission insuffisante')
+        expect(self.page.locator('#workspace')).to_be_hidden()
+        self.page.goto('/connexion.html')
+        expect(self.page.locator('#workspace')).to_be_visible()
+        self.page.locator('#logout').click()
+        expect(self.page.locator('#login')).to_be_visible()
+
+        self.activate('admin.v85','ADMIN')
+        expect(self.page.locator('#modules a')).to_have_count(0)
+        self.page.locator('#mfa-setup [name=password]').fill(self.password)
+        self.page.locator('#mfa-setup button').click()
+        expect(self.page.locator('#mfa-pending')).to_be_visible()
+        secret=self.page.locator('#secret').input_value()
+        self.page.locator('#mfa-confirm [name=code]').fill(server.authentication.totp(secret,int(time.time())//30))
+        self.page.locator('#mfa-confirm button').click()
+        expect(self.page.locator('#recovery')).to_be_visible()
+        code=self.page.locator('#recovery-codes').inner_text().splitlines()[0]
+        self.page.locator('#dismiss-recovery').click()
+        self.login('admin.v85',code)
+        self.page.locator('#modules a[href="documents.html"]').click()
+        expect(self.page.locator('#workspace')).to_be_visible()
+        raw1=b'%PDF-1.4\nSynthetic CV V85 version 1\n%%EOF'
+        raw2=b'%PDF-1.4\nSynthetic CV V85 version 2\n%%EOF'
+        editor=self.page.locator('#editor')
+        def attach(raw):
+            editor.locator('[name=pdf]').set_input_files({'name':'cv-fictif.pdf','mimeType':'application/pdf','buffer':raw})
+        editor.locator('[name=category]').select_option('CV')
+        editor.locator('[name=entity_id]').fill(cid)
+        editor.locator('[name=title]').fill('CV V85 fictif')
+        editor.locator('[name=review_date]').fill(date.today().isoformat())
+        attach(raw1)
+        with patch.dict(os.environ,{'DSIG_DOCUMENT_KEY':Fernet.generate_key().decode(),'DSIG_DOCUMENT_PREVIOUS_KEY':'','DSIG_CLAMD_SOCKET':''}):
+            # Real fail-closed unavailable path; no ClamAV daemon required by browser CI.
+            self.page.locator('#save').click()
+            expect(self.page.locator('#notice')).to_contain_text('Contrôle antivirus indisponible')
+            expect(self.page.locator('#rows tr')).to_have_count(0)
+            with patch('antivirus.scan',side_effect=antivirus.Infected):
+                self.page.locator('#save').click()
+                expect(self.page.locator('#notice')).to_contain_text('Document refusé par le contrôle antivirus')
+                expect(self.page.locator('#rows tr')).to_have_count(0)
+            # Simulate a clean scan only at the scanner boundary in this test fixture.
+            with patch('antivirus.scan') as scan:
+                self.page.locator('#save').click()
+                first=self.page.locator('#rows tr').filter(has_text='v1 (actuelle)')
+                expect(first).to_contain_text('CV V85 fictif')
+                expect(first).to_contain_text('à revoir')
+                first.get_by_role('button',name='Nouvelle version').click()
+                expect(editor.locator('[name=entity_id]')).to_have_value(cid)
+                attach(raw2)
+                self.page.locator('#save').click()
+                current=self.page.locator('#rows tr').filter(has_text='v2 (actuelle)')
+                expect(current).to_contain_text('CV V85 fictif')
+                expect(self.page.locator('#rows tr').filter(has_text='v1 (historique)')).to_have_count(1)
+                expect(self.page.locator('#rows tr')).to_have_count(2)
+                with self.page.expect_download() as download:
+                    current.get_by_role('button',name='Télécharger').click()
+                self.assertEqual(Path(download.value.path()).read_bytes(),raw2)
+                self.assertEqual(scan.call_count,3)
+            response=self.context.request.get('/api/admin/documents',headers={'Authorization':'Bearer session'})
+            self.assertEqual(response.status,200)
+            items=response.json()['items']
+            self.assertEqual(len(items),2)
+            self.assertNotIn('ciphertext',response.text())
+            with server.connect() as db:
+                encrypted=[row[0] for row in db.execute('SELECT ciphertext FROM documents')]
+                self.assertEqual(len(encrypted),2)
+                self.assertTrue(all(raw1 not in item and raw2 not in item for item in encrypted))
+            current_id=next(item['id'] for item in items if item['current'])
+            self.page.goto('/connexion.html')
+            expect(self.page.locator('#workspace')).to_be_visible()
+            self.page.locator('#logout').click()
+            expect(self.page.locator('#login')).to_be_visible()
+            self.assertEqual(self.context.request.get('/api/admin/documents/'+current_id).status,401)
+        self.assertEqual(self.errors, [])
+
     def test_english_parity_and_intake(self):
         self.page.goto('/')
         styles = self.page.locator('link[rel=stylesheet]').evaluate_all('(links) => links.map(x => x.getAttribute("href"))')
