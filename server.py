@@ -23,6 +23,7 @@ import reporting
 import documents
 import alerts
 import notifications
+import contact_mail
 import accounts
 import own_activity
 import authentication
@@ -79,15 +80,18 @@ def connect():
     accounts.schema(db)
     documents.schema(db)
     notifications.schema(db)
+    contact_mail.schema(db)
     return db
 
 
 def validate(payload):
     if not isinstance(payload, dict) or payload.get("website"):
         raise ValueError("Demande invalide.")
-    allowed = set(SIZES) | {"website", "consent"}
+    allowed = set(SIZES) | {"website", "consent", "language"}
     if set(payload) - allowed or payload.get("consent") is not True:
         raise ValueError("Veuillez confirmer la notice de confidentialité.")
+    if payload.get('language','fr') not in ('fr','en'):
+        raise ValueError('Langue invalide.')
     values = {}
     for key, maximum in SIZES.items():
         value = payload.get(key, "")
@@ -344,6 +348,8 @@ class Handler(SimpleHTTPRequestHandler):
             with connect() as db:
                 db.execute("INSERT INTO requests (id,nom,org,email,besoin,solution,message) VALUES (?,?,?,?,?,?,?)",
                            (request_id, *(values[k] for k in SIZES)))
+                if os.environ.get('DSIG_ENV','REC') == 'REC':
+                    contact_mail.enqueue(db, request_id, payload.get('language','fr'))
         except sqlite3.Error:
             return self.json_response(503, {"error": "Enregistrement indisponible."})
         self.json_response(201, {"id": request_id, "status": "NOUVELLE"})
@@ -395,9 +401,19 @@ def main():
     parser.add_argument("--check-db", action="store_true", help="Vérification de l'intégrité SQLite, lecture seule")
     parser.add_argument("--rotate-documents", metavar="COPY", help="Rotation des documents sur une copie isolée, serveur arrêté")
     parser.add_argument("--refresh-notifications", action="store_true", help="Calcul des rappels internes (DEV/REC)")
+    parser.add_argument('--send-contact-notifications', action='store_true', help='REC: traiter la file de mails avec configuration JSON sur stdin')
+    parser.add_argument('--contact-mail-status', action='store_true', help='Compteurs de la file de mails')
     args = parser.parse_args()
-    if sum(bool(x) for x in (args.export,args.backup,args.backup_encrypted,args.restore_isolated,args.check_db,args.rotate_documents,args.refresh_notifications))>1:
+    if sum(bool(x) for x in (args.export,args.backup,args.backup_encrypted,args.restore_isolated,args.check_db,args.rotate_documents,args.refresh_notifications,args.send_contact_notifications,args.contact_mail_status))>1:
         parser.error('Une seule opération à la fois.')
+    if args.send_contact_notifications or args.contact_mail_status:
+        if os.environ.get('DSIG_ENV','REC') != 'REC':raise SystemExit('REC uniquement.')
+        if args.contact_mail_status:
+            with connect() as db:print(json.dumps(dict(db.execute('SELECT state,count(*) FROM contact_mail GROUP BY state').fetchall())))
+        else:
+            try:print(json.dumps(contact_mail.run(connect,json.loads(sys.stdin.read(8192)))))
+            except (ValueError, OSError, sqlite3.Error):raise SystemExit('Configuration ou traitement indisponible.')
+        return
     if args.refresh_notifications:
         if os.environ.get('DSIG_ENV','REC') not in ('DEV','REC'):raise SystemExit('Production bloquée.')
         from datetime import date
@@ -434,3 +450,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
