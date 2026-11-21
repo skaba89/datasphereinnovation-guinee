@@ -472,7 +472,7 @@ class BrowserTests(unittest.TestCase):
         row = self.page.locator('#rows tr').filter(has_text='AO-V86')
         expect(row).to_contain_text('échue')
         expect(row).to_contain_text('1250.50 EUR')
-        headers = {'Authorization':'Bearer session'}
+        headers = {'Authorization':'Bearer session', 'Origin':self.url}
         endpoint = '/api/admin/tenders'
         saved = self.context.request.get(endpoint, headers=headers).json()['items'][0]
         row.get_by_role('button', name='Modifier').click()
