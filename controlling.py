@@ -5,7 +5,7 @@ import missions
 import quotes
 import treasury
 
-KEYS=('budget_revenue','budget_cost','budget_margin','validated_revenue','validated_cost','validated_margin','cost_remaining','revenue_gap','invoiced','received','receivable','overdue','unbilled')
+KEYS=('budget_revenue','budget_cost','budget_margin','validated_revenue','validated_cost','validated_margin','cost_remaining','revenue_gap','invoiced','received','receivable','overdue','unbilled','margin_gap','allocated_outflows','allocated_cash_flow')
 
 def sums():return {k:Decimal(0) for k in KEYS}
 
@@ -21,9 +21,9 @@ def indicators(values):
 def stringify(values):return {k:str(v) if isinstance(v,Decimal) else v for k,v in values.items()}
 
 def snapshot(db,today):
-    totals=defaultdict(sums); clients=defaultdict(sums); rows=[]; consultant_rows=[]
+    totals=defaultdict(sums); clients=defaultdict(sums); contracts=defaultdict(sums); rows=[]; consultant_rows=[]
     # A mission is tied to exactly one accepted quote, even if another quote exists.
-    for row in db.execute('''SELECT q.*,m.id AS mission_id,m.status AS mission_status,o.company,
+    for row in db.execute('''SELECT q.*,m.id AS mission_id,m.contract_ref,m.status AS mission_status,o.company,
         coalesce(g.name,o.company) AS client_name,coalesce(l.organization_id,'') AS organization_id
         FROM missions m JOIN quotes q ON q.id=m.quote_id JOIN opportunities o ON o.id=m.opportunity_id
         LEFT JOIN organization_links l ON l.opportunity_id=o.id LEFT JOIN organizations g ON g.id=l.organization_id
@@ -41,9 +41,11 @@ def snapshot(db,today):
             amount=Decimal(invoice['amount']);paid=sum((Decimal(x[0]) for x in db.execute('SELECT amount FROM payments WHERE invoice_id=?',(invoice['id'],))),Decimal(0))
             billed+=amount;received+=paid
             if invoice['due_date']<today:late+=amount-paid
-        values=dict(budget_revenue=br,budget_cost=bc,budget_margin=br-bc,validated_revenue=revenue,validated_cost=cost,validated_margin=revenue-cost,cost_remaining=bc-cost,revenue_gap=revenue-br,invoiced=billed,received=received,receivable=billed-received,overdue=late,unbilled=revenue-billed)
+        outflows=sum((Decimal(x[0]) for x in db.execute('SELECT amount FROM expenses WHERE mission_id=? AND currency=?',(mid,m['currency']))),Decimal(0))
+        values=dict(budget_revenue=br,budget_cost=bc,budget_margin=br-bc,validated_revenue=revenue,validated_cost=cost,validated_margin=revenue-cost,cost_remaining=bc-cost,revenue_gap=revenue-br,invoiced=billed,received=received,receivable=billed-received,overdue=late,unbilled=revenue-billed,margin_gap=(revenue-cost)-(br-bc),allocated_outflows=outflows,allocated_cash_flow=received-outflows)
         currency=m['currency'];client_key=('organization',m['organization_id']) if m['organization_id'] else ('legacy',m['company'])
         group=(currency,*client_key,m['client_name'])
-        for key,value in values.items():totals[currency][key]+=value;clients[group][key]+=value
-        rows.append({'mission_id':mid,'client':m['client_name'],'organization_id':m['organization_id'],'title':m['title'],'currency':currency,'mode':m['mode'],'status':m['mission_status'],**stringify(values),**indicators(values)})
-    return {'missions':rows,'currencies':[{'currency':c,**stringify(v),**indicators(v)} for c,v in sorted(totals.items())], 'clients':[{'currency':g[0],'organization_id':g[2] if g[1]=='organization' else '', 'client':g[3],**stringify(v),**indicators(v)} for g,v in sorted(clients.items())],'consultants':consultant_rows,'cash':treasury.cash(db)}
+        contract_group=(*group,m['contract_ref'])
+        for key,value in values.items():totals[currency][key]+=value;clients[group][key]+=value;contracts[contract_group][key]+=value
+        rows.append({'mission_id':mid,'client':m['client_name'],'organization_id':m['organization_id'],'title':m['title'],'contract_ref':m['contract_ref'],'currency':currency,'mode':m['mode'],'status':m['mission_status'],**stringify(values),**indicators(values)})
+    return {'missions':rows,'currencies':[{'currency':c,**stringify(v),**indicators(v)} for c,v in sorted(totals.items())], 'clients':[{'currency':g[0],'organization_id':g[2] if g[1]=='organization' else '', 'client':g[3],**stringify(v),**indicators(v)} for g,v in sorted(clients.items())],'contracts':[{'currency':g[0],'organization_id':g[2] if g[1]=='organization' else '', 'client':g[3],'contract_ref':g[4],**stringify(v),**indicators(v)} for g,v in sorted(contracts.items())],'consultants':consultant_rows,'cash':treasury.cash(db)}

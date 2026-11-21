@@ -1,4 +1,5 @@
 import json
+from decimal import Decimal
 import tempfile
 import threading
 import unittest
@@ -847,6 +848,15 @@ class IntakeTests(unittest.TestCase):
         self.assertEqual(cash,[{'currency':'EUR','received':'100','outflows':'80','net_flow':'20'},{'currency':'GNF','received':'0','outflows':'1000','net_flow':'-1000'}])
         control=json.loads(self.request('GET','/api/admin/direction',headers=auth)[1])['controlling']
         self.assertEqual(control['cash'],cash)
+        contract=next(x for x in control['missions'] if x['mission_id']==mid)
+        self.assertEqual(contract['contract_ref'],'FICTIF-01')
+        self.assertEqual((contract['allocated_outflows'],contract['allocated_cash_flow']),('80','20'))
+        self.assertEqual(Decimal(contract['margin_gap']),Decimal(contract['validated_margin'])-Decimal(contract['budget_margin']))
+        aggregate=next(x for x in control['contracts'] if x['contract_ref']=='FICTIF-01' and x['currency']=='EUR')
+        self.assertEqual(Decimal(aggregate['allocated_outflows']),Decimal('80'))
+        eur=next(x for x in control['currencies'] if x['currency']=='EUR')
+        self.assertEqual(Decimal(eur['allocated_outflows']),Decimal('80'))
+        self.assertEqual(sum(Decimal(x['allocated_outflows']) for x in control['clients'] if x['currency']=='EUR'),Decimal('80'))
         self.assertEqual(next(x for x in control['missions'] if x['mission_id']==mid)['validated_cost'],'850.00')
         individual=[x for x in control['consultants'] if x['mission_id']==mid]
         self.assertEqual(len(individual),2)
