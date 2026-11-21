@@ -4,6 +4,7 @@ from datetime import date
 from decimal import Decimal, ROUND_HALF_UP
 from urllib.parse import urlsplit, parse_qs
 import quotes
+import accounts
 
 def schema(db):
     db.execute('''CREATE TABLE IF NOT EXISTS missions(id TEXT PRIMARY KEY, quote_id TEXT NOT NULL UNIQUE, opportunity_id TEXT NOT NULL UNIQUE, consultant_id TEXT NOT NULL, contract_ref TEXT NOT NULL, start_date TEXT NOT NULL, end_date TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'ACTIVE', created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)''')
@@ -55,7 +56,7 @@ def handle(h,connect,method):
             rows=[]
             for r in db.execute('SELECT q.*,m.id AS mission_id,m.consultant_id,m.contract_ref,m.start_date,m.end_date,m.status AS mission_status,o.company,c.name AS consultant FROM missions m JOIN quotes q ON q.id=m.quote_id JOIN opportunities o ON o.id=m.opportunity_id JOIN consultants c ON c.id=m.consultant_id ORDER BY m.created_at DESC,m.id LIMIT 25 OFFSET ?',((page-1)*25,)):
                 m=dict(r); entries=[dict(e) for e in db.execute('SELECT * FROM activity WHERE mission_id=?',(m['mission_id'],))];m['team']=[{'id':m['consultant_id'],'name':m['consultant']}]+[dict(e) for e in db.execute('SELECT c.id,c.name FROM mission_members x JOIN consultants c ON c.id=x.consultant_id WHERE x.mission_id=? ORDER BY c.name,c.id',(m['mission_id'],))];rows.append(m|amounts(m,entries))
-            return h.json_response(200,{'items':rows,'total':db.execute('SELECT count(*) FROM missions').fetchone()[0]})
+            return h.json_response(200,{'items':rows,'total':db.execute('SELECT count(*) FROM missions').fetchone()[0],'can_write':accounts.allowed(h.role,'missions','POST')})
     try:
         n=int(h.headers.get('Content-Length','0'))
         if not 0<n<=16000 or h.headers.get_content_type()!='application/json':raise ValueError()

@@ -56,6 +56,24 @@ class BrowserTests(unittest.TestCase):
         self.page.locator('#signin button').click()
         expect(self.page.locator('#workspace')).to_be_visible()
 
+    def assert_responsive(self, page_name):
+        for width in (360, 768, 1280):
+            with self.subTest(page=page_name, width=width):
+                self.page.set_viewport_size({'width':width,'height':900})
+                self.page.evaluate('document.fonts.ready')
+                self.assertTrue(self.page.evaluate('document.documentElement.scrollWidth <= innerWidth + 1'),
+                                f'{page_name}: horizontal overflow at {width}px')
+        self.page.set_viewport_size({'width':1280,'height':900})
+
+    def test_public_pages_responsive(self):
+        for path in ('/', '/en.html', '/expertise.html?id=logistique-transport', '/expertise-en.html?id=logistique-transport', '/confidentialite.html', '/privacy-en.html', '/connexion.html'):
+            with self.subTest(path=path):
+                response = self.page.goto(path)
+                self.assertEqual(response.status, 200)
+                expect(self.page.locator('h1')).to_be_visible()
+                self.assert_responsive(path)
+        self.assertEqual(self.errors, [])
+
     def test_public_intake_and_catalogue(self):
         self.page.goto('/')
         expect(self.page.locator('h1')).to_be_visible()
@@ -634,6 +652,7 @@ class BrowserTests(unittest.TestCase):
                 self.page.goto('/'+module+'.html')
                 if module=='audit': expect(self.page.locator('#notice')).to_contain_text('100 derniers événements')
                 else: expect(self.page.locator('#dashboard' if module=='admin' else '#workspace')).to_be_visible()
+                self.assert_responsive(module)
                 if module=='accounts':
                     own=self.page.locator('#rows tr').filter(has_text='admin.e2e')
                     expect(own).to_contain_text('Activé')
@@ -745,6 +764,7 @@ class BrowserTests(unittest.TestCase):
         expect(self.page.locator('.app-sidebar nav a')).to_have_count(2)
         expect(self.page.locator('.app-sidebar nav a[href="my-activity.html"]')).to_be_visible()
         expect(self.page.locator('.app-sidebar nav a[href="accounts.html"]')).to_have_count(0)
+        self.assert_responsive('my-activity.html')
         self.page.goto('/accounts.html')
         expect(self.page.locator('#notice')).to_contain_text('Permission insuffisante')
         expect(self.page.locator('#workspace')).to_be_hidden()
@@ -752,6 +772,15 @@ class BrowserTests(unittest.TestCase):
 
 
     def test_non_admin_role_navigation_and_api_matrix(self):
+        profile = self.seed('/api/admin/consultants', {'name':'Consultant V90 fictif','email':'v90@example.invalid','role':'Data Engineer','skills':'Python','location':'Guinée','experience':'5','availability':'Immédiate','notes':'','status':'DISPONIBLE'})
+        opportunity = self.seed('/api/admin/crm', {'company':'Client V90 fictif','contact':'Contact fictif','email':'client90@example.invalid','title':'Forfait V90','mode':'FORFAIT','skills':'Python','consultant_id':'','next_action':'','followup':'','notes':'','status':'QUALIFIE'})
+        quote = self.seed('/api/admin/quotes', {'opportunity_id':opportunity['id'],'title':'Livraison V90','scope':'Livrable fictif','mode':'FORFAIT','currency':'EUR','days':'5','rate':'0','daily_cost':'100','expenses':'0','fixed_price':'1000','status':'PROPOSE','valid_until':'2099-01-01','terms':'Recette fictive'})
+        route = '/api/admin/quotes/'+quote['id']
+        for action in ('TRANSMIS','ACCEPTE'):
+            response = self.context.request.post(route+'/transmission',data={'version':1,'action':action,'evidence':'Preuve fictive V90'},headers={'Authorization':'Bearer '+server.ADMIN_TOKEN})
+            self.assertEqual(response.status,200,response.text())
+        self.seed(route+'/contract',{'version':2,'reference':'V90-CONTRAT','signed_date':'2020-01-01','evidence':'Signature fictive'})
+        self.seed('/api/admin/missions',{'quote_id':quote['id'],'consultant_id':profile['id'],'contract_ref':'V90-CONTRAT','start_date':'2020-01-01','end_date':'2020-01-31'})
         # Independent business expectations, not derived from the implementation.
         matrix = {
             'DIRECTION': ({'direction','billing','missions','quotes','crm','tenders','alerts'}, {'notifications'}),
@@ -813,11 +842,33 @@ class BrowserTests(unittest.TestCase):
                     for path in paths:
                         response = self.context.request.get('/api/admin/'+path, headers=headers)
                         self.assertEqual(response.status, 200 if resource in allowed else 403, f'{role}: {path}')
-                target = sorted(expected)[0]
-                self.page.locator(f'#modules a[href="{target}"]').click()
-                nav = self.page.locator('.app-sidebar nav a')
-                expect(nav).to_have_count(len(expected)+1)
-                self.assertEqual(set(nav.evaluate_all('(nodes) => nodes.map(a => a.getAttribute("href"))')), expected | {'connexion.html'})
+                for target in sorted(expected):
+                    with self.subTest(role=role, target=target):
+                        response = self.page.goto('/'+target)
+                        self.assertEqual(response.status, 200)
+                        nav = self.page.locator('.app-sidebar nav a')
+                        expect(nav).to_have_count(len(expected)+1)
+                        self.assertEqual(set(nav.evaluate_all('(nodes) => nodes.map(a => a.getAttribute("href"))')), expected | {'connexion.html'})
+                        expect(self.page.locator('.app-sidebar nav a[aria-current="page"]')).to_have_attribute('href', target)
+                        if target == 'audit.html':
+                            expect(self.page.locator('#notice')).to_contain_text('100 derniers événements')
+                        else:
+                            expect(self.page.locator('#dashboard' if target=='admin.html' else '#workspace')).to_be_visible()
+                        if target == 'missions.html':
+                            response = self.context.request.get('/api/admin/missions', headers=headers)
+                            self.assertEqual(response.json()['can_write'], 'missions' in write)
+                            if 'missions' in write:
+                                expect(self.page.locator('#mission')).to_be_visible()
+                            else:
+                                expect(self.page.locator('#mission')).to_be_hidden()
+                                row = self.page.locator('#rows tr').filter(has_text='Livraison V90')
+                                expect(row).to_be_visible()
+                                expect(row.get_by_role('button',name='Clôturer')).to_have_count(0)
+                                row.get_by_role('button',name='CRA',exact=True).click()
+                                expect(self.page.locator('#cra')).to_be_visible()
+                                expect(self.page.locator('#activity')).to_be_hidden()
+                                self.assertEqual(self.context.request.post('/api/admin/missions', headers={**headers,'Origin':self.url}, data={}).status,403)
+                        self.assert_responsive(target)
                 self.page.goto('/accounts.html')
                 expect(self.page.locator('#notice')).to_contain_text('Permission insuffisante')
                 expect(self.page.locator('#workspace')).to_be_hidden()
