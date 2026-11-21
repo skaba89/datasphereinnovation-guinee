@@ -277,6 +277,7 @@ class IntakeTests(unittest.TestCase):
                              (json.loads(data)["id"], "MineFleet360", "NOUVELLE"))
 
     def test_recruitment_route(self):
+        import uuid
         s,b,_=self.request('POST','/api/requests',self.payload|{'besoin':'Candidature spontanée','solution':''})
         self.assertEqual(s,201);rid=json.loads(b)['id']
         path='/api/admin/recruitment';auth={'Authorization':'Bearer '+server.ADMIN_TOKEN,'Content-Type':'application/json'}
@@ -285,6 +286,19 @@ class IntakeTests(unittest.TestCase):
         payload={'request_id':rid,'role':'Data Engineer','skills':'Python'}
         self.assertEqual(self.request('POST',path,payload,auth)[0],201)
         self.assertEqual(self.request('POST',path,payload,auth)[0],200)
+        with server.connect() as db:
+            db.executemany('INSERT INTO requests(id,nom,org,email,besoin,solution,message) VALUES (?,?,?,?,?,?,?)',[(str(uuid.uuid4()),f'Candidat {i:03d}','Fictif','qa@example.invalid','Candidature spontanée','','Python') for i in range(105)])
+        def results(query):
+            status,body,_=self.request('GET',path+query,headers=auth)
+            self.assertEqual(status,200)
+            return json.loads(body)
+        first=results('?state=PENDING&page=1');last=results('?state=PENDING&page=5')
+        self.assertEqual((first['total'],len(first['items']),len(last['items'])),(105,25,5))
+        self.assertFalse({x['id'] for x in first['items']} & {x['id'] for x in last['items']})
+        self.assertEqual(results('?state=QUALIFIED')['items'][0]['id'],rid)
+        self.assertEqual(results('?q=Candidat%20104')['total'],1)
+        self.assertEqual(self.request('GET',path+'?page=0',headers=auth)[0],400)
+        self.assertEqual(self.request('GET',path+'?state=UNKNOWN',headers=auth)[0],400)
 
     def test_contact_mail_atomic_enqueue(self):
         with patch.dict(os.environ,{'DSIG_ENV':'REC'}):
