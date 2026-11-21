@@ -46,7 +46,7 @@ def handle(h,connect,method):
         with connect() as db:
             db.row_factory=sqlite3.Row
             if path.endswith('/eligible'):
-                rows=db.execute("SELECT q.id,q.title,o.company FROM quotes q JOIN opportunities o ON q.opportunity_id=o.id WHERE q.status='ACCEPTE' AND NOT EXISTS(SELECT 1 FROM missions m WHERE m.opportunity_id=q.opportunity_id) ORDER BY q.created_at DESC LIMIT 25 OFFSET ?",((page-1)*25,))
+                rows=db.execute("SELECT q.id,q.title,o.company,COALESCE(sc.reference,'') contract_ref FROM quotes q JOIN opportunities o ON q.opportunity_id=o.id LEFT JOIN signed_contracts sc ON sc.quote_id=q.id WHERE q.status='ACCEPTE' AND (sc.quote_id IS NOT NULL OR NOT EXISTS(SELECT 1 FROM quote_decisions d WHERE d.quote_id=q.id)) AND NOT EXISTS(SELECT 1 FROM missions m WHERE m.opportunity_id=q.opportunity_id) ORDER BY q.created_at DESC LIMIT 25 OFFSET ?",((page-1)*25,))
                 return h.json_response(200,{'items':[dict(r) for r in rows]})
             match=re.fullmatch(r'/api/admin/missions/([0-9a-f-]{36})/activity',path)
             if match:
@@ -70,6 +70,9 @@ def handle(h,connect,method):
                 if start>end or start.isoformat()!=v['start_date'] or end.isoformat()!=v['end_date']:raise ValueError()
                 q=db.execute("SELECT * FROM quotes WHERE id=? AND status='ACCEPTE'",(v['quote_id'],)).fetchone()
                 if not q or not db.execute("SELECT 1 FROM consultants WHERE id=? AND status='DISPONIBLE'",(v['consultant_id'],)).fetchone():raise ValueError()
+                sc=db.execute('SELECT reference,signed_date FROM signed_contracts WHERE quote_id=?',(q['id'],)).fetchone()
+                if not sc and db.execute('SELECT 1 FROM quote_decisions WHERE quote_id=?',(q['id'],)).fetchone():return h.json_response(409,{'error':'Enregistrez le contrat signé avant la mission.'})
+                if sc and (sc['reference']!=v['contract_ref'] or v['start_date']<sc['signed_date']):return h.json_response(409,{'error':'Référence ou début incompatible avec le contrat signé.'})
                 if conflict(db,v['consultant_id'],v['start_date'],v['end_date']):return h.json_response(409,{'error':'Consultant déjà affecté sur cette période.'})
                 oid=str(uuid.uuid4());db.execute('INSERT INTO missions(id,quote_id,opportunity_id,consultant_id,contract_ref,start_date,end_date) VALUES(?,?,?,?,?,?,?)',(oid,v['quote_id'],q['opportunity_id'],v['consultant_id'],v['contract_ref'],v['start_date'],v['end_date']));event='MISSION_CREEE'
             elif method=='POST' and path.endswith('/team'):

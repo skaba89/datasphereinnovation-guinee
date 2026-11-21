@@ -912,6 +912,27 @@ class IntakeTests(unittest.TestCase):
         self.assertEqual((proposal['status'],proposal['version']),('ACCEPTE',2))
         self.assertEqual(proposal['transmission']['version'],1)
         self.assertEqual(proposal['decision']['decision'],'ACCEPTE')
+        contract=item+'/contract'
+        signed={'version':2,'reference':'DSIG-TEST-001','signed_date':'2020-01-01','evidence':'Copie signée archivée'}
+        self.assertEqual(self.request('GET','/api/admin/missions/eligible',headers=auth)[0],200)
+        self.assertEqual(json.loads(self.request('GET','/api/admin/missions/eligible',headers=auth)[1])['items'],[])
+        profile={'name':'Test','email':'qa@example.invalid','role':'Data Engineer','skills':'Python','location':'Guinée','experience':'5','availability':'Immédiate','notes':'','status':'DISPONIBLE'}
+        status,body,_=self.request('POST','/api/admin/consultants',profile,auth)
+        self.assertEqual(status,201)
+        mission=dict(quote_id=proposal['id'],consultant_id=json.loads(body)['id'],contract_ref=signed['reference'],start_date='2020-01-01',end_date='2020-01-31')
+        self.assertEqual(self.request('POST','/api/admin/missions',mission,auth)[0],409)
+        self.assertEqual(self.request('POST',contract,signed)[0],401)
+        self.assertEqual(self.request('POST',contract,signed|{'version':1},auth)[0],409)
+        self.assertEqual(self.request('POST',contract,signed|{'signed_date':'2099-01-01'},auth)[0],400)
+        self.assertEqual(self.request('POST',contract,signed,auth)[0],201)
+        self.assertEqual(self.request('POST',contract,signed,auth)[0],409)
+        eligible=json.loads(self.request('GET','/api/admin/missions/eligible',headers=auth)[1])['items']
+        self.assertEqual(eligible[0]['contract_ref'],'DSIG-TEST-001')
+        self.assertEqual(self.request('POST','/api/admin/missions',mission|{'contract_ref':'AUTRE'},auth)[0],409)
+        self.assertEqual(self.request('POST','/api/admin/missions',mission,auth)[0],201)
+        self.assertEqual(self.request('POST','/api/admin/missions',mission,auth)[0],409)
+        proposal=json.loads(self.request('GET',path,headers=auth)[1])['items'][0]
+        self.assertEqual(proposal['contract']['signed_date'],'2020-01-01')
 
     def test_organization_directory(self):
         path='/api/admin/crm/organizations'

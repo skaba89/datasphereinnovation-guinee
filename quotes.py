@@ -36,6 +36,37 @@ def schema(db):
         decision TEXT NOT NULL, evidence TEXT NOT NULL, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)""")
 
 
+    db.execute("""CREATE TABLE IF NOT EXISTS signed_contracts (
+        quote_id TEXT PRIMARY KEY REFERENCES quotes(id), quote_version INTEGER NOT NULL,
+        reference TEXT NOT NULL UNIQUE COLLATE NOCASE, signed_date TEXT NOT NULL,
+        evidence TEXT NOT NULL, actor TEXT NOT NULL, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)""")
+
+def register_contract(h,connect,oid):
+    if not h.admin_authorized():return
+    if h.role not in ('ADMIN','COMMERCIAL'):return h.json_response(403,{'error':'Permission insuffisante.'})
+    try:
+        n=int(h.headers.get('Content-Length','0'))
+        if not 0<n<=8192 or h.headers.get_content_type()!='application/json':raise ValueError()
+        v=json.loads(h.rfile.read(n))
+        if not isinstance(v,dict) or set(v)!={'version','reference','signed_date','evidence'} or type(v['version']) is not int:raise ValueError()
+        for k,maxlen in [('reference',180),('evidence',1000),('signed_date',10)]:
+            if not isinstance(v[k],str) or not v[k].strip() or len(v[k])>maxlen or '\x00' in v[k]:raise ValueError()
+            v[k]=v[k].strip()
+        d=date.fromisoformat(v['signed_date'])
+        if d.isoformat()!=v['signed_date'] or d>date.today():raise ValueError()
+    except (ValueError,TypeError,UnicodeError):return h.json_response(400,{'error':'Référence, date ou preuve invalide.'})
+    try:
+        with connect() as db:
+            db.execute('BEGIN IMMEDIATE')
+            q=db.execute("SELECT version FROM quotes WHERE id=? AND status='ACCEPTE'",(oid,)).fetchone()
+            if not q or q[0]!=v['version']:return h.json_response(409,{'error':'Devis non accepté ou version modifiée.'})
+            m=db.execute('SELECT contract_ref FROM missions WHERE quote_id=?',(oid,)).fetchone()
+            if m and m[0]!=v['reference']:return h.json_response(409,{'error':'Référence différente de la mission existante.'})
+            db.execute('INSERT INTO signed_contracts(quote_id,quote_version,reference,signed_date,evidence,actor) VALUES(?,?,?,?,?,?)',(oid,v['version'],v['reference'],v['signed_date'],v['evidence'],h.actor))
+            accounts.event(db,h.actor,'CONTRAT_SIGNATURE_ENREGISTREE',oid)
+        return h.json_response(201,{'id':oid})
+    except sqlite3.IntegrityError:return h.json_response(409,{'error':'Contrat ou référence déjà enregistré.'})
+
 def calculate(v):
     unit = Decimal('1' if v['currency'] in ('GNF','XOF') else '0.01')
     days,rate,cost,expenses,fixed = (Decimal(v[k]) for k in FIELDS[5:10])
@@ -73,6 +104,7 @@ def handle(h,connect,method):
             rows=[dict(r) for r in db.execute('SELECT q.*,o.company,COALESCE(p.valid_until,\'\') valid_until,COALESCE(p.terms,\'\') terms FROM quotes q JOIN opportunities o ON q.opportunity_id=o.id LEFT JOIN quote_proposal_terms p ON p.quote_id=q.id ORDER BY q.created_at DESC,q.id DESC LIMIT 25 OFFSET ?',((page-1)*25,))]
             for row in rows:
                 row['transmission']=dict(t) if (t:=db.execute('SELECT version,actor,evidence,created_at FROM quote_transmissions WHERE quote_id=? ORDER BY version DESC LIMIT 1',(row['id'],)).fetchone()) else None
+                row['contract']=dict(c) if (c:=db.execute('SELECT reference,signed_date,actor,created_at FROM signed_contracts WHERE quote_id=?',(row['id'],)).fetchone()) else None
                 row['decision']=dict(d) if (d:=db.execute('SELECT version,actor,decision,evidence,created_at FROM quote_decisions WHERE quote_id=?',(row['id'],)).fetchone()) else None
             total=db.execute('SELECT count(*) FROM quotes').fetchone()[0]
         return h.json_response(200,{'items':[r|calculate(r) for r in rows],'total':total,'can_manage':h.role in ('ADMIN','COMMERCIAL')})
