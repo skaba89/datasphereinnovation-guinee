@@ -476,6 +476,29 @@ class IntakeTests(unittest.TestCase):
             self.assertEqual(self.request('POST','/api/auth/activate',{'username':'invite.test','password':'fictitious-password-123','key':account['key']})[0],200)
             self.assertEqual(self.request('PATCH',target,{'action':'INVITE'},auth)[0],409)
 
+    def test_scheduled_commercial_reminders(self):
+        import notifications
+        from datetime import date
+        auth={'Authorization':'Bearer '+server.ADMIN_TOKEN}
+        with server.connect() as db:
+            db.execute("""INSERT INTO requests(id,created_at,nom,org,email,besoin,solution,message)
+                VALUES ('request-1','2020-01-01 12:00:00','Privé','Fictif','qa@example.invalid','Partenariat','','Message privé')""")
+            db.execute("INSERT INTO request_workflow VALUES ('request-1','','URGENTE','2020-01-02',1)")
+            db.commit()
+            self.assertEqual(notifications.run(db,date(2020,1,4)),3)
+            self.assertEqual(notifications.run(db,date(2020,1,5)),0)
+        code,body,_=self.request('GET','/api/admin/notifications',headers=auth)
+        self.assertEqual(code,200)
+        data=json.loads(body)
+        self.assertEqual({i['kind'] for i in data['items']},{'DEMANDE_ECHEANCE','DEMANDE_AFFECTATION','DEMANDE_RELANCE'})
+        self.assertNotIn('qa@example.invalid',body.decode())
+        self.assertNotIn('Message privé',body.decode())
+        with server.connect() as db:
+            db.execute("UPDATE requests SET status='GAGNEE' WHERE id='request-1'")
+            db.commit()
+            self.assertEqual(notifications.run(db,date(2020,1,6)),0)
+        self.assertEqual(json.loads(self.request('GET','/api/admin/notifications',headers=auth)[1])['total'],0)
+
     def test_scheduled_notifications(self):
         import notifications
         from datetime import date

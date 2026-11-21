@@ -1,6 +1,6 @@
 """Idempotent internal reminder runs; acknowledgements are scoped per actor."""
 import sqlite3,uuid,json
-from datetime import date
+from datetime import date, timedelta
 from urllib.parse import urlsplit,parse_qs
 import alerts,accounts
 
@@ -8,9 +8,37 @@ def schema(db):
     db.execute('''CREATE TABLE IF NOT EXISTS notifications(id TEXT PRIMARY KEY, kind TEXT NOT NULL, entity_id TEXT NOT NULL, due TEXT NOT NULL, priority TEXT NOT NULL, label TEXT NOT NULL, details TEXT NOT NULL, active INTEGER NOT NULL DEFAULT 1, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, UNIQUE(kind,entity_id,due,priority))''')
     db.execute('''CREATE TABLE IF NOT EXISTS notification_reads(notification_id TEXT NOT NULL, actor TEXT NOT NULL, read_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, PRIMARY KEY(notification_id,actor))''')
 
+def commercial_reminders(db,today):
+    """Internal alerts with stable keys; no contact details or customer email."""
+    now=today.isoformat()
+    horizon=(today+timedelta(days=7)).isoformat()
+    items=[]
+    for rid,created,owner,priority,due in db.execute("""SELECT r.id,date(r.created_at),
+        COALESCE(w.owner_id,''),COALESCE(w.priority,'NORMALE'),COALESCE(w.due_date,'')
+        FROM requests r LEFT JOIN request_workflow w ON w.request_id=r.id
+        WHERE r.status NOT IN ('GAGNEE','PERDUE')"""):
+        def add(kind,deadline,level,details):
+            items.append(dict(kind=kind,id=rid,due=deadline,priority=level,
+                label='Demande '+rid,details=details))
+        if due and due<=horizon:
+            add('DEMANDE_ECHEANCE',due,'URGENT' if due<now else 'A_TRAITER',
+                'Échéance commerciale dépassée' if due<now else 'Échéance commerciale à venir')
+        if priority=='URGENTE' and not owner:
+            add('DEMANDE_AFFECTATION',created,'URGENT','Demande urgente non affectée')
+    # A stable deadline avoids creating a new notification every day.
+    for rid,deadline in db.execute("""SELECT r.id,date(r.created_at,'+2 days')
+        FROM requests r WHERE r.status='NOUVELLE'
+        AND datetime(r.created_at,'+2 days')<=datetime(?)
+        AND NOT EXISTS(SELECT 1 FROM request_events e WHERE e.request_id=r.id)""",
+        (now,)):
+        items.append(dict(kind='DEMANDE_RELANCE',id=rid,due=deadline,priority='URGENT',
+            label='Demande '+rid,details='Demande sans changement de statut depuis au moins 48 h'))
+    return items
+
+
 def run(db,today):
     with db:
-        db.execute('BEGIN IMMEDIATE');items=alerts.snapshot(db,today);created=0
+        db.execute('BEGIN IMMEDIATE');items=alerts.snapshot(db,today)+commercial_reminders(db,today);created=0
         db.execute('UPDATE notifications SET active=0 WHERE active=1')
         for x in items:
             key=(x['kind'],x['id'],x['due'],x['priority'])
