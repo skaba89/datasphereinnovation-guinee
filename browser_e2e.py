@@ -950,10 +950,6 @@ class BrowserTests(unittest.TestCase):
         logout()
         self.assertEqual(self.errors, [])
 
-
-if __name__ == '__main__':
-    unittest.main()
-
     def test_consultant_account_picker_and_pagination(self):
         profile = self.seed('/api/admin/consultants', {
             'name':'REC V89 Consultant','email':'v89@example.invalid','role':'Data Engineer',
@@ -982,3 +978,7 @@ if __name__ == '__main__':
             self.page.set_viewport_size({'width':width,'height':844})
             self.assertTrue(self.page.evaluate('document.documentElement.scrollWidth <= innerWidth + 1'))
         self.assertEqual(self.errors, [])
+
+
+if __name__ == '__main__':
+    unittest.main()
