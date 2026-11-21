@@ -173,7 +173,8 @@ PR 75 fusionnée et CI 44897596443 réussie. Pour la prochaine version approuvé
 ```bash
 cd /home/ubuntu/datasphereinnovation-guinee
 git fetch origin main
-python3 scripts/verify-rec-release.py "$(git rev-parse origin/main)"
+# Après contrôle de la CI, charger le script depuis le commit approuvé sans modifier le checkout.
+git show origin/main:scripts/verify-rec-release.py | python3 - "$(git rev-parse origin/main)"
 docker exec dsig-rec-dsig-1 python preflight.py
 python3 scripts/monitor-rec.py
 ```
