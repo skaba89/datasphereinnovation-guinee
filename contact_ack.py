@@ -42,3 +42,23 @@ def render(reference, category, language):
 <tr><td style="background:#f5f2fa;color:#5b5068;font-size:12px">{e(test)}</td></tr></table>
 </td></tr></table></body></html>"""
     return f'[REC TEST] DSIG — {label}',body,html
+
+
+STATUS = {
+    'NOUVELLE': ('Demande reçue','Request received','Nous avons reçu votre demande.','We have received your request.'),
+    'QUALIFIEE': ('Demande qualifiée','Request qualified','Votre dossier a été examiné et orienté vers notre équipe.','Your request has been reviewed and assigned to our team.'),
+    'EN_COURS': ('Demande en cours de traitement','Request in progress','Notre équipe étudie votre demande.','Our team is reviewing your request.'),
+    'GAGNEE': ('Traitement terminé','Review completed','Le traitement de votre demande est terminé. Notre équipe vous informera des prochaines étapes.','The review is complete. Our team will advise you of the next steps.'),
+    'PERDUE': ('Dossier clôturé','Request closed','Votre dossier est clôturé. Vous pouvez nous contacter pour toute question.','Your request is closed. Please contact us with any questions.'),
+}
+
+def render_status(reference,status,language):
+    en=language=='en'
+    fr,eng,fr_step,en_step=STATUS[status]
+    label,step=(eng,en_step) if en else (fr,fr_step)
+    ref_label='Reference' if en else 'Référence'
+    notice='TEST — no commercial commitment.' if en else 'RECETTE — aucun engagement commercial.'
+    subject=f'[REC TEST] DSIG — {label}'
+    plain=f'{label}\n\n{ref_label}: {reference}\n\n{step}\n\nDataSphere Innovation Guinée | DSIG Consulting\n{notice}'
+    markup=f'<html lang="{language}"><body style="font-family:Arial,sans-serif;color:#201038"><div style="background:#35104e;color:white;padding:20px;font-size:22px">DSIG | Consulting</div><h1>{escape(label)}</h1><p>{ref_label}: {escape(reference)}</p><p>{escape(step)}</p><p>DataSphere Innovation Guinée | DSIG Consulting</p><p>{escape(notice)}</p></body></html>'
+    return subject,plain,markup
