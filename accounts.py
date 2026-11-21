@@ -84,7 +84,9 @@ def handle(h,connect,method):
             db.row_factory=sqlite3.Row
             if path.endswith('/audit'):
                 items=[dict(r) for r in db.execute('SELECT * FROM access_events ORDER BY id DESC LIMIT 100')]
-            else:items=[dict(r) for r in db.execute('SELECT id,username,role,consultant_id,enabled,created_at FROM accounts ORDER BY username')]
+            else:
+                items=[dict(r) for r in db.execute('SELECT a.id,a.username,a.role,a.consultant_id,a.enabled,a.created_at,EXISTS(SELECT 1 FROM credentials c WHERE c.account_id=a.id) AS activated,EXISTS(SELECT 1 FROM mfa m WHERE m.account_id=a.id AND m.enabled=1) AS mfa_enabled FROM accounts a ORDER BY a.username')]
+                for item in items:item['self']=item['id']==getattr(h,'actor_id',None)
         return h.json_response(200,{'items':items})
     try:
         size=int(h.headers.get('Content-Length','0'))
