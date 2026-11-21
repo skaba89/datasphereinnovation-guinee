@@ -823,6 +823,26 @@ class IntakeTests(unittest.TestCase):
         self.assertEqual(self.request('POST',expenses,out,auth)[0],201)
         self.assertEqual(self.request('POST',expenses,out|{'reference':'dep-001'},auth)[0],409)
         self.assertEqual(self.request('POST',expenses,out|{'reference':'DEP-002','currency':'GNF','amount':'1000','mission_id':''},auth)[0],201)
+        budget=finance+'/planned-expenses'
+        planned={'reference':'BUD-001','currency':'EUR','amount':'80','due_date':future,'category':'CONSULTANT','description':'Prévision fictive'}
+        self.assertEqual(self.request('GET',budget)[0],401)
+        self.assertEqual(self.request('POST',budget,planned,own)[0],403)
+        self.assertEqual(self.request('POST',budget,planned|{'due_date':'2020-01-01'},auth)[0],400)
+        status,body,_=self.request('POST',budget,planned,auth)
+        self.assertEqual(status,201);bid=json.loads(body)['id']
+        self.assertEqual(self.request('POST',budget,planned,auth)[0],409)
+        f=next(x for x in json.loads(self.request('GET',forecast,headers=auth)[1])['items'] if x['currency']=='EUR')
+        self.assertEqual((f['outflows_30'],f['outflows_60'],f['net_60']),('0','80','-80'))
+        self.assertEqual(self.request('PATCH',budget+'/'+bid,{'expense_reference':'DEP-002'},auth)[0],409)
+        self.assertEqual(self.request('PATCH',budget+'/'+bid,{'expense_reference':'DEP-001'},auth)[0],200)
+        self.assertEqual(self.request('PATCH',budget+'/'+bid,{'state':'ANNULE'},auth)[0],409)
+        f=next(x for x in json.loads(self.request('GET',forecast,headers=auth)[1])['items'] if x['currency']=='EUR')
+        self.assertEqual((f['outflows_60'],f['recorded_outflows']),('0','80'))
+        status,body,_=self.request('POST',budget,planned|{'reference':'BUD-002'},auth)
+        self.assertEqual(status,201);bid2=json.loads(body)['id']
+        self.assertEqual(self.request('PATCH',budget+'/'+bid2,{'expense_reference':'DEP-001'},auth)[0],409)
+        self.assertEqual(self.request('PATCH',budget+'/'+bid2,{'state':'ANNULE'},auth)[0],200)
+        self.assertEqual(json.loads(self.request('GET',budget,headers=auth)[1])['total'],2)
         cash=json.loads(self.request('GET',expenses,headers=auth)[1])['cash']
         self.assertEqual(cash,[{'currency':'EUR','received':'100','outflows':'80','net_flow':'20'},{'currency':'GNF','received':'0','outflows':'1000','net_flow':'-1000'}])
         control=json.loads(self.request('GET','/api/admin/direction',headers=auth)[1])['controlling']
