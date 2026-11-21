@@ -46,6 +46,32 @@ class IntakeTests(unittest.TestCase):
         conn.close()
         return result
 
+    def test_commercial_metrics_cohort(self):
+        with server.connect() as db:
+            for rid, age, status, category in (
+                ('won', '-3 days', 'GAGNEE', 'Mission en régie'),
+                ('late', '-4 days', 'NOUVELLE', 'Mission en régie'),
+                ('old', '-100 days', 'NOUVELLE', 'Partenariat'),
+            ):
+                db.execute("""INSERT INTO requests(id,created_at,nom,org,email,besoin,solution,message,status)
+                    VALUES (?,datetime('now',?),'Test','Fictif','qa@example.invalid',?,'','Test',?)""",
+                    (rid,age,category,status))
+            db.execute("""INSERT INTO request_events(request_id,created_at,previous_status,new_status)
+                VALUES ('won',datetime('now','-2 days'),'NOUVELLE','GAGNEE')""")
+        headers={'Authorization':'Bearer '+server.ADMIN_TOKEN}
+        self.assertEqual(self.request('GET','/api/admin/requests?period=invalid',headers=headers)[0],400)
+        self.assertEqual(self.request('GET','/api/admin/requests?period=30')[0],401)
+        code, body, _ = self.request('GET','/api/admin/requests?period=30',headers=headers)
+        self.assertEqual(code,200)
+        data=json.loads(body)
+        self.assertEqual(data['total'],2)
+        row,=data['commercial_metrics']
+        self.assertEqual((row['total'],row['won'],row['untreated'],row['overdue'],row['treated']),(2,1,1,1,1))
+        self.assertAlmostEqual(row['treatment_hours'],24,places=3)
+        code, body, _ = self.request('GET','/api/admin/requests?period=30&status=NOUVELLE',headers=headers)
+        self.assertEqual(code,200)
+        self.assertEqual(json.loads(body)['commercial_metrics'][0]['won'],0)
+
     def test_accessibility_assets_and_local_csp(self):
         for name in ('index','en','expertise','confidentialite','connexion','admin','accounts','audit','billing','consultants','crm','direction','missions','my-activity','quotes','tenders','documents','alerts','notifications'):
             with self.subTest(page=name):
