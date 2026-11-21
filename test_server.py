@@ -54,7 +54,7 @@ class IntakeTests(unittest.TestCase):
         with server.connect() as db:
             db.execute("INSERT INTO accounts(id,username,role,key_hash) VALUES ('seller','commercial.test','COMMERCIAL','fictional-hash')")
         path='/api/admin/requests/'+rid+'/workflow'
-        data={'owner_id':'seller','priority':'HAUTE','due_date':'2027-01-01','revision':0,'note':'Appel de qualification fictif'}
+        data={'owner_id':'seller','priority':'URGENTE','due_date':'2020-01-01','revision':0,'note':'Appel de qualification fictif'}
         self.assertEqual(self.request('PATCH',path,data)[0],401)
         self.assertEqual(self.request('PATCH',path,data|{'owner_id':'unknown'},headers)[0],400)
         self.assertEqual(self.request('PATCH',path,data|{'due_date':'2027-02-30'},headers)[0],400)
@@ -68,6 +68,24 @@ class IntakeTests(unittest.TestCase):
         self.assertEqual(row['workflow']['owner'],'commercial.test')
         self.assertEqual(row['workflow']['history'][0]['note'],data['note'])
         self.assertEqual(row['status'],'NOUVELLE')
+        code,body,_=self.request('GET','/api/admin/requests?owner=seller&priority=URGENTE&overdue=1',headers=headers)
+        self.assertEqual(code,200)
+        data=json.loads(body)
+        self.assertEqual(data['total'],1)
+        self.assertEqual(data['workload'][0]['overdue'],1)
+        self.assertEqual(data['workload'][0]['urgent'],1)
+        code,body,_=self.request('GET','/api/admin/requests?owner=unassigned',headers=headers)
+        self.assertEqual(code,200)
+        self.assertEqual(json.loads(body)['total'],0)
+        self.assertEqual(self.request('GET','/api/admin/requests?priority=invalid',headers=headers)[0],400)
+        self.assertEqual(self.request('GET','/api/admin/requests?owner=mine',headers=headers)[0],400)
+        code,body,_=self.request('POST','/api/admin/accounts',{'username':'rh.workflow','role':'RH','consultant_id':''},headers)
+        self.assertEqual(code,201)
+        rh={'Authorization':'Bearer '+json.loads(body)['key']}
+        self.assertEqual(self.request('GET','/api/admin/requests?owner=seller',headers=rh)[0],403)
+        code,body,_=self.request('GET','/api/admin/requests',headers=rh)
+        self.assertEqual(code,200)
+        self.assertEqual(json.loads(body)['workload'],[])
 
     def test_commercial_metrics_cohort(self):
         with server.connect() as db:

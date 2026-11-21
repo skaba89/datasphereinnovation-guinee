@@ -255,6 +255,25 @@ class Handler(SimpleHTTPRequestHandler):
             if period != "all":
                 where += " AND created_at >= datetime('now', ?)"
                 args += (f"-{period} days",)
+            can_manage = self.role in ("ADMIN", "COMMERCIAL")
+            owner = query.get("owner", [""])[0]
+            priority = query.get("priority", [""])[0]
+            overdue = query.get("overdue", [""])[0]
+            if owner or priority or overdue:
+                if not can_manage:
+                    return self.json_response(403, {"error": "Permission insuffisante."})
+                if len(owner)>36 or priority not in ("", *request_workflow.PRIORITIES) or overdue not in ("", "1"):
+                    return self.json_response(400, {"error": "Filtre de suivi invalide."})
+                if owner == "mine" and (self.role != "COMMERCIAL" or not self.actor_id):
+                    return self.json_response(400, {"error": "Aucun commercial connecté."})
+                if owner:
+                    where += " AND COALESCE((SELECT owner_id FROM request_workflow WHERE request_id=requests.id),'') = ?"
+                    args += ("" if owner=="unassigned" else self.actor_id if owner=="mine" else owner,)
+                if priority:
+                    where += " AND COALESCE((SELECT priority FROM request_workflow WHERE request_id=requests.id),'NORMALE') = ?"
+                    args += (priority,)
+                if overdue:
+                    where += " AND status NOT IN ('GAGNEE','PERDUE') AND EXISTS (SELECT 1 FROM request_workflow WHERE request_id=requests.id AND due_date<>'' AND due_date<date('now'))"
             with connect() as db:
                 db.row_factory = sqlite3.Row
                 counts = dict((x["status"], x["n"]) for x in db.execute("SELECT status,count(*) n FROM requests GROUP BY status"))
@@ -279,14 +298,24 @@ class Handler(SimpleHTTPRequestHandler):
                     FROM cohort c LEFT JOIN first_event f ON f.request_id=c.id
                     GROUP BY c.besoin ORDER BY c.besoin
                     """, args)]
-                can_manage = self.role in ("ADMIN", "COMMERCIAL")
+                workload = [dict(x) for x in db.execute("""
+                    WITH cohort AS (SELECT * FROM requests """ + where + """)
+                    SELECT COALESCE(w.owner_id,'') AS owner_id, COALESCE(a.username,'') AS owner,
+                        COUNT(*) AS total, SUM(c.status='GAGNEE') AS won,
+                        SUM(c.status NOT IN ('GAGNEE','PERDUE')) AS opened,
+                        SUM(c.status NOT IN ('GAGNEE','PERDUE') AND COALESCE(w.priority,'NORMALE')='URGENTE') AS urgent,
+                        SUM(CASE WHEN c.status NOT IN ('GAGNEE','PERDUE') AND w.due_date<>'' AND w.due_date<date('now') THEN 1 ELSE 0 END) AS overdue
+                    FROM cohort c LEFT JOIN request_workflow w ON w.request_id=c.id
+                    LEFT JOIN accounts a ON a.id=w.owner_id
+                    GROUP BY COALESCE(w.owner_id,''),COALESCE(a.username,'') ORDER BY owner
+                    """,args)] if can_manage else []
                 owners = request_workflow.owners(db) if can_manage else []
                 history = contact_delivery.for_requests(db, [row["id"] for row in rows])
                 for row in rows:
                     row["communications"] = history[row["id"]]
                     if can_manage:
                         row["workflow"] = request_workflow.read(db, row["id"])
-            self.json_response(200, {"items": rows, "total": total, "page": page, "counts": counts, "commercial_metrics": metrics, "workflow_owners": owners})
+            self.json_response(200, {"items": rows, "total": total, "page": page, "counts": counts, "commercial_metrics": metrics, "workflow_owners": owners, "workload": workload, "can_manage_workflow": can_manage, "can_filter_mine": self.role == "COMMERCIAL"})
         else:
             super().do_GET()
 
