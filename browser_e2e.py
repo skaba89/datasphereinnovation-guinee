@@ -667,5 +667,105 @@ class BrowserTests(unittest.TestCase):
         self.assertEqual(self.errors, [])
 
 
+    def test_contract_renewal_alerts_and_notifications(self):
+        from datetime import date, timedelta
+        import notifications
+        today=date.today()
+        old_end=(today+timedelta(days=3)).isoformat()
+        new_end=(today+timedelta(days=120)).isoformat()
+        profile=self.seed('/api/admin/consultants',{'name':'Consultant V84 fictif','email':'v84@example.invalid','role':'Data Engineer','skills':'Python','location':'Guinée','experience':'5','availability':'Immédiate','notes':'','status':'DISPONIBLE'})
+        opportunity=self.seed('/api/admin/crm',{'company':'Client V84 fictif','contact':'Contact fictif','email':'client84@example.invalid','title':'Renouvellement V84','mode':'REGIE','skills':'Python','consultant_id':'','next_action':'Relance fictive','followup':today.isoformat(),'notes':'','status':'QUALIFIE'})
+        self.seed('/api/admin/crm',{'company':'Prospect relance V84','contact':'Contact fictif','email':'relance84@example.invalid','title':'Relance commerciale V84','mode':'CONSEIL','skills':'Python','consultant_id':'','next_action':'Relancer','followup':today.isoformat(),'notes':'','status':'QUALIFIE'})
+        quote=self.seed('/api/admin/quotes',{'opportunity_id':opportunity['id'],'title':'Mission V84','scope':'Audit fictif','mode':'REGIE','currency':'EUR','days':'5','rate':'600','daily_cost':'400','expenses':'0','fixed_price':'0','status':'PROPOSE','valid_until':'2099-01-01','terms':'Recette fictive'})
+        route='/api/admin/quotes/'+quote['id']
+        for action in ('TRANSMIS','ACCEPTE'):
+            response=self.context.request.post(route+'/transmission',data={'version':1,'action':action,'evidence':'Preuve fictive V84'},headers={'Authorization':'Bearer '+server.ADMIN_TOKEN})
+            self.assertEqual(response.status,200,response.text())
+        self.seed(route+'/contract',{'version':2,'reference':'V84-CONTRAT','signed_date':today.isoformat(),'evidence':'Signature fictive'})
+        mission=self.seed('/api/admin/missions',{'quote_id':quote['id'],'consultant_id':profile['id'],'contract_ref':'V84-CONTRAT','start_date':today.isoformat(),'end_date':old_end})
+        def logout():
+            self.page.goto('/connexion.html')
+            expect(self.page.locator('#workspace')).to_be_visible()
+            self.page.locator('#logout').click()
+            expect(self.page.locator('#login')).to_be_visible()
+        def open_contract():
+            self.page.locator('#rows tr').filter(has_text='Mission V84').get_by_role('button',name='Contrat / renouvellement').click()
+            expect(self.page.get_by_role('heading',name='Contrat et renouvellements')).to_be_visible()
+
+        self.activate('projet.v84','PROJET')
+        self.page.locator('#modules a[href="missions.html"]').click()
+        expect(self.page.locator('#workspace')).to_be_visible()
+        open_contract()
+        form=self.page.locator('form').filter(has=self.page.get_by_role('button',name='Soumettre le renouvellement'))
+        for key,value in {'new_end':new_end,'reference':'V84-AVENANT','reason':'Prolongation fictive'}.items():
+            form.locator('[name='+key+']').fill(value)
+        form.get_by_role('button',name='Soumettre le renouvellement').click()
+        expect(self.page.locator('#notice')).to_contain_text('Renouvellement soumis')
+        expect(form).to_be_hidden()
+        expect(self.page.get_by_text('V84-AVENANT',exact=False)).to_contain_text('SOUMIS')
+        expect(self.page.get_by_role('button',name='VALIDE',exact=True)).to_have_count(0)
+        response=self.context.request.get('/api/admin/missions/'+mission['id']+'/renewals',headers={'Authorization':'Bearer session'})
+        self.assertEqual(response.status,200)
+        renewal=response.json()['items'][0]
+        denial=self.context.request.patch('/api/admin/missions/'+mission['id']+'/renewals/'+renewal['id'],data={'status':'VALIDE'},headers={'Authorization':'Bearer session'})
+        self.assertEqual(denial.status,403)
+        logout()
+
+        self.activate('admin.v84','ADMIN')
+        expect(self.page.locator('#modules a')).to_have_count(0)
+        self.page.locator('#mfa-setup [name=password]').fill(self.password)
+        self.page.locator('#mfa-setup button').click()
+        expect(self.page.locator('#mfa-pending')).to_be_visible()
+        secret=self.page.locator('#secret').input_value()
+        self.page.locator('#mfa-confirm [name=code]').fill(server.authentication.totp(secret,int(time.time())//30))
+        self.page.locator('#mfa-confirm button').click()
+        expect(self.page.locator('#recovery')).to_be_visible()
+        code=self.page.locator('#recovery-codes').inner_text().splitlines()[0]
+        self.page.locator('#dismiss-recovery').click()
+        self.login('admin.v84',code)
+        self.page.locator('#modules a[href="alerts.html"]').click()
+        expect(self.page.locator('#workspace')).to_be_visible()
+        self.page.locator('#kind').select_option('RELANCE')
+        self.page.locator('#filter button').click()
+        expect(self.page.locator('#rows tr').filter(has_text='Relance commerciale V84')).to_be_visible()
+        self.page.locator('#kind').select_option('RENOUVELLEMENT')
+        self.page.locator('#filter button').click()
+        pending=self.page.locator('#rows tr').filter(has_text='V84-CONTRAT')
+        expect(pending).to_contain_text('Décision en attente')
+        # Run the internal scheduler on this isolated database, twice.
+        with server.connect() as db:
+            self.assertGreater(notifications.run(db,today),0)
+            self.assertEqual(notifications.run(db,today),0)
+        pending.get_by_role('link',name='Consulter').click()
+        expect(self.page.locator('#workspace')).to_be_visible()
+        open_contract()
+        history=self.page.get_by_text('V84-AVENANT',exact=False)
+        history.get_by_role('button',name='VALIDE',exact=True).click()
+        expect(history).to_contain_text('VALIDE')
+        expect(self.page.locator('#notice')).to_contain_text('Renouvellement traité')
+        expect(self.page.locator('#rows')).to_contain_text(new_end)
+        self.page.locator('.app-sidebar a[href="alerts.html"]').click()
+        expect(self.page.locator('#workspace')).to_be_visible()
+        self.page.locator('#kind').select_option('RENOUVELLEMENT')
+        self.page.locator('#filter button').click()
+        expect(self.page.locator('#rows')).to_contain_text('Aucune alerte')
+        self.page.locator('#kind').select_option('CONTRAT')
+        self.page.locator('#filter button').click()
+        expect(self.page.locator('#rows')).to_contain_text('Aucune alerte')
+        with server.connect() as db:
+            notifications.run(db,today)
+        self.page.locator('.app-sidebar a[href="notifications.html"]').click()
+        expect(self.page.locator('#workspace')).to_be_visible()
+        self.page.locator('#state').select_option('all')
+        self.page.locator('#filter button').click()
+        resolved=self.page.locator('#rows tr').filter(has_text='RENOUVELLEMENT').filter(has_text='V84-CONTRAT')
+        expect(resolved).to_contain_text('Résolue')
+        resolved.get_by_role('button',name='Marquer comme lue').click()
+        expect(resolved).to_contain_text('Résolue / Lue')
+        expect(resolved.get_by_role('button',name='Marquer comme lue')).to_have_count(0)
+        logout()
+        self.assertEqual(self.errors, [])
+
+
 if __name__ == '__main__':
     unittest.main()
