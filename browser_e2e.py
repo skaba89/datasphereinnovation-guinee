@@ -78,7 +78,7 @@ class BrowserTests(unittest.TestCase):
         expect(self.page.locator('#mail-summary')).to_contain_text('En attente : 2')
         self.assertEqual(self.errors, [])
 
-    def test_browser_prospect_to_validated_activity(self):
+    def test_browser_prospect_to_paid_contract(self):
         profile = self.seed('/api/admin/consultants', {'name':'Consultant V81 fictif','email':'v81@example.invalid','role':'Data Engineer','skills':'Python','location':'Guinée','experience':'5','availability':'Immédiate','notes':'','status':'DISPONIBLE'})
         def fill(form, values):
             for name, value in values.items():
@@ -168,6 +168,82 @@ class BrowserTests(unittest.TestCase):
         expect(activity).to_contain_text('VALIDE')
         expect(self.page.locator('#notice')).to_contain_text('CRA traité')
         expect(self.page.locator('#rows')).to_contain_text('425')
+        logout()
+
+        # The same mission now flows through finance and management.
+        from decimal import Decimal
+        def activate_mfa(username, role):
+            self.activate(username, role)
+            expect(self.page.locator('#modules a')).to_have_count(0)
+            self.page.locator('#mfa-setup [name=password]').fill(self.password)
+            self.page.locator('#mfa-setup button').click()
+            expect(self.page.locator('#mfa-pending')).to_be_visible()
+            secret = self.page.locator('#secret').input_value()
+            self.page.locator('#mfa-confirm [name=code]').fill(server.authentication.totp(secret, int(time.time())//30))
+            self.page.locator('#mfa-confirm button').click()
+            expect(self.page.locator('#recovery')).to_be_visible()
+            code = self.page.locator('#recovery-codes').inner_text().splitlines()[0]
+            self.page.locator('#dismiss-recovery').click()
+            self.login(username, code)
+
+        def amounts(row, expected):
+            for index, value in expected.items():
+                cell = row.locator('td').nth(index)
+                expect(cell).to_be_visible()
+                self.assertEqual(Decimal(cell.inner_text()), Decimal(value))
+
+        activate_mfa('comptable.v82','COMPTABLE')
+        module('billing')
+        self.page.locator('#invoice-mission').select_option(label='Client V81 fictif / Audit navigateur V81 (EUR)')
+        fill('#invoice', {'reference':'V82-CREANCE','amount':'601','due_date':'2020-02-01'})
+        self.page.locator('#invoice button').click()
+        expect(self.page.locator('#notice')).to_contain_text('Montant supérieur au disponible facturable validé')
+        expect(self.page.locator('#rows tr')).to_have_count(0)
+        fill('#invoice', {'amount':'600'})
+        self.page.locator('#invoice button').click()
+        invoice = self.page.locator('#rows tr').filter(has_text='V82-CREANCE')
+        expect(invoice).to_contain_text('600')
+        expect(invoice).to_contain_text('En retard')
+        totals = self.page.locator('#totals tr').filter(has_text='EUR')
+        amounts(totals,{1:'600',2:'0',3:'600'})
+
+        def payment(reference, amount):
+            self.page.locator('#payment-invoice').select_option(index=1)
+            fill('#payment', {'reference':reference,'amount':amount,'paid_date':'2020-02-01'})
+            self.page.locator('#payment button').click()
+
+        payment('V82-PAY1','200')
+        expect(invoice.locator('td').nth(2)).to_contain_text('200')
+        amounts(totals,{1:'600',2:'200',3:'400'})
+        payment('V82-OVERPAY','401')
+        expect(self.page.locator('#notice')).to_contain_text('Paiement supérieur au solde')
+        amounts(totals,{2:'200',3:'400'})
+        payment('V82-PAY2','400')
+        expect(invoice).to_contain_text('Soldée')
+        amounts(totals,{1:'600',2:'600',3:'0'})
+        expect(self.page.locator('#payment-invoice option')).to_have_count(1)
+        self.page.locator('#expense [name=currency]').select_option('EUR')
+        self.page.locator('#expense-mission').select_option(label='Client V81 fictif / Audit navigateur V81 (EUR)')
+        fill('#expense', {'reference':'V82-DEP','amount':'425','paid_date':'2020-02-01','description':'Décaissement consultant fictif'})
+        self.page.locator('#expense button').click()
+        expect(self.page.locator('#expense-rows')).to_contain_text('V82-DEP')
+        cash = self.page.locator('#cash-rows tr').filter(has_text='EUR')
+        amounts(cash,{1:'600',2:'425',3:'175'})
+        logout()
+
+        activate_mfa('direction.v82','DIRECTION')
+        module('direction')
+        self.page.locator('#control-currency').select_option('EUR')
+        self.page.locator('#control-search').fill('Client V81 fictif')
+        client = self.page.get_by_role('region',name='Rentabilité par client',exact=True).locator('tbody tr').filter(has_text='Client V81 fictif')
+        expect(client).to_have_count(1)
+        # Two identifier columns then the published metrics in their documented order.
+        amounts(client,{4:'600',5:'425',6:'175',11:'600',12:'0',16:'175'})
+        self.page.locator('#control-export-table').select_option('1')
+        with self.page.expect_download() as download:
+            self.page.locator('#control-export').click()
+        self.assertEqual(download.value.suggested_filename,'dsig-pilotage-clients.csv')
+        self.assertIn('Client V81 fictif',Path(download.value.path()).read_text(encoding='utf-8-sig'))
         logout()
         self.assertEqual(self.errors, [])
 
