@@ -23,7 +23,7 @@ document.addEventListener('DOMContentLoaded',()=>{
   'accounts.html':['rows','events'],'audit.html':['rows'],
   'crm.html':['catalogue-rows'],'direction.html':['financial','report-rows'],
   'billing.html':['forecast-rows','aging-rows','totals','cash-rows'],
-  'my-activity.html':['rows'],'appointments.html':['rows'],'recruitment.html':['rows']
+  'my-activity.html':['rows'],'appointments.html':['rows']
  };
  for(const id of lists[page]||[]){
   const root=document.getElementById(id);if(!root)continue;
