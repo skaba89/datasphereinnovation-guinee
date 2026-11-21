@@ -42,7 +42,7 @@ def send(cfg, rid, kind, language):
     else:
         subject, body = '[REC TEST] DSIG demande reçue', f'Merci pour votre demande. Référence : {rid}. Notre équipe va l’étudier.'
     payload = json.dumps({'from':cfg['sender'],'to':[cfg['test_recipient']],'subject':subject,'text':body}).encode()
-    req = urllib.request.Request('https://api.resend.com/emails', data=payload, headers={'Authorization':'Bearer '+cfg['api_key'],'Content-Type':'application/json','Idempotency-Key':f'dsig-rec/{rid}/{kind}'}, method='POST')
+    req = urllib.request.Request('https://api.resend.com/emails', data=payload, headers={'Authorization':'Bearer '+cfg['api_key'],'Content-Type':'application/json','User-Agent':'DSIG-REC/1.0','Idempotency-Key':f'dsig-rec/{rid}/{kind}'}, method='POST')
     with urllib.request.build_opener(NoRedirect).open(req, timeout=15) as response:
         identifier = json.loads(response.read(4096))['id']
     if not isinstance(identifier,str) or not re.fullmatch(r'[A-Za-z0-9-]{1,100}',identifier):

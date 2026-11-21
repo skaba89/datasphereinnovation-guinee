@@ -7,6 +7,17 @@ import contact_mail
 
 
 class ContactMailTests(unittest.TestCase):
+    def test_resend_request_identifies_client(self):
+        cfg={'api_key':'re_test','sender':'alerts@dsig-consulting.com','test_recipient':'qa@example.invalid'}
+        with patch('contact_mail.urllib.request.build_opener') as opener:
+            response=opener.return_value.open.return_value.__enter__.return_value
+            response.read.return_value=b'{"id":"test-provider-id"}'
+            self.assertEqual(contact_mail.send(cfg,'request-id','ack','en'),'test-provider-id')
+            req=opener.return_value.open.call_args.args[0]
+            self.assertEqual(req.get_header('User-agent'),'DSIG-REC/1.0')
+            self.assertEqual(req.get_header('Idempotency-key'),'dsig-rec/request-id/ack')
+            self.assertEqual(req.get_method(),'POST')
+
     def test_retry_and_no_duplicate(self):
         with tempfile.TemporaryDirectory() as tmp:
             def connect():
