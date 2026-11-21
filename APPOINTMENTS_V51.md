@@ -1,0 +1,3 @@
+# V51 — Agenda commercial REC
+
+Depuis le CRM, ouvrir Agenda commercial (appointments.html). Sélectionner une opportunité existante, saisir un objet et des horaires UTC. L'agenda partagé refuse les chevauchements, conserve les transitions et autorise l'annulation ou la clôture avec contrôle de version. ADMIN et COMMERCIAL peuvent écrire, DIRECTION peut lire; les autres rôles sont refusés par les droits CRM existants. Les rendez-vous restent exclusivement internes et fictifs en REC; aucun email ou calendrier externe n'est déclenché. Rappels automatiques et synchronisation externe restent à réaliser.
