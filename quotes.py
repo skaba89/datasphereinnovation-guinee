@@ -75,7 +75,7 @@ def handle(h,connect,method):
                 row['transmission']=dict(t) if (t:=db.execute('SELECT version,actor,evidence,created_at FROM quote_transmissions WHERE quote_id=? ORDER BY version DESC LIMIT 1',(row['id'],)).fetchone()) else None
                 row['decision']=dict(d) if (d:=db.execute('SELECT version,actor,decision,evidence,created_at FROM quote_decisions WHERE quote_id=?',(row['id'],)).fetchone()) else None
             total=db.execute('SELECT count(*) FROM quotes').fetchone()[0]
-        return h.json_response(200,{'items':[r|calculate(r) for r in rows],'total':total})
+        return h.json_response(200,{'items':[r|calculate(r) for r in rows],'total':total,'can_manage':h.role in ('ADMIN','COMMERCIAL')})
     try:
         n=int(h.headers.get('Content-Length','0'))
         if not 0<n<=16000 or h.headers.get_content_type()!='application/json': raise ValueError()
