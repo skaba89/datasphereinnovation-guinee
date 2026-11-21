@@ -27,6 +27,7 @@ import alerts
 import notifications
 import contact_mail
 import request_workflow
+import request_conversion
 import contact_delivery
 import accounts
 import own_activity
@@ -88,6 +89,7 @@ def connect():
     notifications.schema(db)
     contact_mail.schema(db)
     request_workflow.schema(db)
+    request_conversion.schema(db)
     return db
 
 
@@ -315,6 +317,7 @@ class Handler(SimpleHTTPRequestHandler):
                     row["communications"] = history[row["id"]]
                     if can_manage:
                         row["workflow"] = request_workflow.read(db, row["id"])
+                        row["conversion"] = request_conversion.read(db, row["id"])
             self.json_response(200, {"items": rows, "total": total, "page": page, "counts": counts, "commercial_metrics": metrics, "workflow_owners": owners, "workload": workload, "can_manage_workflow": can_manage, "can_filter_mine": self.role == "COMMERCIAL"})
         else:
             super().do_GET()
@@ -375,6 +378,9 @@ class Handler(SimpleHTTPRequestHandler):
         self.json_response(200, {"status": payload["status"]})
 
     def do_POST(self):
+        conversion = re.fullmatch(r'/api/admin/requests/([0-9a-f-]{36})/convert', self.path)
+        if conversion:
+            return request_conversion.handle(self,connect,conversion.group(1))
         if self.path=='/api/admin/crm/appointments':return appointments.handle(self,connect,'POST')
         if self.path=='/api/admin/recruitment':return recruitment.handle(self,connect,'POST')
         if self.path=='/api/admin/notifications':return notifications.handle(self,connect,'POST')
