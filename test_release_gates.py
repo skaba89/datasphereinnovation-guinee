@@ -22,3 +22,9 @@ class ReleaseGateTests(unittest.TestCase):
     def test_invalid_format(self):
         for value in (None, [], {}, {'commit': 'bad'}, {'commit': 'a'*40, 'gates': []}):
             self.assertFalse(release.inspect(value))
+
+    def test_stale_evidence_rejected(self):
+        data = {'commit': 'a'*40, 'gates': {name: {'status': 'PASS', 'evidence': 'ref', 'reviewer': 'qa'} for name in release.GATES}}
+        self.assertTrue(release.inspect(data, 'a'*40))
+        self.assertFalse(release.inspect(data, 'b'*40))
+        self.assertFalse(release.inspect(data, ''))
