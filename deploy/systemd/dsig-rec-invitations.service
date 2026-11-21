@@ -1,0 +1,10 @@
+[Unit]
+Description=DSIG REC account invitation worker
+After=docker.service
+Requires=docker.service
+
+[Service]
+Type=oneshot
+WorkingDirectory=/home/ubuntu/datasphereinnovation-guinee
+ExecStart=/bin/sh -c 'docker compose -p dsig-rec -f compose.yaml -f compose.rec-edge.yaml -f compose.rec-clamav.yaml exec -T dsig python server.py --send-account-invitations < /etc/dsig-rec-contact.json'
+TimeoutStartSec=180
