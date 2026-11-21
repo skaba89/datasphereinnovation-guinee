@@ -316,7 +316,7 @@ class Handler(SimpleHTTPRequestHandler):
         if re.fullmatch(r'/api/admin/missions/[0-9a-f-]{36}/renewals',self.path):return contracts.handle(self,connect,'POST')
         if self.path == '/api/admin/crm/organizations':
             return organizations.handle(self,connect,'POST')
-        if self.path in ('/api/auth/activate','/api/auth/login','/api/auth/logout','/api/auth/mfa-setup','/api/auth/mfa-confirm','/api/auth/revoke-others'):return authentication.handle(self,connect)
+        if self.path in ('/api/auth/activate','/api/auth/login','/api/auth/logout','/api/auth/mfa-setup','/api/auth/mfa-confirm','/api/auth/revoke-others','/api/auth/change-password'):return authentication.handle(self,connect)
         if self.path=='/api/admin/my-activity':return own_activity.handle(self,connect,'POST')
         if self.path=='/api/admin/accounts':return accounts.handle(self,connect,'POST')
         if re.fullmatch(r'/api/admin/billing/(?:milestones|invoices|payments)',self.path): return billing.handle(self,connect,'POST')
