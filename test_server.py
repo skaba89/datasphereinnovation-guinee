@@ -700,6 +700,13 @@ class IntakeTests(unittest.TestCase):
         self.assertEqual(self.request('POST',finance+'/payments',p,auth)[0],201)
         self.assertEqual(self.request('POST',finance+'/payments',p|{'reference':'PAY-002','amount':'351'},auth)[0],409)
         d=json.loads(self.request('GET',finance,headers=auth)[1]);self.assertEqual(d['totals']['EUR']['balance'],'350');self.assertEqual(d['totals']['EUR']['overdue'],'350')
+        self.assertEqual(self.request('GET',finance+'/contracts')[0],401)
+        self.assertEqual(self.request('GET',finance+'/contracts',headers=own)[0],403)
+        self.assertEqual(self.request('GET',finance+'/contracts?page=invalid',headers=auth)[0],400)
+        c=json.loads(self.request('GET',finance+'/contracts',headers=auth)[1])['items'][0]
+        self.assertEqual(c['contract_ref'],'FICTIF-01')
+        self.assertEqual((c['planned'],c['earned'],c['invoiced'],c['paid'],c['balance'],c['overdue'],c['remaining_billable'],c['actual_cost'],c['earned_margin']),('6000.00','450.00','450.00','100.00','350.00','350.00','0.00','425.00','25.00'))
+        self.assertEqual(json.loads(self.request('GET',finance+'/contracts?page=2',headers=auth)[1])['items'],[])
         self.assertEqual(self.request('POST',finance+'/milestones',{'mission_id':mid,'title':'Test','amount':'10'},auth)[0],400)
         self.assertEqual(self.request('GET','/billing.html')[0],200)
         _,body,_=self.request('POST','/api/admin/consultants',profile|{'name':'Second consultant','email':'second@example.invalid'},auth);cid2=json.loads(body)['id']
