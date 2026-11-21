@@ -66,7 +66,7 @@ class BrowserTests(unittest.TestCase):
         self.page.set_viewport_size({'width':1280,'height':900})
 
     def test_public_pages_responsive(self):
-        for path in ('/', '/en.html', '/expertise.html', '/expertise-en.html', '/confidentialite.html', '/privacy-en.html', '/connexion.html'):
+        for path in ('/', '/en.html', '/expertise.html?id=logistique-transport', '/expertise-en.html?id=logistique-transport', '/confidentialite.html', '/privacy-en.html', '/connexion.html'):
             with self.subTest(path=path):
                 response = self.page.goto(path)
                 self.assertEqual(response.status, 200)
@@ -840,7 +840,7 @@ class BrowserTests(unittest.TestCase):
                         nav = self.page.locator('.app-sidebar nav a')
                         expect(nav).to_have_count(len(expected)+1)
                         self.assertEqual(set(nav.evaluate_all('(nodes) => nodes.map(a => a.getAttribute("href"))')), expected | {'connexion.html'})
-                        expect(nav.locator('[aria-current="page"]')).to_have_attribute('href', target)
+                        expect(self.page.locator('.app-sidebar nav a[aria-current="page"]')).to_have_attribute('href', target)
                         if target == 'audit.html':
                             expect(self.page.locator('#notice')).to_contain_text('100 derniers événements')
                         else:
