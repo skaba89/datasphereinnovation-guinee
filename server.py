@@ -411,16 +411,17 @@ def main():
     parser.add_argument("--rotate-documents", metavar="COPY", help="Rotation des documents sur une copie isolée, serveur arrêté")
     parser.add_argument("--refresh-notifications", action="store_true", help="Calcul des rappels internes (DEV/REC)")
     parser.add_argument('--send-contact-notifications', action='store_true', help='REC: traiter la file de mails avec configuration JSON sur stdin')
+    parser.add_argument('--send-account-invitations', action='store_true', help='REC: traiter invitations de test')
     parser.add_argument('--contact-mail-status', action='store_true', help='Compteurs de la file de mails')
     args = parser.parse_args()
-    if sum(bool(x) for x in (args.export,args.backup,args.backup_encrypted,args.restore_isolated,args.check_db,args.rotate_documents,args.refresh_notifications,args.send_contact_notifications,args.contact_mail_status))>1:
+    if sum(bool(x) for x in (args.export,args.backup,args.backup_encrypted,args.restore_isolated,args.check_db,args.rotate_documents,args.refresh_notifications,args.send_contact_notifications,args.send_account_invitations,args.contact_mail_status))>1:
         parser.error('Une seule opération à la fois.')
-    if args.send_contact_notifications or args.contact_mail_status:
+    if args.send_contact_notifications or args.send_account_invitations or args.contact_mail_status:
         if os.environ.get('DSIG_ENV','REC') != 'REC':raise SystemExit('REC uniquement.')
         if args.contact_mail_status:
             with connect() as db:print(json.dumps(dict(db.execute('SELECT state,count(*) FROM contact_mail GROUP BY state').fetchall())))
         else:
-            try:print(json.dumps(contact_mail.run(connect,json.loads(sys.stdin.read(8192)))))
+            try:print(json.dumps(contact_mail.run(connect,json.loads(sys.stdin.read(8192)),invitations=args.send_account_invitations)))
             except (ValueError, OSError, sqlite3.Error):raise SystemExit('Configuration ou traitement indisponible.')
         return
     if args.refresh_notifications:
