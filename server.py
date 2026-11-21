@@ -247,15 +247,40 @@ class Handler(SimpleHTTPRequestHandler):
                 return self.json_response(400, {"error": "Type de demande invalide."})
             where = "WHERE (? = '' OR status = ?) AND (? = '' OR besoin = ?) AND (instr(lower(nom), lower(?)) > 0 OR instr(lower(org), lower(?)) > 0 OR instr(lower(email), lower(?)) > 0 OR instr(lower(solution), lower(?)) > 0 OR instr(lower(besoin), lower(?)) > 0)"
             args = (status, status, need, need, search, search, search, search, search)
+            period = query.get("period", ["all"])[0]
+            if period not in ("all", "30", "90"):
+                return self.json_response(400, {"error": "Période invalide."})
+            if period != "all":
+                where += " AND created_at >= datetime('now', ?)"
+                args += (f"-{period} days",)
             with connect() as db:
                 db.row_factory = sqlite3.Row
                 counts = dict((x["status"], x["n"]) for x in db.execute("SELECT status,count(*) n FROM requests GROUP BY status"))
                 total = db.execute("SELECT count(*) FROM requests " + where, args).fetchone()[0]
                 rows = [dict(x) for x in db.execute("SELECT * FROM requests " + where + " ORDER BY created_at DESC,id DESC LIMIT 25 OFFSET ?", (*args, (page-1)*25))]
+                # Cohort metrics use all filtered rows, not the current page.
+                metrics = [dict(x) for x in db.execute("""
+                    WITH cohort AS (SELECT * FROM requests """ + where + """),
+                    first_event AS (
+                        SELECT e.request_id, MIN(e.created_at) AS first_at
+                        FROM request_events e JOIN cohort c ON c.id=e.request_id
+                        GROUP BY e.request_id
+                    )
+                    SELECT c.besoin AS category, COUNT(*) AS total,
+                        SUM(c.status='GAGNEE') AS won, SUM(c.status='PERDUE') AS lost,
+                        SUM(c.status='NOUVELLE' AND f.first_at IS NULL) AS untreated,
+                        SUM(c.status='NOUVELLE' AND f.first_at IS NULL
+                            AND c.created_at <= datetime('now','-2 days')) AS overdue,
+                        COUNT(f.first_at) AS treated,
+                        SUM(CASE WHEN f.first_at IS NOT NULL THEN
+                            MAX(0,(julianday(f.first_at)-julianday(c.created_at))*24) ELSE 0 END) AS treatment_hours
+                    FROM cohort c LEFT JOIN first_event f ON f.request_id=c.id
+                    GROUP BY c.besoin ORDER BY c.besoin
+                    """, args)]
                 history = contact_delivery.for_requests(db, [row["id"] for row in rows])
                 for row in rows:
                     row["communications"] = history[row["id"]]
-            self.json_response(200, {"items": rows, "total": total, "page": page, "counts": counts})
+            self.json_response(200, {"items": rows, "total": total, "page": page, "counts": counts, "commercial_metrics": metrics})
         else:
             super().do_GET()
 
