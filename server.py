@@ -358,7 +358,7 @@ class Handler(SimpleHTTPRequestHandler):
                 db.execute("INSERT INTO requests (id,nom,org,email,besoin,solution,message) VALUES (?,?,?,?,?,?,?)",
                            (request_id, *(values[k] for k in SIZES)))
                 if os.environ.get('DSIG_ENV','REC') == 'REC':
-                    contact_mail.enqueue(db, request_id, payload.get('language','fr'))
+                    contact_mail.enqueue(db, request_id, payload.get('language','fr'), values['besoin'])
         except sqlite3.Error:
             return self.json_response(503, {"error": "Enregistrement indisponible."})
         self.json_response(201, {"id": request_id, "status": "NOUVELLE"})
