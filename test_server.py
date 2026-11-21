@@ -104,6 +104,21 @@ class IntakeTests(unittest.TestCase):
         self.assertEqual(Decimal(client['validated_margin']),Decimal('175'))
         lead=call('GET','/api/admin/requests',headers=commercial)['items'][0]['conversion']
         self.assertEqual((lead['opportunity_id'],lead['quotes'],lead['missions']),(oid,1,1))
+        # Imported fictional ledger rows exercise searches beyond the first page.
+        with server.connect() as db:
+            db.executemany('INSERT INTO invoices(id,mission_id,reference,amount,due_date,created_at) VALUES(?,?,?,?,?,?)',
+                [(f'fixture-{i:02}',mid,f'FIXTURE-{i:02}','1','2020-02-01','2099-01-01') for i in range(26)])
+        route='/api/admin/billing'
+        first=call('GET',route,headers=finance)
+        self.assertEqual((len(first['items']),first['total']),(25,27))
+        self.assertNotIn(iid,[x['id'] for x in first['items']])
+        found=call('GET',route+'?q=journey-inv&state=PAID',headers=finance)
+        self.assertEqual([x['id'] for x in found['items']],[iid])
+        self.assertEqual(found['totals'],first['totals'])
+        opened=call('GET',route+'?state=OVERDUE&page=2',headers=finance)
+        self.assertEqual((len(opened['items']),opened['total']),(1,26))
+        self.assertEqual(call('GET',route+'?state=OPEN&q=journey-inv',headers=finance)['total'],0)
+        call('GET',route+'?state=INVALID',headers=finance,status=400)
 
     def test_qualified_request_conversion(self):
         auth={'Authorization':'Bearer '+server.ADMIN_TOKEN,'Content-Type':'application/json'}
