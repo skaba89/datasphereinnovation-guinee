@@ -1,0 +1,3 @@
+# V54.3 — Accusés et suivi REC
+
+Dans `/etc/dsig-rec-contact.json`, ajouter `"rec_customer_recipients": ["adresse-de-test-controlee@example.invalid"]` avec les adresses de test autorisées (20 maximum). Ne pas remplacer les paramètres existants. Le champ `test_recipient` reste le destinataire interne. Seules les adresses explicitement autorisées peuvent recevoir les accusés et mises à jour directement. Sinon, les simulations restent dans la boîte de test. Les notifications déjà traitées ne sont pas rejouées. Les changements de statut sont mis en file transactionnellement, sans duplication pour une opération sans changement. Le statut est traduit et formulé pour le destinataire, sans détail commercial interne. Utiliser uniquement des données fictives. PROD reste bloquée.
