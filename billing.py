@@ -140,12 +140,21 @@ def handle(h,connect,method):
             if kind=='milestones':
                 rows=[dict(r) for r in db.execute('SELECT j.*,q.currency,q.title AS mission_title FROM milestones j JOIN missions m ON m.id=j.mission_id JOIN quotes q ON q.id=m.quote_id ORDER BY j.id LIMIT 25 OFFSET ?',((page-1)*25,))]
                 return h.json_response(200,{'items':rows,'total':db.execute('SELECT count(*) FROM milestones').fetchone()[0]})
+            query=parse_qs(urlsplit(h.path).query)
+            search=query.get('q',[''])[0].strip().casefold()
+            state=query.get('state',[''])[0]
+            if len(search)>180 or state not in ('','OPEN','OVERDUE','PAID'):
+                return h.json_response(400,{'error':'Filtre invalide.'})
+            db.execute('BEGIN')
             items=[]; totals={};today=date.today().isoformat()
             for r in db.execute('SELECT i.*,q.currency,q.title FROM invoices i JOIN missions m ON m.id=i.mission_id JOIN quotes q ON q.id=m.quote_id ORDER BY i.created_at DESC,i.id'):
                 x=dict(r);paid=total(db.execute('SELECT amount FROM payments WHERE invoice_id=?',(x['id'],)));due=Decimal(x['amount'])-paid
                 x.update(paid=str(paid),balance=str(due),overdue=due>0 and x['due_date']<today)
                 t=totals.setdefault(x['currency'],{'invoiced':Decimal(0),'paid':Decimal(0),'balance':Decimal(0),'overdue':Decimal(0)})
-                t['invoiced']+=Decimal(x['amount']);t['paid']+=paid;t['balance']+=due;t['overdue']+=due if x['overdue'] else 0;items.append(x)
+                t['invoiced']+=Decimal(x['amount']);t['paid']+=paid;t['balance']+=due;t['overdue']+=due if x['overdue'] else 0
+                if search and not any(search in x[k].casefold() for k in ('reference','title','currency')):continue
+                if state=='OPEN' and due<=0 or state=='OVERDUE' and not x['overdue'] or state=='PAID' and due!=0:continue
+                items.append(x)
             return h.json_response(200,{'items':items[(page-1)*25:page*25],'total':len(items),'totals':{c:{k:str(v) for k,v in t.items()} for c,t in totals.items()}})
     try:
         n=int(h.headers.get('Content-Length','0'))
