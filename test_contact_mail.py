@@ -70,5 +70,37 @@ class ContactMailTests(unittest.TestCase):
                 contact_mail.send(dict(cfg,include_contact_details=False),'rid','internal','fr',details=details)
                 self.assertNotIn(details[-1],json.loads(opener.return_value.open.call_args.args[0].data)['text'])
 
+    def test_dynamic_ack_all_categories(self):
+        import contact_ack, server
+        self.assertEqual(set(contact_ack.TYPES),server.NEEDS)
+        cfg={'api_key':'re_test','sender':'alerts@dsig-consulting.com','test_recipient':'qa@example.invalid'}
+        for category in contact_ack.TYPES:
+            for lang in ('fr','en'):
+                with self.subTest(category=category,lang=lang), patch('contact_mail.urllib.request.build_opener') as opener:
+                    opener.return_value.open.return_value.__enter__.return_value.read.return_value=b'{"id":"provider-id"}'
+                    contact_mail.send(cfg,'ref-123','ack',lang,category=category)
+                    payload=json.loads(opener.return_value.open.call_args.args[0].data)
+                    label=contact_ack.TYPES[category][lang=='en']
+                    self.assertIn(label,payload['subject'])
+                    self.assertIn('ref-123',payload['text'])
+                    self.assertIn('ref-123',payload['html'])
+                    self.assertIn('lang="'+lang+'"',payload['html'])
+                    self.assertEqual(payload['to'],['qa@example.invalid'])
+
+    def test_dynamic_ack_queue(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            def connect():
+                db=sqlite3.connect(Path(tmp)/'test.sqlite')
+                contact_mail.schema(db)
+                return db
+            cfg={'api_key':'re_test','sender':'alerts@dsig-consulting.com','test_recipient':'qa@example.invalid'}
+            with connect() as db:contact_mail.enqueue(db,'ref-1','en','Mission en régie')
+            calls=[]
+            def deliver(*args,**kwargs):calls.append((args,kwargs));return 'provider-id'
+            self.assertEqual(contact_mail.run(connect,cfg,deliver)['accepted'],2)
+            self.assertEqual(calls[0][1],{'category':'Mission en régie'})
+            self.assertEqual(calls[1][1],{})
+            self.assertEqual(contact_mail.run(connect,cfg,deliver)['accepted'],0)
+
     def test_config_rejects_unverified_sender(self):
         with self.assertRaises(ValueError):contact_mail.config({'api_key':'re_test','sender':'a@example.com','test_recipient':'qa@example.invalid'})
