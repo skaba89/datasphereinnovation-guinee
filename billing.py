@@ -18,6 +18,11 @@ def schema(db):
         state TEXT NOT NULL DEFAULT 'PREVU', invoice_id TEXT UNIQUE REFERENCES invoices(id),
         created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)""")
 
+    db.execute("""CREATE TABLE IF NOT EXISTS billing_reminders(
+        id TEXT PRIMARY KEY, invoice_id TEXT NOT NULL REFERENCES invoices(id),
+        channel TEXT NOT NULL, note TEXT NOT NULL, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)""")
+    db.execute('CREATE INDEX IF NOT EXISTS billing_reminders_invoice ON billing_reminders(invoice_id,created_at)')
+
 def total(rows):return sum((Decimal(r[0]) for r in rows),Decimal(0))
 def amount(value,currency):
     if not re.fullmatch(r'\d{1,12}(?:\.\d{1,2})?',value):raise ValueError()
@@ -42,6 +47,24 @@ def handle(h,connect,method):
         except ValueError:return h.json_response(400,{'error':'Page invalide.'})
         with connect() as db:
             db.row_factory=sqlite3.Row
+            if kind=='receivables':
+                items=[]; aging={}; today=date.today()
+                for record in db.execute("""SELECT i.*,q.currency,o.company,m.contract_ref
+                    FROM invoices i JOIN missions m ON m.id=i.mission_id JOIN quotes q ON q.id=m.quote_id
+                    JOIN opportunities o ON o.id=m.opportunity_id ORDER BY i.due_date,i.id"""):
+                    x=dict(record)
+                    balance=Decimal(x['amount'])-total(db.execute('SELECT amount FROM payments WHERE invoice_id=?',(x['id'],)))
+                    if balance<=0:continue
+                    days=max(0,(today-date.fromisoformat(x['due_date'])).days)
+                    bucket='current' if days==0 else 'd1_30' if days<=30 else 'd31_60' if days<=60 else 'd61_90' if days<=90 else 'd90_plus'
+                    sums=aging.setdefault(x['currency'],{k:Decimal(0) for k in ('current','d1_30','d31_60','d61_90','d90_plus')})
+                    sums[bucket]+=balance
+                    history=[dict(y) for y in db.execute('SELECT channel,note,created_at FROM billing_reminders WHERE invoice_id=? ORDER BY created_at DESC,rowid DESC LIMIT 10',(x['id'],))]
+                    x.update(balance=str(balance),days_overdue=days,bucket=bucket,reminders=history,
+                             reminder_count=db.execute('SELECT count(*) FROM billing_reminders WHERE invoice_id=?',(x['id'],)).fetchone()[0])
+                    items.append(x)
+                return h.json_response(200,{'items':items[(page-1)*25:page*25],'total':len(items),
+                    'aging':{c:{k:str(v) for k,v in sums.items()} for c,sums in aging.items()}})
             if kind=='schedule':
                 items=[]
                 for record in db.execute("""SELECT s.*,q.currency,q.title,o.company,m.contract_ref,i.reference invoice_reference
@@ -93,7 +116,14 @@ def handle(h,connect,method):
         v={k:x.strip() for k,x in v.items()};oid=str(uuid.uuid4())
         with connect() as db:
             db.row_factory=sqlite3.Row;db.execute('BEGIN IMMEDIATE')
-            if kind=='schedule' and method=='POST':
+            if kind=='reminders' and method=='POST':
+                if set(v)!={'invoice_id','channel','note'} or v['channel'] not in ('EMAIL','TELEPHONE','WHATSAPP','AUTRE') or not v['note']:raise ValueError()
+                i=db.execute('SELECT * FROM invoices WHERE id=?',(v['invoice_id'],)).fetchone()
+                if not i:raise ValueError()
+                if i['due_date']>=date.today().isoformat() or total(db.execute('SELECT amount FROM payments WHERE invoice_id=?',(i['id'],)))>=Decimal(i['amount']):
+                    return h.json_response(409,{'error':'Seules les créances échues non soldées peuvent être relancées.'})
+                db.execute('INSERT INTO billing_reminders(id,invoice_id,channel,note) VALUES(?,?,?,?)',(oid,i['id'],v['channel'],v['note']));event='RELANCE_MANUELLE'
+            elif kind=='schedule' and method=='POST':
                 if set(v)!={'mission_id','label','kind','amount','due_date'} or not v['label'] or v['kind'] not in ('ACOMPTE','PERIODIQUE','SOLDE') or date.fromisoformat(v['due_date']).isoformat()!=v['due_date']:raise ValueError()
                 m=mission(db,v['mission_id'])
                 if not m:raise ValueError()
