@@ -224,6 +224,14 @@ class BrowserTests(unittest.TestCase):
         expect(invoice).to_contain_text('En retard')
         totals = self.page.locator('#totals tr').filter(has_text='EUR')
         amounts(totals,{1:'600',2:'0',3:'600'})
+        self.page.get_by_role('searchbox',name='Rechercher une créance').fill('inexistante')
+        self.page.get_by_role('form',name='Filtres des créances').get_by_role('button',name='Rechercher').click()
+        expect(self.page.locator('#rows tr')).to_have_count(0)
+        amounts(totals,{1:'600',2:'0',3:'600'})
+        self.page.get_by_role('searchbox',name='Rechercher une créance').fill('v82-creance')
+        self.page.get_by_label('Statut des créances').select_option('')
+        self.page.get_by_role('form',name='Filtres des créances').get_by_role('button',name='Rechercher').click()
+        expect(invoice).to_be_visible()
 
         def payment(reference, amount):
             self.page.locator('#payment-invoice').select_option(index=1)
