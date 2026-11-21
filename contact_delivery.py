@@ -24,11 +24,14 @@ def record(db, provider_id, event):
     return result.rowcount == 1
 
 
-def status(db):
+def status(db, request_ids=None):
     schema(db)
+    if request_ids is not None and not request_ids:
+        return []
+    where = '' if request_ids is None else ' WHERE m.request_id IN (' + ','.join('?' for _ in request_ids) + ')'
     rows=db.execute('''SELECT m.request_id,m.kind,m.language,m.state,m.provider_id,
         (SELECT group_concat(event) FROM contact_delivery_events e WHERE e.provider_id=m.provider_id)
-        FROM contact_mail m ORDER BY m.created DESC,m.kind''').fetchall()
+        FROM contact_mail m''' + where + ' ORDER BY m.created DESC,m.kind', tuple(request_ids or ())).fetchall()
     result=[]
     for rid,kind,language,state,pid,events in rows:
         observed=set((events or '').split(','))
@@ -36,6 +39,17 @@ def status(db):
         delivery=next((e for e in ('complained','bounced','suppressed','failed','delivered','delivery_delayed','sent') if e in observed),None)
         result.append(dict(request_id=rid,kind=kind,language=language,queue_state=state,provider_id=pid,delivery=delivery or 'unverified'))
     return result
+
+
+def for_requests(db, request_ids):
+    """Redacted communication history, restricted to the current request page."""
+    grouped = {rid: [] for rid in request_ids}
+    for row in status(db, request_ids):
+        grouped[row['request_id']].append({
+            'kind': row['kind'], 'language': row['language'],
+            'queue_state': row['queue_state'], 'delivery': row['delivery'],
+        })
+    return grouped
 
 
 def main():
