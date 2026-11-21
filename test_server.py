@@ -330,7 +330,7 @@ class IntakeTests(unittest.TestCase):
                 self.assertEqual(accounts.mfa_required(role),role in {'ADMIN','DIRECTION','CONTROLE','COMPTABLE','AUDITEUR'})
             admin={'Authorization':'Bearer '+server.ADMIN_TOKEN,'Content-Type':'application/json'}
             s,b,_=self.request('POST','/api/admin/accounts',{'username':'secure.test','role':'ADMIN','consultant_id':''},admin)
-            self.assertEqual(s,201);key=json.loads(b)['key']
+            self.assertEqual(s,201);account=json.loads(b);key=account['key']
             self.assertEqual(self.request('GET','/api/admin/accounts',headers={'Authorization':'Bearer '+key})[0],403)
             credentials={'username':'secure.test','password':'fictitious-password-123'}
             self.assertEqual(self.request('POST','/api/auth/activate',credentials|{'key':key})[0],200)
@@ -346,6 +346,9 @@ class IntakeTests(unittest.TestCase):
                 self.assertEqual(self.request('GET','/api/admin/accounts',headers=session)[0],401)
                 s,b,h=self.request('POST','/api/auth/login',credentials|{'otp':server.authentication.totp(secret,step+1)},login);self.assertEqual(s,200)
                 session['Cookie']=h['Set-Cookie'].split(';')[0]
+                self.assertEqual(self.request('GET','/api/admin/accounts',headers=session)[0],200)
+                for action in ('DISABLE','ROTATE'):
+                    self.assertEqual(self.request('PATCH','/api/admin/accounts/'+account['id'],{'action':action},session)[0],409)
                 self.assertEqual(self.request('GET','/api/admin/accounts',headers=session)[0],200)
 
     def test_named_accounts(self):
