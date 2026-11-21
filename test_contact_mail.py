@@ -1,3 +1,4 @@
+import json
 import sqlite3
 import tempfile
 import unittest
@@ -39,6 +40,35 @@ class ContactMailTests(unittest.TestCase):
                 self.assertEqual({c[2] for c in calls},{'internal','ack'})
                 self.assertTrue(all(c[3]=='en' for c in calls))
                 with connect() as db:self.assertEqual(db.execute("SELECT count(*) FROM contact_mail WHERE state='ACCEPTED'").fetchone()[0],2)
+
+    def test_contact_contents_opt_in_internal_only(self):
+        cfg={'api_key':'re_test','sender':'alerts@dsig-consulting.com','test_recipient':'qa@example.invalid','include_contact_details':True}
+        details=('Nom fictif','Entreprise fictive','prospect@example.invalid','Projet fictif','Solution fictive','Message fictif intégral')
+        with tempfile.TemporaryDirectory() as tmp:
+            def connect():
+                db=sqlite3.connect(Path(tmp)/'test.sqlite')
+                db.execute('CREATE TABLE IF NOT EXISTS requests(id TEXT PRIMARY KEY,nom TEXT,org TEXT,email TEXT,besoin TEXT,solution TEXT,message TEXT)')
+                contact_mail.schema(db)
+                return db
+            with connect() as db:
+                db.execute('INSERT INTO requests VALUES (?,?,?,?,?,?,?)',('rid',*details))
+                contact_mail.enqueue(db,'rid','en')
+            with patch('contact_mail.urllib.request.build_opener') as opener:
+                response=opener.return_value.open.return_value.__enter__.return_value
+                response.read.return_value=b'{"id":"test-provider-id"}'
+                self.assertEqual(contact_mail.run(connect,cfg)['accepted'],2)
+                payloads=[json.loads(call.args[0].data) for call in opener.return_value.open.call_args_list]
+                internal=next(p for p in payloads if 'Nouvelle demande' in p['subject'])
+                ack=next(p for p in payloads if p is not internal)
+                for detail in details:
+                    self.assertIn(detail,internal['text'])
+                    self.assertNotIn(detail,ack['text'])
+                self.assertTrue(all(p['to']==['qa@example.invalid'] for p in payloads))
+                self.assertEqual(contact_mail.run(connect,cfg)['accepted'],0)
+            with patch('contact_mail.urllib.request.build_opener') as opener:
+                opener.return_value.open.return_value.__enter__.return_value.read.return_value=b'{"id":"test-provider-id"}'
+                contact_mail.send(dict(cfg,include_contact_details=False),'rid','internal','fr',details=details)
+                self.assertNotIn(details[-1],json.loads(opener.return_value.open.call_args.args[0].data)['text'])
 
     def test_config_rejects_unverified_sender(self):
         with self.assertRaises(ValueError):contact_mail.config({'api_key':'re_test','sender':'a@example.com','test_recipient':'qa@example.invalid'})

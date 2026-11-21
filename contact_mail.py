@@ -1,4 +1,4 @@
-"""Durable REC-only contact notifications. No prospect data leaves REC."""
+"""Durable REC-only notifications; optional fictional contact details to the test mailbox."""
 import json
 import re
 import time
@@ -18,6 +18,8 @@ def schema(db):
         attempts INTEGER NOT NULL DEFAULT 0, state TEXT NOT NULL DEFAULT 'PENDING',
         provider_id TEXT, PRIMARY KEY(request_id,kind))''')
 
+    db.execute('''CREATE TABLE IF NOT EXISTS contact_mail_detail_mode (request_id TEXT PRIMARY KEY REFERENCES requests(id), enabled INTEGER NOT NULL)''')
+
     db.execute('''CREATE TABLE IF NOT EXISTS account_invitation (
         request_id TEXT PRIMARY KEY REFERENCES accounts(id), kind TEXT NOT NULL DEFAULT 'invite',
         language TEXT NOT NULL DEFAULT 'fr', created REAL NOT NULL, next_attempt REAL NOT NULL,
@@ -36,19 +38,23 @@ def enqueue(db, request_id, language):
 
 
 def config(raw):
-    if not isinstance(raw, dict) or set(raw) != {'api_key','sender','test_recipient'}:
+    if not isinstance(raw, dict) or not {'api_key','sender','test_recipient'} <= set(raw) or set(raw)-{'api_key','sender','test_recipient','include_contact_details'}:
         raise ValueError('Invalid mail configuration')
     address = r'[A-Za-z0-9.!+_-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}'
-    if not all(isinstance(v,str) for v in raw.values()) or not re.fullmatch(r're_[A-Za-z0-9_-]+',raw['api_key']) or not all(re.fullmatch(address,raw[k]) for k in ('sender','test_recipient')) or not raw['sender'].lower().endswith('@dsig-consulting.com'):
+    if not isinstance(raw.get('include_contact_details',False),bool) or not all(isinstance(raw[k],str) for k in ('api_key','sender','test_recipient')) or not re.fullmatch(r're_[A-Za-z0-9_-]+',raw['api_key']) or not all(re.fullmatch(address,raw[k]) for k in ('sender','test_recipient')) or not raw['sender'].lower().endswith('@dsig-consulting.com'):
         raise ValueError('Invalid mail configuration')
     return raw
 
 
-def send(cfg, rid, kind, language):
+def send(cfg, rid, kind, language, *, details=None):
     if kind == 'invite':
         subject, body = '[REC TEST] Invitation espace DSIG', 'Simulation d’invitation au portail DSIG : https://rec.dsig-consulting.com/connexion.html\nLa clé individuelle doit être transmise séparément par un canal sécurisé. Aucun compte réel ni secret dans ce message.'
     elif kind == 'internal':
         subject, body = '[REC] Nouvelle demande DSIG', f'Consultez le CRM REC. Référence : {rid}'
+        if details is not None and cfg.get('include_contact_details',False):
+            labels = ('Nom','Organisation','E-mail','Besoin','Solution','Message')
+            body += '\n\n' + '\n'.join(f'{label} : {value}' for label,value in zip(labels,details))
+            body += '\n\nTraiter dans le CRM REC : https://rec.dsig-consulting.com/admin.html'
     elif language == 'en':
         subject, body = '[REC TEST] DSIG request received', f'Thank you for your request. Reference: {rid}. Our team will review it.'
     else:
@@ -78,9 +84,17 @@ def run(connect, cfg, deliver=send, limit=10, *, invitations=False):
             if not row:
                 break
             rid,kind,lang,attempts = row
+            details = None
+            if not invitations and kind=='internal':
+                db.execute('INSERT OR IGNORE INTO contact_mail_detail_mode VALUES (?,?)',(rid,int(attempts==0 and cfg.get('include_contact_details',False))))
+                mode=db.execute('SELECT enabled FROM contact_mail_detail_mode WHERE request_id=?',(rid,)).fetchone()[0]
+                if mode:
+                    if not cfg.get('include_contact_details',False):
+                        db.execute("UPDATE contact_mail SET state='FAILED' WHERE request_id=? AND kind=?",(rid,kind));counts['failed']+=1;continue
+                    details=db.execute('SELECT nom,org,email,besoin,solution,message FROM requests WHERE id=?',(rid,)).fetchone()
             db.execute(f'UPDATE {table} SET attempts=attempts+1,next_attempt=? WHERE request_id=? AND kind=?',(now+120,rid,kind))
         try:
-            identifier = deliver(cfg,rid,kind,lang)
+            identifier = deliver(cfg,rid,kind,lang,details=tuple(details)) if details is not None else deliver(cfg,rid,kind,lang)
         except (OSError, ValueError, KeyError):
             state = 'FAILED' if attempts>=4 else 'PENDING'
             with connect() as db:

@@ -2,7 +2,7 @@
 
 Chaque nouvelle demande REC crée deux entrées transactionnelles dans `contact_mail` (notification interne et accusé FR/EN). Les anciennes demandes ne sont pas reprises. Aucun envoi n'est effectué par la requête HTTP.
 
-Le worker est désactivé tant qu'il n'est pas lancé. En REC, les deux messages vont uniquement vers une adresse de test contrôlée, sans nom, adresse ou contenu du prospect. Le verrou PROD reste inchangé. Créer une clé Resend dédiée, limitée à l'envoi du domaine vérifié. Ne pas réutiliser la clé des alertes techniques.
+Le worker est désactivé tant qu'il n'est pas lancé. En REC, les deux messages vont uniquement vers une adresse de test contrôlée, sans nom, adresse ou contenu du prospect par défaut. Le paramètre optionnel `include_contact_details: true` autorise le contenu fictif complet dans la notification interne seulement ; l’accusé de test reste générique. Voir la procédure ci-dessous. Le verrou PROD reste inchangé. Créer une clé Resend dédiée, limitée à l'envoi du domaine vérifié. Ne pas réutiliser la clé des alertes techniques.
 
 Sur le VPS, créer `/etc/dsig-rec-contact.json` avec `sudo install -m 600 /dev/null /etc/dsig-rec-contact.json` (uniquement si absent), puis `sudoedit /etc/dsig-rec-contact.json`. Format :
 
@@ -20,3 +20,7 @@ docker compose -p dsig-rec -f compose.yaml -f compose.rec-edge.yaml -f compose.r
 Soumettre une demande fictive FR et EN, puis lancer le worker. Vérifier les quatre messages de test et les références dans le CRM. `ACCEPTED` signifie accepté par Resend, pas livré. Vérifier la réception effective dans la boîte et le dashboard Resend. Les erreurs sont retentées avec temporisation, au plus cinq tentatives et avant 20 heures; les clés d'idempotence Resend sont valides 24 heures. Les entrées expirées ou définitivement échouées restent traçables. Ne pas rejouer automatiquement une sauvegarde restaurée.
 
 Après validation du test manuel, installer le service et timer ci-dessous avec les unités existantes, puis activer le timer. Ne pas les installer sur un candidat isolé.
+
+## Extension contenu de contact REC
+
+Dans le fichier root existant `/etc/dsig-rec-contact.json`, ajouter le champ JSON booléen `"include_contact_details": true` sans modifier les valeurs existantes. Utiliser exclusivement des demandes fictives, une boîte professionnelle de test contrôlée et ne pas inclure de données sensibles. Le message interne contient nom, organisation, adresse de contact, besoin, solution et message en texte brut. Aucun envoi au prospect. Les demandes déjà traitées ne sont pas renvoyées. Ne pas activer en PROD. La configuration par défaut reste sans contenu. Désactiver la fonction en remettant le booléen à false ; une notification détaillée déjà tentée ne sera pas réémise avec un contenu différent.
