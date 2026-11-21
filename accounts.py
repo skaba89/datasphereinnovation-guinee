@@ -1,4 +1,5 @@
 """Local named accounts with hashed random access keys and server-side RBAC."""
+import contact_mail
 import hashlib, secrets, json, re, sqlite3, uuid, time, os
 from urllib.parse import urlsplit
 
@@ -86,7 +87,10 @@ def handle(h,connect,method):
                 items=[dict(r) for r in db.execute('SELECT * FROM access_events ORDER BY id DESC LIMIT 100')]
             else:
                 items=[dict(r) for r in db.execute('SELECT a.id,a.username,a.role,a.consultant_id,a.enabled,a.created_at,EXISTS(SELECT 1 FROM credentials c WHERE c.account_id=a.id) AS activated,EXISTS(SELECT 1 FROM mfa m WHERE m.account_id=a.id AND m.enabled=1) AS mfa_enabled FROM accounts a ORDER BY a.username')]
-                for item in items:item['self']=item['id']==getattr(h,'actor_id',None)
+                for item in items:
+                    item['self']=item['id']==getattr(h,'actor_id',None)
+                    invitation=db.execute('SELECT state FROM account_invitation WHERE request_id=?',(item['id'],)).fetchone()
+                    item['invitation_state']=invitation[0] if invitation else 'NONE'
         return h.json_response(200,{'items':items})
     try:
         size=int(h.headers.get('Content-Length','0'))
@@ -104,10 +108,16 @@ def handle(h,connect,method):
                 db.execute('INSERT INTO accounts(id,username,role,key_hash,consultant_id) VALUES(?,?,?,?,?)',(oid,v['username'],v['role'],digest(key),v['consultant_id']));event(db,h.actor,'COMPTE_CREE',v['username'])
                 result={'id':oid,'key':key}
             else:
-                if v not in ({'action':'DISABLE'},{'action':'ROTATE'}):raise ValueError()
-                oid=path.rsplit('/',1)[-1];row=db.execute('SELECT username FROM accounts WHERE id=?',(oid,)).fetchone()
+                if v not in ({'action':'DISABLE'},{'action':'ROTATE'},{'action':'INVITE'}):raise ValueError()
+                oid=path.rsplit('/',1)[-1];row=db.execute('SELECT username,enabled FROM accounts WHERE id=?',(oid,)).fetchone()
                 if not row:return h.json_response(404,{'error':'Compte introuvable.'})
                 if oid==getattr(h,'actor_id',None):return h.json_response(409,{'error':'Impossible de modifier son propre compte.'})
+                if v['action']=='INVITE':
+                    if os.environ.get('DSIG_ENV','REC')!='REC':return h.json_response(403,{'error':'Invitations de test REC uniquement.'})
+                    if not row[1] or db.execute('SELECT 1 FROM credentials WHERE account_id=?',(oid,)).fetchone():return h.json_response(409,{'error':'Compte non éligible à une invitation.'})
+                    if not contact_mail.enqueue_invitation(db,oid):return h.json_response(409,{'error':'Invitation déjà planifiée.'})
+                    event(db,h.actor,'INVITATION_REC',row[0]);db.commit()
+                    return h.json_response(200,{'id':oid,'invitation_state':'PENDING'})
                 if v['action']=='DISABLE':db.execute('UPDATE accounts SET enabled=0 WHERE id=?',(oid,));result={'id':oid}
                 else:
                     key='dsig_'+secrets.token_urlsafe(32);db.execute('UPDATE accounts SET enabled=1,key_hash=? WHERE id=?',(digest(key),oid));result={'id':oid,'key':key}
