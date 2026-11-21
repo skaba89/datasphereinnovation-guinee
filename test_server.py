@@ -124,6 +124,14 @@ class IntakeTests(unittest.TestCase):
             self.assertEqual(db.execute("SELECT id, solution, status FROM requests").fetchone(),
                              (json.loads(data)["id"], "MineFleet360", "NOUVELLE"))
 
+    def test_contact_mail_atomic_enqueue(self):
+        with patch.dict(os.environ,{'DSIG_ENV':'REC'}):
+            status,data,_=self.request('POST','/api/requests',self.payload|{'language':'en'})
+            self.assertEqual(status,201)
+            with server.connect() as db:
+                self.assertEqual(set(db.execute('SELECT kind,language,state FROM contact_mail WHERE request_id=?',(json.loads(data)['id'],))),{('ack','en','PENDING'),('internal','en','PENDING')})
+            self.assertEqual(self.request('POST','/api/requests',self.payload|{'language':'xx'})[0],400)
+
     def test_invalid_requests(self):
         for changes in ({"consent": False}, {"email": "no-email"}, {"solution": ""},
                         {"website": "spam"}, {"besoin": "inconnu"}, {"message": "x" * 4001}):
@@ -840,3 +848,4 @@ class IntakeTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
