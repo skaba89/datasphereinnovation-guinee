@@ -54,7 +54,7 @@ def authorize(h,connect,bootstrap):
             h.json_response(403,{'error':'Origine non autorisée.'});return False
         header='Bearer '+session_cookie(h)
     if not cookie_mode and len(bootstrap)>=32 and hmac.compare_digest(header.encode(),('Bearer '+bootstrap).encode()):
-        h.actor='bootstrap';h.role='ADMIN';h.consultant_id=''
+        h.actor_id=None;h.actor='bootstrap';h.role='ADMIN';h.consultant_id=''
         with connect() as db:event(db,h.actor,'AUTORISE',h.command+' '+resource)
         return True
     if not header.startswith('Bearer ') or not re.fullmatch(r'dsig_[A-Za-z0-9_-]{43}',header[7:]):
@@ -66,7 +66,7 @@ def authorize(h,connect,bootstrap):
             row=db.execute('SELECT a.id,a.username,a.role,a.consultant_id FROM sessions s JOIN accounts a ON a.id=s.account_id WHERE s.token_hash=? AND s.expires>? AND a.enabled=1',(digest(header[7:]),int(time.time()))).fetchone()
         if not row:
             h.json_response(401,{'error':'Accès non autorisé.'});return False
-        h.actor=row['username'];h.role=row['role'];h.consultant_id=row['consultant_id']
+        h.actor_id=row['id'];h.actor=row['username'];h.role=row['role'];h.consultant_id=row['consultant_id']
         if mfa_required(h.role) and not db.execute('SELECT 1 FROM mfa WHERE account_id=? AND enabled=1',(row['id'],)).fetchone():
             event(db,h.actor,'MFA_REQUISE',h.command+' '+resource)
             h.json_response(403,{'error':'Activation MFA obligatoire avant accès aux modules.'});return False
@@ -105,7 +105,7 @@ def handle(h,connect,method):
                 if v not in ({'action':'DISABLE'},{'action':'ROTATE'}):raise ValueError()
                 oid=path.rsplit('/',1)[-1];row=db.execute('SELECT username FROM accounts WHERE id=?',(oid,)).fetchone()
                 if not row:return h.json_response(404,{'error':'Compte introuvable.'})
-                if row[0]==h.actor:return h.json_response(409,{'error':'Impossible de modifier son propre compte.'})
+                if oid==getattr(h,'actor_id',None):return h.json_response(409,{'error':'Impossible de modifier son propre compte.'})
                 if v['action']=='DISABLE':db.execute('UPDATE accounts SET enabled=0 WHERE id=?',(oid,));result={'id':oid}
                 else:
                     key='dsig_'+secrets.token_urlsafe(32);db.execute('UPDATE accounts SET enabled=1,key_hash=? WHERE id=?',(digest(key),oid));result={'id':oid,'key':key}
