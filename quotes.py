@@ -3,6 +3,7 @@ import json
 import re
 import sqlite3
 import uuid
+from datetime import date
 from decimal import Decimal, ROUND_HALF_UP
 from urllib.parse import urlsplit, parse_qs
 
@@ -19,6 +20,11 @@ def schema(db):
     db.execute('''CREATE TABLE IF NOT EXISTS quote_events(id INTEGER PRIMARY KEY,
         quote_id TEXT NOT NULL, version INTEGER NOT NULL, snapshot TEXT NOT NULL,
         created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)''')
+
+    db.execute("""CREATE TABLE IF NOT EXISTS quote_proposal_terms (
+        quote_id TEXT PRIMARY KEY REFERENCES quotes(id), valid_until TEXT NOT NULL,
+        terms TEXT NOT NULL)""")
+
 
 def calculate(v):
     unit = Decimal('1' if v['currency'] in ('GNF','XOF') else '0.01')
@@ -54,13 +60,19 @@ def handle(h,connect,method):
         except ValueError: return h.json_response(400,{'error':'Page invalide.'})
         with connect() as db:
             db.row_factory=sqlite3.Row
-            rows=[dict(r) for r in db.execute('SELECT q.*,o.company FROM quotes q JOIN opportunities o ON q.opportunity_id=o.id ORDER BY q.created_at DESC,q.id DESC LIMIT 25 OFFSET ?',((page-1)*25,))]
+            rows=[dict(r) for r in db.execute('SELECT q.*,o.company,COALESCE(p.valid_until,\\'\\') valid_until,COALESCE(p.terms,\\'\\') terms FROM quotes q JOIN opportunities o ON q.opportunity_id=o.id LEFT JOIN quote_proposal_terms p ON p.quote_id=q.id ORDER BY q.created_at DESC,q.id DESC LIMIT 25 OFFSET ?',((page-1)*25,))]
             total=db.execute('SELECT count(*) FROM quotes').fetchone()[0]
         return h.json_response(200,{'items':[r|calculate(r) for r in rows],'total':total})
     try:
         n=int(h.headers.get('Content-Length','0'))
         if not 0<n<=16000 or h.headers.get_content_type()!='application/json': raise ValueError()
         data=json.loads(h.rfile.read(n)); version=data.pop('version',None) if isinstance(data,dict) else None
+        metadata=None
+        if isinstance(data,dict) and ('valid_until' in data or 'terms' in data):
+            until=data.pop('valid_until','');terms=data.pop('terms','')
+            if not isinstance(until,str) or not isinstance(terms,str) or len(terms)>2000 or '\\x00' in terms or (until and (len(until)!=10 or date.fromisoformat(until).isoformat()!=until)):
+                raise ValueError()
+            metadata=(until,terms.strip())
         v=validate(data)
         if method=='PATCH' and (type(version) is not int or version<1): raise ValueError()
         if method=='POST' and version is not None: raise ValueError()
@@ -79,6 +91,10 @@ def handle(h,connect,method):
             if row[1] in ('ACCEPTE','REFUSE'): return h.json_response(409,{'error':'Devis clôturé. Créez une nouvelle proposition.'})
             version+=1
             db.execute('UPDATE quotes SET '+','.join(k+'=?' for k in FIELDS)+',version=? WHERE id=?',(*(v[k] for k in FIELDS),version,oid))
+        if metadata is not None:
+            db.execute("""INSERT INTO quote_proposal_terms VALUES (?,?,?)
+                ON CONFLICT(quote_id) DO UPDATE SET valid_until=excluded.valid_until,terms=excluded.terms""",(oid,*metadata))
+        stored=db.execute('SELECT valid_until,terms FROM quote_proposal_terms WHERE quote_id=?',(oid,)).fetchone()
         computed=calculate(v)
-        db.execute('INSERT INTO quote_events(quote_id,version,snapshot) VALUES(?,?,?)',(oid,version,json.dumps(v|computed,ensure_ascii=False)))
+        db.execute('INSERT INTO quote_events(quote_id,version,snapshot) VALUES(?,?,?)',(oid,version,json.dumps(v|computed|({'valid_until':stored[0],'terms':stored[1]} if stored else {}),ensure_ascii=False)))
     return h.json_response(201 if method=='POST' else 200,{'id':oid,'version':version,**computed})
