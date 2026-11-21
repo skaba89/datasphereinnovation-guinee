@@ -164,3 +164,18 @@ Ne jamais utiliser de données clients réelles pendant cette recette. Renseigne
 3. Exécuter la recette fonctionnelle par rôle, le contrôle préalable, le scanner réel et l'exercice de restauration isolée.
 4. Documenter les écarts, corriger en branche dédiée, rejouer les contrôles et faire valider les résultats par les responsables.
 5. Une décision de production nécessite une version dédiée, revue de sécurité et autorisation humaine explicite. Aucun passage automatique en PROD.
+
+
+## V76 — Preuve de version REC effectivement exécutée
+
+PR 75 fusionnée et CI 44897596443 réussie. Pour la prochaine version approuvée, depuis le dépôt Git sur le VPS, sans modifier le conteneur actif :
+
+```bash
+cd /home/ubuntu/datasphereinnovation-guinee
+git fetch origin main
+python3 scripts/verify-rec-release.py "$(git rev-parse origin/main)"
+docker exec dsig-rec-dsig-1 python preflight.py
+python3 scripts/monitor-rec.py
+```
+
+Le premier contrôle compare les empreintes SHA-256 de tous les fichiers applicatifs copiés par le Dockerfile (Python racine, requirements.txt, dist/) au commit exact, y compris fichiers absents ou supplémentaires. Il exige REC et un conteneur healthy. La sortie JSON contient un horodatage, le SHA, le nombre de fichiers et les statuts, sans secrets ni contenu de fichiers. Git fetch ne fusionne pas et aucun conteneur n'est redémarré. Utiliser uniquement un SHA dont la CI est verte ; la commande ne vérifie pas elle-même GitHub Actions. Le contrôle est testé sur le conteneur CI. Un écart impose de revoir la version candidate avant promotion. Il ne prouve ni la provenance de l'image de base, ni les versions exactes des dépendances installées, ni la configuration TLS ou les données ; la recette métier, l'antivirus réel, les sauvegardes et l'autorisation humaine restent obligatoires. Aucun GO PROD automatique.
