@@ -180,3 +180,37 @@ python3 scripts/monitor-rec.py
 ```
 
 Le premier contrôle compare les empreintes SHA-256 de tous les fichiers applicatifs copiés par le Dockerfile (Python racine, requirements.txt, dist/) au commit exact, y compris fichiers absents ou supplémentaires. Il exige REC et un conteneur healthy. La sortie JSON contient un horodatage, le SHA, le nombre de fichiers et les statuts, sans secrets ni contenu de fichiers. Git fetch ne fusionne pas et aucun conteneur n'est redémarré. Utiliser uniquement un SHA dont la CI est verte ; la commande ne vérifie pas elle-même GitHub Actions. Le contrôle est testé sur le conteneur CI. Un écart impose de revoir la version candidate avant promotion. Il ne prouve ni la provenance de l'image de base, ni les versions exactes des dépendances installées, ni la configuration TLS ou les données ; la recette métier, l'antivirus réel, les sauvegardes et l'autorisation humaine restent obligatoires. Aucun GO PROD automatique.
+
+
+## V77 — Préparation contrôlée de la mise à niveau REC
+
+PR 76 fusionnée et CI 44898573677 verte. La préparation travaille uniquement sur le projet Compose `dsig-rec`, service `dsig`, conteneur `dsig-rec-dsig-1` healthy en mode REC. Elle ne modifie ni la configuration du proxy ni le conteneur actif.
+
+### Préparation (VPS)
+
+Après avoir contrôlé les quatre jobs CI du SHA exact, prévoir une fenêtre d'intervention et vérifier l'espace disponible. Interdire les interventions concurrentes. Mettre à jour le checkout par fast-forward uniquement après revue des fichiers locaux (ne pas écraser les overlays ni .env). Depuis le checkout propre du SHA approuvé :
+
+```bash
+bash scripts/prepare-rec-upgrade.sh "$(git rev-parse HEAD)"
+```
+
+Le script construit depuis git archive via la suite isolée, exécute les tests Python sans réseau dans le conteneur de test, conserve l'identifiant de l'image active sous un tag de rollback, puis réalise une sauvegarde chiffrée avec restauration isolée et contrôle SHA-256. Les tags existants entraînent un arrêt ; ne pas les supprimer pour contourner un échec. Conserver le rapport terminal, les identifiants d'images et l'archive chiffrée hors site. PREPARED ONLY n'est pas un déploiement ni une autorisation PROD. La preuve ne couvre pas à elle seule Playwright ou le scanner réel.
+
+### Activation manuelle après validation humaine
+
+- Confirmer le projet, les fichiers Compose effectivement utilisés, les volumes, le port loopback, les réseaux privés, le socket antivirus et le mode REC. Ne jamais deviner les overlays sur un VPS partagé. Préserver les fichiers/configurations existants, sans afficher les secrets.
+- Interdire les écritures durant la fenêtre et réaliser une dernière sauvegarde vérifiée si des écritures ont eu lieu depuis la préparation. Vérifier les IDs des deux images, l'état initial et la compatibilité des migrations. Ne pas utiliser un tag mutable sans vérifier l'ID.
+- Créer hors Git un overlay minimal, par exemple `compose.rec-release.local.yaml`, contenant uniquement (remplacer SHA_APPROUVE par le SHA exact du rapport) :
+
+```yaml
+services:
+  dsig:
+    image: dsig-rec-candidate:SHA_APPROUVE
+```
+
+- Ajouter cet overlay **en dernier** aux mêmes arguments `docker compose -p dsig-rec -f ...` effectivement utilisés en REC. Valider `config --quiet`, vérifier uniquement les champs non sensibles et s'assurer que le volume actif et le réseau restent identiques. Exécuter sur le service dsig uniquement `up -d --no-build --pull never --wait dsig`. Si les conditions précédentes ne sont pas établies, arrêter.
+- Rejouer V76 sur le SHA approuvé, preflight, monitor, contrôle antivirus réel, puis scénarios métier V75. Ne rouvrir la REC qu'après validation.
+
+### Retour arrière
+
+En cas d'échec, maintenir la REC fermée aux écritures. Examiner les migrations et la compatibilité descendante de la base avant de relancer l'ancienne image. Si compatible, remplacer uniquement la valeur image de l'overlay par le tag de rollback vérifié et relancer le même service avec les mêmes arguments Compose. Vérifier santé, intégrité et parcours métier. Si incompatible ou incertain, ne pas relancer l'ancienne image sur la base modifiée : restaurer d'abord dans une instance isolée avec les clés/version adéquates, réconcilier les changements depuis la sauvegarde et soumettre toute promotion à validation humaine. Aucune restauration automatique de la base active, aucun `down -v`, aucun nettoyage d'images automatique. Cette procédure ne déverrouille pas PROD.
