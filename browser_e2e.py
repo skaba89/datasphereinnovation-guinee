@@ -320,6 +320,11 @@ class BrowserTests(unittest.TestCase):
             'documents':'documents.html', 'alerts':'alerts.html',
             'notifications':'notifications.html',
         }
+        nested = {
+            'crm': ('crm/catalogue','crm/organizations','crm/appointments'),
+            'billing': ('billing/expenses','billing/milestones','billing/contracts','billing/schedule','billing/receivables','billing/forecast','billing/planned-expenses'),
+            'missions': ('missions/eligible',),
+        }
         for role, (read, write) in matrix.items():
             with self.subTest(role=role):
                 self.context.clear_cookies()
@@ -353,6 +358,10 @@ class BrowserTests(unittest.TestCase):
                 for resource in pages:
                     response = self.context.request.get('/api/admin/'+resource, headers=headers)
                     self.assertEqual(response.status, 200 if resource in allowed else 403, f'{role}: {resource}')
+                for resource, paths in nested.items():
+                    for path in paths:
+                        response = self.context.request.get('/api/admin/'+path, headers=headers)
+                        self.assertEqual(response.status, 200 if resource in allowed else 403, f'{role}: {path}')
                 target = sorted(expected)[0]
                 self.page.locator(f'#modules a[href="{target}"]').click()
                 nav = self.page.locator('.app-sidebar nav a')
@@ -365,6 +374,29 @@ class BrowserTests(unittest.TestCase):
                 expect(self.page.locator('#workspace')).to_be_visible()
                 self.page.locator('#logout').click()
                 expect(self.page.locator('#login')).to_be_visible()
+                revoked = self.context.request.get('/api/admin/'+sorted(allowed)[0], headers=headers)
+                self.assertEqual(revoked.status, 401, f'{role}: session after logout')
+        self.assertEqual(self.errors, [])
+
+    def test_anonymous_private_routes_and_crm_workspace(self):
+        # A public static shell must not grant access to private records.
+        paths = (
+            'requests','crm','crm/catalogue','crm/organizations','crm/appointments',
+            'quotes','tenders','consultants','recruitment','missions','missions/eligible',
+            'billing','billing/expenses','billing/contracts','billing/milestones',
+            'billing/schedule','billing/receivables','billing/forecast','billing/planned-expenses',
+            'direction','direction/reporting','accounts','audit','documents',
+            'alerts','notifications','my-activity',
+        )
+        for path in paths:
+            with self.subTest(path=path):
+                response = self.context.request.get('/api/admin/'+path)
+                self.assertEqual(response.status, 401)
+                self.assertNotIn('items', response.json())
+        self.page.goto('/crm.html')
+        expect(self.page.locator('#login')).to_be_visible()
+        expect(self.page.locator('#workspace')).to_be_hidden()
+        expect(self.page.locator('#supply-chain')).to_be_hidden()
         self.assertEqual(self.errors, [])
 
 
