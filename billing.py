@@ -4,6 +4,7 @@ from datetime import date
 from decimal import Decimal
 from urllib.parse import urlsplit, parse_qs
 import missions
+import quotes
 
 def schema(db):
     db.execute('''CREATE TABLE IF NOT EXISTS milestones(id TEXT PRIMARY KEY, mission_id TEXT NOT NULL, title TEXT NOT NULL, amount TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'PREVU')''')
@@ -35,6 +36,29 @@ def handle(h,connect,method):
         except ValueError:return h.json_response(400,{'error':'Page invalide.'})
         with connect() as db:
             db.row_factory=sqlite3.Row
+            if kind=='contracts':
+                items=[]
+                today=date.today().isoformat()
+                for record in db.execute("""SELECT q.*, m.id mission_id,m.contract_ref,m.status mission_status,
+                    o.company,sc.signed_date FROM missions m JOIN quotes q ON q.id=m.quote_id
+                    JOIN opportunities o ON o.id=m.opportunity_id LEFT JOIN signed_contracts sc ON sc.quote_id=q.id
+                    ORDER BY m.created_at DESC,m.id LIMIT 25 OFFSET ?""",((page-1)*25,)):
+                    m=dict(record);mid=m['mission_id']
+                    planned=Decimal(quotes.calculate(m)['revenue'])
+                    activity=missions.amounts(m,[dict(a) for a in db.execute('SELECT * FROM activity WHERE mission_id=?',(mid,))])
+                    earned=billable(db,m);cost=Decimal(activity['actual_cost'])
+                    invoiced=paid=overdue=Decimal(0)
+                    for invoice in db.execute('SELECT id,amount,due_date FROM invoices WHERE mission_id=?',(mid,)):
+                        received=total(db.execute('SELECT amount FROM payments WHERE invoice_id=?',(invoice['id'],)))
+                        invoiced+=Decimal(invoice['amount']);paid+=received
+                        if invoice['due_date']<today:overdue+=Decimal(invoice['amount'])-received
+                    unit=Decimal('1' if m['currency'] in ('GNF','XOF') else '0.01')
+                    values={'planned':planned,'earned':earned,'invoiced':invoiced,'paid':paid,
+                            'balance':invoiced-paid,'overdue':overdue,'remaining_billable':earned-invoiced,
+                            'actual_cost':cost,'earned_margin':earned-cost}
+                    items.append({k:m[k] for k in ('mission_id','contract_ref','mission_status','company','title','currency','signed_date')}|
+                        {k:str(v.quantize(unit)) for k,v in values.items()})
+                return h.json_response(200,{'items':items,'total':db.execute('SELECT count(*) FROM missions').fetchone()[0]})
             if kind=='milestones':
                 rows=[dict(r) for r in db.execute('SELECT j.*,q.currency,q.title AS mission_title FROM milestones j JOIN missions m ON m.id=j.mission_id JOIN quotes q ON q.id=m.quote_id ORDER BY j.id LIMIT 25 OFFSET ?',((page-1)*25,))]
                 return h.json_response(200,{'items':rows,'total':db.execute('SELECT count(*) FROM milestones').fetchone()[0]})
