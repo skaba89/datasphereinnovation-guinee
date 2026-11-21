@@ -15,3 +15,28 @@ function renderSidebar(me){
  sidebar.append(nav);document.querySelector('header').after(sidebar);document.body.classList.add('app-shell');
 }
 
+
+/* Paginate already-loaded lists only; keep server-side pagination untouched. */
+document.addEventListener('DOMContentLoaded',()=>{
+ const page=location.pathname.split('/').pop();
+ const lists={
+  'accounts.html':['rows','events'],'audit.html':['rows'],
+  'crm.html':['catalogue-rows'],'direction.html':['financial','report-rows'],
+  'billing.html':['forecast-rows','aging-rows','totals','cash-rows'],
+  'my-activity.html':['rows'],'appointments.html':['rows'],'recruitment.html':['rows']
+ };
+ for(const id of lists[page]||[]){
+  const root=document.getElementById(id);if(!root)continue;
+  const controls=document.createElement('div');controls.className='dsig-pager';
+  controls.setAttribute('role','group');controls.setAttribute('aria-label','Pagination '+id);
+  const prev=document.createElement('button'),next=document.createElement('button'),status=document.createElement('span'),size=document.createElement('select');
+  prev.type=next.type='button';prev.textContent='Précédent';next.textContent='Suivant';status.setAttribute('role','status');
+  size.setAttribute('aria-label','Éléments par page');for(const n of [10,25,50])size.append(new Option(n+' par page',n));size.value='25';
+  controls.append(prev,status,next,size);
+  const anchor=root.closest('.table-wrap')||root;anchor.after(controls);
+  let current=1;
+  function render(){const items=Array.from(root.children);const limit=Number(size.value),pages=Math.max(1,Math.ceil(items.length/limit));current=Math.min(current,pages);items.forEach((item,i)=>{item.hidden=i<(current-1)*limit||i>=current*limit});status.textContent='Page '+current+' / '+pages+' · '+items.length+' élément(s)';prev.disabled=current===1;next.disabled=current===pages;controls.hidden=items.length<=10;}
+  prev.onclick=()=>{current--;render()};next.onclick=()=>{current++;render()};size.onchange=()=>{current=1;render()};
+  new MutationObserver(()=>{current=1;render()}).observe(root,{childList:true});render();
+ }
+});

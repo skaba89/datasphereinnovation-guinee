@@ -641,7 +641,7 @@ class BrowserTests(unittest.TestCase):
                     expect(own.get_by_role('button',name='Renouveler / réactiver')).to_be_disabled()
                     self.page.locator('#create [name=username]').fill('commercial.v53')
                     self.page.locator('#create [name=role]').select_option('COMMERCIAL')
-                    self.page.locator('#create button').click()
+                    self.page.locator('#create button[type=submit]').click()
                     expect(self.page.locator('#key')).to_be_visible()
                     expect(self.page.locator('#rows tr').filter(has_text='commercial.v53')).to_contain_text('À activer')
                     self.page.locator('#clear-key').click()
@@ -948,6 +948,35 @@ class BrowserTests(unittest.TestCase):
         expect(resolved).to_contain_text('Résolue / Lue')
         expect(resolved.get_by_role('button',name='Marquer comme lue')).to_have_count(0)
         logout()
+        self.assertEqual(self.errors, [])
+
+    def test_consultant_account_picker_and_pagination(self):
+        profile = self.seed('/api/admin/consultants', {
+            'name':'REC V89 Consultant','email':'v89@example.invalid','role':'Data Engineer',
+            'skills':'Python','location':'Conakry','experience':'5','availability':'',
+            'notes':'','status':'DISPONIBLE'})
+        for i in range(26):
+            self.seed('/api/admin/accounts', {'username':f'v89-user-{i:02d}','role':'RH','consultant_id':''})
+        self.page.goto('/accounts.html')
+        self.page.locator('#token').fill(server.ADMIN_TOKEN)
+        self.page.locator('#login-form button').click()
+        expect(self.page.locator('#workspace')).to_be_visible()
+        pager = self.page.locator('[aria-label="Pagination rows"]')
+        expect(pager).to_be_visible()
+        expect(self.page.locator('#rows tr:visible')).to_have_count(25)
+        pager.get_by_role('button',name='Suivant').click()
+        expect(self.page.locator('#rows tr:visible')).to_have_count(1)
+        self.page.locator('#create [name=username]').fill('rec-v89-consultant')
+        self.page.locator('#create [name=role]').select_option('CONSULTANT')
+        expect(self.page.locator('#consultant-id option')).to_have_count(2)
+        self.page.locator('#consultant-id').select_option(profile['id'])
+        self.page.locator('#create button[type=submit]').click()
+        expect(self.page.locator('#notice')).to_have_text('Compte créé.')
+        with server.connect() as db:
+            self.assertEqual(db.execute('SELECT consultant_id FROM accounts WHERE username=?',('rec-v89-consultant',)).fetchone()[0],profile['id'])
+        for width in (360, 768, 1280):
+            self.page.set_viewport_size({'width':width,'height':844})
+            self.assertTrue(self.page.evaluate('document.documentElement.scrollWidth <= innerWidth + 1'))
         self.assertEqual(self.errors, [])
 
 
