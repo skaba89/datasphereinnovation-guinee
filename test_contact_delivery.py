@@ -29,3 +29,15 @@ class DeliveryTests(unittest.TestCase):
     def test_unknown_provider_or_event_rejected(self):
         for provider,event in [('other','sent'),('pid','unknown')]:
             with self.assertRaises(ValueError):d.record(self.db,provider,event)
+
+    def test_per_request_history_is_scoped_and_redacted(self):
+        contact_mail.enqueue(self.db,'other','fr')
+        d.record(self.db,'pid','delivered')
+        result=d.for_requests(self.db,['rid','missing'])
+        self.assertEqual(set(result),{'rid','missing'})
+        self.assertEqual(result['missing'],[])
+        self.assertEqual(len(result['rid']),2)
+        ack=next(row for row in result['rid'] if row['kind']=='ack')
+        self.assertEqual(ack,{'kind':'ack','language':'en','queue_state':'ACCEPTED','delivery':'delivered'})
+        self.assertEqual(d.for_requests(self.db,[]),{})
+        self.assertEqual(len(d.status(self.db)),4)

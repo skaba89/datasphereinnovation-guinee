@@ -26,6 +26,7 @@ import documents
 import alerts
 import notifications
 import contact_mail
+import contact_delivery
 import accounts
 import own_activity
 import authentication
@@ -251,6 +252,9 @@ class Handler(SimpleHTTPRequestHandler):
                 counts = dict((x["status"], x["n"]) for x in db.execute("SELECT status,count(*) n FROM requests GROUP BY status"))
                 total = db.execute("SELECT count(*) FROM requests " + where, args).fetchone()[0]
                 rows = [dict(x) for x in db.execute("SELECT * FROM requests " + where + " ORDER BY created_at DESC,id DESC LIMIT 25 OFFSET ?", (*args, (page-1)*25))]
+                history = contact_delivery.for_requests(db, [row["id"] for row in rows])
+                for row in rows:
+                    row["communications"] = history[row["id"]]
             self.json_response(200, {"items": rows, "total": total, "page": page, "counts": counts})
         else:
             super().do_GET()

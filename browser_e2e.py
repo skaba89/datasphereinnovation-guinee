@@ -67,6 +67,13 @@ class BrowserTests(unittest.TestCase):
         self.page.locator('#request [name=consent]').check()
         self.page.locator('#request [type=submit]').click()
         expect(self.page.locator('#request-status')).to_contain_text('Demande enregistrée localement')
+        self.page.goto('/admin.html')
+        self.page.locator('#token').fill(server.ADMIN_TOKEN)
+        self.page.locator('#login-form button').click()
+        expect(self.page.locator('#dashboard')).to_be_visible()
+        expect(self.page.locator('#rows')).to_contain_text('Accusé de réception')
+        expect(self.page.locator('#rows')).to_contain_text('Notification interne')
+        expect(self.page.locator('#mail-summary')).to_contain_text('En attente : 2')
         self.assertEqual(self.errors, [])
 
     def test_english_parity_and_intake(self):
