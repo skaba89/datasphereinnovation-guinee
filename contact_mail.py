@@ -1,5 +1,6 @@
 """Durable REC-only notifications; optional fictional contact details to the test mailbox."""
 import json
+import contact_ack
 import re
 import time
 import urllib.request
@@ -18,6 +19,7 @@ def schema(db):
         attempts INTEGER NOT NULL DEFAULT 0, state TEXT NOT NULL DEFAULT 'PENDING',
         provider_id TEXT, PRIMARY KEY(request_id,kind))''')
 
+    db.execute('''CREATE TABLE IF NOT EXISTS contact_ack_template (request_id TEXT PRIMARY KEY REFERENCES requests(id), category TEXT NOT NULL)''')
     db.execute('''CREATE TABLE IF NOT EXISTS contact_mail_detail_mode (request_id TEXT PRIMARY KEY REFERENCES requests(id), enabled INTEGER NOT NULL)''')
 
     db.execute('''CREATE TABLE IF NOT EXISTS account_invitation (
@@ -31,7 +33,9 @@ def enqueue_invitation(db, account_id):
     return db.execute('INSERT OR IGNORE INTO account_invitation(request_id,created,next_attempt) VALUES (?,?,?)',(account_id,now,now)).rowcount == 1
 
 
-def enqueue(db, request_id, language):
+def enqueue(db, request_id, language, category=None):
+    if category in contact_ack.TYPES:
+        db.execute('INSERT INTO contact_ack_template VALUES (?,?)',(request_id,category))
     now = time.time()
     db.executemany('INSERT INTO contact_mail(request_id,kind,language,created,next_attempt) VALUES (?,?,?,?,?)',
                    [(request_id, kind, language, now, now) for kind in ('internal','ack')])
@@ -46,7 +50,8 @@ def config(raw):
     return raw
 
 
-def send(cfg, rid, kind, language, *, details=None):
+def send(cfg, rid, kind, language, *, details=None, category=None):
+    html = None
     if kind == 'invite':
         subject, body = '[REC TEST] Invitation espace DSIG', 'Simulation d’invitation au portail DSIG : https://rec.dsig-consulting.com/connexion.html\nLa clé individuelle doit être transmise séparément par un canal sécurisé. Aucun compte réel ni secret dans ce message.'
     elif kind == 'internal':
@@ -55,11 +60,15 @@ def send(cfg, rid, kind, language, *, details=None):
             labels = ('Nom','Organisation','E-mail','Besoin','Solution','Message')
             body += '\n\n' + '\n'.join(f'{label} : {value}' for label,value in zip(labels,details))
             body += '\n\nTraiter dans le CRM REC : https://rec.dsig-consulting.com/admin.html'
+    elif kind == 'ack' and category in contact_ack.TYPES:
+        subject, body, html = contact_ack.render(rid, category, language)
     elif language == 'en':
         subject, body = '[REC TEST] DSIG request received', f'Thank you for your request. Reference: {rid}. Our team will review it.'
     else:
         subject, body = '[REC TEST] DSIG demande reçue', f'Merci pour votre demande. Référence : {rid}. Notre équipe va l’étudier.'
-    payload = json.dumps({'from':cfg['sender'],'to':[cfg['test_recipient']],'subject':subject,'text':body}).encode()
+    message = {'from':cfg['sender'],'to':[cfg['test_recipient']],'subject':subject,'text':body}
+    if html is not None:message['html']=html
+    payload = json.dumps(message).encode()
     req = urllib.request.Request('https://api.resend.com/emails', data=payload, headers={'Authorization':'Bearer '+cfg['api_key'],'Content-Type':'application/json','User-Agent':'DSIG-REC/1.0','Idempotency-Key':f'dsig-rec/{rid}/{kind}'}, method='POST')
     with urllib.request.build_opener(NoRedirect).open(req, timeout=15) as response:
         identifier = json.loads(response.read(4096))['id']
@@ -85,6 +94,10 @@ def run(connect, cfg, deliver=send, limit=10, *, invitations=False):
                 break
             rid,kind,lang,attempts = row
             details = None
+            category = None
+            if not invitations and kind=='ack':
+                template=db.execute('SELECT category FROM contact_ack_template WHERE request_id=?',(rid,)).fetchone()
+                if template:category=template[0]
             if not invitations and kind=='internal':
                 db.execute('INSERT OR IGNORE INTO contact_mail_detail_mode VALUES (?,?)',(rid,int(attempts==0 and cfg.get('include_contact_details',False))))
                 mode=db.execute('SELECT enabled FROM contact_mail_detail_mode WHERE request_id=?',(rid,)).fetchone()[0]
@@ -94,7 +107,7 @@ def run(connect, cfg, deliver=send, limit=10, *, invitations=False):
                     details=db.execute('SELECT nom,org,email,besoin,solution,message FROM requests WHERE id=?',(rid,)).fetchone()
             db.execute(f'UPDATE {table} SET attempts=attempts+1,next_attempt=? WHERE request_id=? AND kind=?',(now+120,rid,kind))
         try:
-            identifier = deliver(cfg,rid,kind,lang,details=tuple(details)) if details is not None else deliver(cfg,rid,kind,lang)
+            identifier = deliver(cfg,rid,kind,lang,details=tuple(details)) if details is not None else deliver(cfg,rid,kind,lang,category=category) if category is not None else deliver(cfg,rid,kind,lang)
         except (OSError, ValueError, KeyError):
             state = 'FAILED' if attempts>=4 else 'PENDING'
             with connect() as db:
