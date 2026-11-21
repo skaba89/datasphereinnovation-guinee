@@ -158,7 +158,7 @@ class BrowserTests(unittest.TestCase):
             expect(self.page.locator('#deliverables')).to_contain_text(detail)
             self.page.locator('#expertise-contact').click()
             expect(self.page.locator('#need')).to_have_value('Conseil & expertise')
-            expect(self.page.locator('#request [name=message]')).to_contain_text(label)
+            expect(self.page.locator('#request [name=message]')).to_have_value(('Domaine : ' if path=='/' else 'Expertise: ')+label+' — ')
         self.assertEqual(self.errors, [])
 
     def test_admin_mfa_all_modules_and_logout(self):
