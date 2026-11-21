@@ -58,3 +58,19 @@ body.app-shell>header>a:not([href="index.html"]){display:none}
 .workflow-section .table-wrap{margin-top:16px}
 .workflow-section .toolbar{gap:10px}
 @media(max-width:650px){.workflow-nav>span{flex:1 0 100%}.workflow-nav a{flex:1 1 145px;justify-content:center;text-align:center}.workflow-section .editor{display:flex;flex-direction:column;align-items:stretch}}
+
+/* V64: proposal preview and print-only customer-facing document. */
+#proposal-document{background:#fff;color:#211638;border:1px solid #ded7e8;padding:clamp(20px,5vw,46px);overflow-wrap:anywhere}
+#proposal-document h1,#proposal-document h2{color:#341053}
+#proposal-document p{white-space:pre-wrap;line-height:1.6}
+#proposal-document img{max-width:100%;height:auto;background:#341053;padding:8px;border-radius:8px}
+@media print{
+ body.proposal-print{display:block!important;background:#fff!important;color:#000!important}
+ body.proposal-print>header,body.proposal-print>.app-sidebar,body.proposal-print>.skip-link{display:none!important}
+ body.proposal-print>main{display:block!important;max-width:none!important;width:100%!important;margin:0!important;padding:0!important}
+ body.proposal-print>main>:not(#proposal-preview),body.proposal-print .proposal-controls{display:none!important}
+ body.proposal-print #proposal-preview{display:block!important;margin:0;padding:0;border:0;box-shadow:none}
+ body.proposal-print #proposal-document{border:0;padding:0;box-shadow:none}
+ body.proposal-print #proposal-document h2{break-after:avoid}
+ body.proposal-print #proposal-document img{print-color-adjust:exact;-webkit-print-color-adjust:exact}
+}
