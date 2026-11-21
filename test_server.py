@@ -870,7 +870,8 @@ class IntakeTests(unittest.TestCase):
         v=dict(opportunity_id=json.loads(body)['id'],title='Analytics',scope='Audit',mode='REGIE',currency='EUR',days='10.50',rate='600.01',daily_cost='400',expenses='50',fixed_price='0',status='BROUILLON')
         self.assertEqual(self.request('POST',path,v|{'rate':'NaN'},auth)[0],400)
         self.assertEqual(self.request('POST',path,v|{'opportunity_id':'00000000-0000-0000-0000-000000000000'},auth)[0],400)
-        status,body,_=self.request('POST',path,v,auth)
+        self.assertEqual(self.request('POST',path,v|{'valid_until':'2027-02-30'},auth)[0],400)
+        status,body,_=self.request('POST',path,v|{'valid_until':'2027-01-31','terms':'Acompte à confirmer'},auth)
         self.assertEqual(status,201)
         d=json.loads(body); self.assertEqual(d['revenue'],'6300.11'); self.assertEqual(d['margin'],'2050.11')
         item=path+'/'+d['id']
@@ -879,7 +880,12 @@ class IntakeTests(unittest.TestCase):
         self.assertEqual(status,200); self.assertEqual(json.loads(body)['margin'],'4750.00')
         self.assertEqual(self.request('PATCH',item,v|{'version':2},auth)[0],409)
         self.assertEqual(json.loads(self.request('GET',path,headers=auth)[1])['total'],1)
-        with server.connect() as db: self.assertEqual(db.execute('SELECT count(*) FROM quote_events').fetchone()[0],2)
+        proposal=json.loads(self.request('GET',path,headers=auth)[1])['items'][0]
+        self.assertEqual(proposal['valid_until'],'2027-01-31')
+        self.assertEqual(proposal['terms'],'Acompte à confirmer')
+        with server.connect() as db:
+            self.assertEqual(db.execute('SELECT count(*) FROM quote_events').fetchone()[0],2)
+            self.assertEqual(json.loads(db.execute('SELECT snapshot FROM quote_events ORDER BY version DESC LIMIT 1').fetchone()[0])['terms'],'Acompte à confirmer')
 
     def test_organization_directory(self):
         path='/api/admin/crm/organizations'
