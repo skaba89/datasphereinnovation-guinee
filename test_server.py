@@ -46,6 +46,29 @@ class IntakeTests(unittest.TestCase):
         conn.close()
         return result
 
+    def test_request_workflow_assignment_and_revision(self):
+        headers={'Authorization':'Bearer '+server.ADMIN_TOKEN,'Content-Type':'application/json'}
+        code,body,_=self.request('POST','/api/requests',self.payload)
+        self.assertEqual(code,201)
+        rid=json.loads(body)['id']
+        with server.connect() as db:
+            db.execute("INSERT INTO accounts(id,username,role,key_hash) VALUES ('seller','commercial.test','COMMERCIAL','fictional-hash')")
+        path='/api/admin/requests/'+rid+'/workflow'
+        data={'owner_id':'seller','priority':'HAUTE','due_date':'2027-01-01','revision':0,'note':'Appel de qualification fictif'}
+        self.assertEqual(self.request('PATCH',path,data)[0],401)
+        self.assertEqual(self.request('PATCH',path,data|{'owner_id':'unknown'},headers)[0],400)
+        self.assertEqual(self.request('PATCH',path,data|{'due_date':'2027-02-30'},headers)[0],400)
+        code,body,_=self.request('PATCH',path,data,headers)
+        self.assertEqual(code,200)
+        self.assertEqual(json.loads(body)['revision'],1)
+        self.assertEqual(self.request('PATCH',path,data,headers)[0],409)
+        code,body,_=self.request('GET','/api/admin/requests',headers=headers)
+        self.assertEqual(code,200)
+        row=json.loads(body)['items'][0]
+        self.assertEqual(row['workflow']['owner'],'commercial.test')
+        self.assertEqual(row['workflow']['history'][0]['note'],data['note'])
+        self.assertEqual(row['status'],'NOUVELLE')
+
     def test_commercial_metrics_cohort(self):
         with server.connect() as db:
             for rid, age, status, category in (
