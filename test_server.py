@@ -1280,6 +1280,38 @@ class IntakeTests(unittest.TestCase):
         self.assertEqual(risk['total'],1)
         self.assertTrue(risk['accounts'][0]['risk'])
 
+    def test_customer_growth(self):
+        from datetime import date,timedelta
+        auth={'Authorization':'Bearer '+server.ADMIN_TOKEN,'Content-Type':'application/json'}
+        path='/api/admin/crm/customer-growth'
+        code,body,_=self.request('POST','/api/admin/crm/organizations',{'name':'Client fidélisation','kind':'CLIENT','country':'Guinée','notes':''},auth)
+        self.assertEqual(code,201)
+        org=json.loads(body)['id'];today=date.today().isoformat()
+        self.assertEqual(self.request('GET',path)[0],401)
+        self.assertIsNone(json.loads(self.request('GET',path,headers=auth)[1])['accounts'][0]['score'])
+        action={'organization_id':org,'kind':'UPSELL','title':'Piste fictive','due_on':today}
+        self.assertEqual(self.request('POST',path,action|{'kind':'INVALID'},auth)[0],400)
+        code,body,_=self.request('POST',path,action,auth)
+        self.assertEqual(code,201)
+        aid=json.loads(body)['id']
+        survey={'organization_id':org,'reference':'ENQ-1','captured_on':today,'csat':1,'nps':5}
+        self.assertEqual(self.request('POST',path+'/survey',survey|{'csat':True},auth)[0],400)
+        self.assertEqual(self.request('POST',path+'/survey',survey,auth)[0],201)
+        self.assertEqual(self.request('POST',path+'/survey',survey,auth)[0],409)
+        with server.connect() as db:
+            db.execute('UPDATE customer_actions SET due_on=? WHERE id=?',((date.today()-timedelta(days=1)).isoformat(),aid))
+        report=json.loads(self.request('GET',path,headers=auth)[1])
+        self.assertEqual(report['accounts'][0]['score'],0)
+        self.assertEqual(report['accounts'][0]['nps'],-100)
+        self.assertEqual(report['survey_total'],1)
+        decision={'version':1,'status':'TERMINEE','outcome':'Action réalisée'}
+        self.assertEqual(self.request('POST',path+'/'+aid+'/close',decision,auth)[0],200)
+        self.assertEqual(self.request('POST',path+'/'+aid+'/close',decision,auth)[0],409)
+        direction=json.loads(self.request('GET','/api/admin/direction/customer-growth',headers=auth)[1])
+        self.assertEqual(direction['accounts'][0]['score'],50)
+        self.assertNotIn('surveys',direction)
+        self.assertNotIn('items',direction)
+
     def test_prospect_client_conversion(self):
         path='/api/admin/crm/organizations'
         auth={'Authorization':'Bearer '+server.ADMIN_TOKEN,'Content-Type':'application/json'}

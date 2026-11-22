@@ -146,6 +146,15 @@ def schema(db):
       csat INTEGER, nps INTEGER, feedback_note TEXT NOT NULL DEFAULT '',
       actor TEXT NOT NULL, version INTEGER NOT NULL DEFAULT 1)''')
     db.execute('CREATE INDEX IF NOT EXISTS customer_tickets_org ON customer_tickets(organization_id,status,due_on)')
+    db.execute('''CREATE TABLE IF NOT EXISTS customer_actions (
+      id TEXT PRIMARY KEY, organization_id TEXT NOT NULL REFERENCES organizations(id),
+      kind TEXT NOT NULL, title TEXT NOT NULL, due_on TEXT NOT NULL, actor TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'OUVERTE', version INTEGER NOT NULL DEFAULT 1,
+      outcome TEXT NOT NULL DEFAULT '', closed_on TEXT)''')
+    db.execute('''CREATE TABLE IF NOT EXISTS customer_surveys (
+      id TEXT PRIMARY KEY, organization_id TEXT NOT NULL REFERENCES organizations(id),
+      reference TEXT NOT NULL, captured_on TEXT NOT NULL, csat INTEGER, nps INTEGER,
+      actor TEXT NOT NULL, UNIQUE(organization_id,reference))''')
     db.execute('''CREATE TABLE IF NOT EXISTS saas_billing_preparations (
       subscription_id TEXT NOT NULL REFERENCES saas_subscriptions(id), period_start TEXT NOT NULL,
       period_end TEXT NOT NULL, currency TEXT NOT NULL, recurring TEXT NOT NULL, one_off TEXT NOT NULL,
@@ -359,6 +368,88 @@ def saas_commercial(h,connect):
     with connect() as db:
         db.execute('BEGIN')
         return h.json_response(200,saas_commercial_report(db,date.today().isoformat()))
+
+def customer_growth(h,connect,method,operation='actions',identifier=None):
+    today=date.today().isoformat()
+    if method=='GET':
+        query=parse_qs(urlsplit(h.path).query)
+        try:
+            page=int(query.get('page',['1'])[0]);q=query.get('q',[''])[0][:120].casefold()
+            if not 1<=page<=10000:raise ValueError()
+        except ValueError:return h.json_response(400,{'error':'Page invalide.'})
+        with connect() as db:
+            db.row_factory=sqlite3.Row;db.execute('BEGIN')
+            actions=[dict(r) for r in db.execute('SELECT a.*,o.name AS company FROM customer_actions a JOIN organizations o ON o.id=a.organization_id ORDER BY a.due_on,a.id')]
+            surveys=[dict(r) for r in db.execute('SELECT s.*,o.name AS company FROM customer_surveys s JOIN organizations o ON o.id=s.organization_id ORDER BY s.captured_on DESC,s.id')]
+            groups=[]
+            for oid,name in db.execute("SELECT id,name FROM organizations WHERE kind='CLIENT' ORDER BY name_key,id"):
+                tickets=list(db.execute('SELECT status,due_on,closed_on,csat,nps FROM customer_tickets WHERE organization_id=?',(oid,)))
+                client_actions=[a for a in actions if a['organization_id']==oid]
+                client_surveys=[s for s in surveys if s['organization_id']==oid]
+                scores=[r[3] for r in tickets if r[3] is not None]+[s['csat'] for s in client_surveys if s['csat'] is not None]
+                nps=[r[4] for r in tickets if r[4] is not None]+[s['nps'] for s in client_surveys if s['nps'] is not None]
+                closed=[r for r in tickets if r[2]]
+                overdue=sum(r[0]=='OUVERT' and r[1]<today for r in tickets)
+                late=sum(a['status']=='OUVERTE' and a['due_on']<today for a in client_actions)
+                components={}
+                if tickets:components['support']=0 if overdue else 100
+                if closed:components['sla']=round(100*sum(r[2]<=r[1] for r in closed)/len(closed),1)
+                if scores:components['csat']=round(100*sum(v>=4 for v in scores)/len(scores),1)
+                if client_actions:components['actions']=0 if late else 100
+                groups.append({'organization_id':oid,'company':name,'score':round(sum(components.values())/len(components),1) if components else None,
+                    'components':components,'csat_count':len(scores),'nps_count':len(nps),
+                    'nps':round(100*(sum(v>=9 for v in nps)-sum(v<=6 for v in nps))/len(nps),1) if nps else None,
+                    'actions_open':sum(a['status']=='OUVERTE' for a in client_actions),'actions_overdue':late})
+        selected=[a for a in actions if q in (a['company']+' '+a['title']).casefold()]
+        if urlsplit(h.path).path.startswith('/api/admin/direction/'):
+            return h.json_response(200,{'accounts':groups,'as_of':today})
+        selected_surveys=[s for s in surveys if q in (s['company']+' '+s['reference']).casefold()]
+        return h.json_response(200,{'accounts':groups,'items':selected[(page-1)*10:page*10],'total':len(selected),'surveys':selected_surveys[(page-1)*10:page*10],'survey_total':len(selected_surveys),'page':page,'as_of':today,'can_write':h.role in ('ADMIN','COMMERCIAL')})
+    if h.role not in ('ADMIN','COMMERCIAL'):return h.json_response(403,{'error':'Action réservée au commerce.'})
+    try:
+        size=int(h.headers.get('Content-Length','0'))
+        if not 0<size<=8000 or h.headers.get_content_type()!='application/json':raise ValueError()
+        data=json.loads(h.rfile.read(size))
+        if not isinstance(data,dict):raise ValueError()
+        def content(key,limit):
+            v=data[key]
+            if not isinstance(v,str) or not v.strip() or len(v)>limit or chr(0) in v:raise ValueError()
+            return v.strip()
+        if identifier:
+            if set(data)!={'version','outcome','status'} or type(data['version']) is not int or data['version']<1 or data['status'] not in ('TERMINEE','ANNULEE'):raise ValueError()
+            outcome=content('outcome',1000)
+        else:
+            org=content('organization_id',36)
+            if str(uuid.UUID(org))!=org:raise ValueError()
+            if operation=='survey':
+                if set(data)!={'organization_id','reference','captured_on','csat','nps'}:raise ValueError()
+                reference=content('reference',180);captured=content('captured_on',10)
+                if date.fromisoformat(captured).isoformat()!=captured or captured>today or all(data[k] is None for k in ('csat','nps')):raise ValueError()
+                for k,lo,hi in (('csat',1,5),('nps',0,10)):
+                    if data[k] is not None and (type(data[k]) is not int or not lo<=data[k]<=hi):raise ValueError()
+            else:
+                if set(data)!={'organization_id','kind','title','due_on'}:raise ValueError()
+                kind=content('kind',20);title=content('title',180);due=content('due_on',10)
+                if kind not in ('AMELIORATION','FIDELISATION','UPSELL','CROSS_SELL') or date.fromisoformat(due).isoformat()!=due or due<today:raise ValueError()
+    except (ValueError,TypeError,UnicodeError,KeyError):return h.json_response(400,{'error':'Champs invalides.'})
+    with connect() as db:
+        db.execute('BEGIN IMMEDIATE')
+        if identifier:
+            row=db.execute('SELECT status,version FROM customer_actions WHERE id=?',(identifier,)).fetchone()
+            if not row:return h.json_response(404,{'error':'Action introuvable.'})
+            if tuple(row)!=('OUVERTE',data['version']):return h.json_response(409,{'error':'Action clôturée ou version obsolète.'})
+            db.execute('UPDATE customer_actions SET status=?,outcome=?,closed_on=?,version=version+1 WHERE id=?',(data['status'],outcome,today,identifier))
+            event='ACTION_CLIENT_CLOTUREE';code=200
+        else:
+            if not db.execute("SELECT 1 FROM organizations WHERE id=? AND kind='CLIENT'",(org,)).fetchone():return h.json_response(409,{'error':'Organisation cliente requise.'})
+            identifier=str(uuid.uuid4());code=201
+            if operation=='survey':
+                if db.execute('SELECT 1 FROM customer_surveys WHERE organization_id=? AND reference=?',(org,reference)).fetchone():return h.json_response(409,{'error':'Réponse déjà enregistrée.'})
+                db.execute('INSERT INTO customer_surveys VALUES(?,?,?,?,?,?,?)',(identifier,org,reference,captured,data['csat'],data['nps'],h.actor));event='ENQUETE_CLIENT_ENREGISTREE'
+            else:
+                db.execute('INSERT INTO customer_actions(id,organization_id,kind,title,due_on,actor) VALUES(?,?,?,?,?,?)',(identifier,org,kind,title,due,h.actor));event='ACTION_CLIENT_OUVERTE'
+        accounts.event(db,h.actor,event,identifier)
+    return h.json_response(code,{'id':identifier})
 
 def customer_success(h,connect,method,identifier=None):
     today=date.today().isoformat()
@@ -690,6 +781,11 @@ def handle(h,connect,method):
         return saas_renewal_queue(h,connect)
     if path in ('/api/admin/crm/customer-success','/api/admin/direction/customer-success'):
         return customer_success(h,connect,method)
+    if path in ('/api/admin/crm/customer-growth','/api/admin/direction/customer-growth'):
+        return customer_growth(h,connect,method)
+    if path=='/api/admin/crm/customer-growth/survey' and method=='POST':return customer_growth(h,connect,method,'survey')
+    growth_route=re.fullmatch(r'/api/admin/crm/customer-growth/([0-9a-f-]{36})/close',path)
+    if growth_route and method=='POST':return customer_growth(h,connect,method,identifier=growth_route.group(1))
     ticket_route=re.fullmatch(r'/api/admin/crm/customer-success/([0-9a-f-]{36})/resolve',path)
     if ticket_route and method=='POST':return customer_success(h,connect,method,ticket_route.group(1))
     contact_route=re.fullmatch(r'/api/admin/crm/saas-subscriptions/([0-9a-f-]{36})/renewal-contact',path)
