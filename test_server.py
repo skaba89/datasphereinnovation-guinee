@@ -1339,6 +1339,21 @@ class IntakeTests(unittest.TestCase):
         with server.connect() as db:db.execute("UPDATE expenses SET amount='6.00' WHERE id='pe'")
         r=json.loads(self.request('GET',profit,headers=auth)[1])['items'][0]
         self.assertEqual(r['conflicts'],1);self.assertIsNone(r['contribution'])
+        targets='/api/admin/billing/partner-targets'
+        goal={'partner_id':partner,'month':today[:7],'currency':'EUR','target':'200'}
+        self.assertEqual(self.request('GET',targets)[0],401)
+        self.assertEqual(self.request('POST',targets,goal|{'month':'2026-13'},auth)[0],400)
+        self.assertEqual(self.request('POST',targets,goal,auth)[0],201)
+        self.assertEqual(self.request('POST',targets,goal|{'target':'80'},auth)[0],201)
+        data=json.loads(self.request('GET',targets+'?year='+today[:4],headers=auth)[1])
+        self.assertEqual(data['total'],1)
+        self.assertEqual(data['items'][0]['state'],'ATTEINT')
+        self.assertEqual(data['items'][0]['achievement_pct'],'125.00')
+        self.assertEqual(data['annual'][0]['planned_months'],1)
+        self.assertEqual(data['annual'][0]['target'],'80.00')
+        with server.connect() as db:self.assertEqual(db.execute('SELECT COUNT(*) FROM partner_targets').fetchone()[0],2)
+        data=json.loads(self.request('GET','/api/admin/direction/partner-targets?year='+today[:4],headers=auth)[1])
+        self.assertFalse(data['can_write'])
 
     def test_customer_growth(self):
         from datetime import date,timedelta
