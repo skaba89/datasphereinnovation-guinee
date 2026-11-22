@@ -37,6 +37,8 @@ def handle(h,connect,method):
         state=query.get('state',[''])[0]
         try:
             page=int(query.get('page',['1'])[0])
+            size=int(query.get('page_size',['25'])[0])
+            if size not in (10,25,50):raise ValueError()
             if not 1<=page<=10000 or state not in ('','PENDING','QUALIFIED'):raise ValueError()
         except ValueError:return h.json_response(400,{'error':'Filtre invalide.'})
         where=" WHERE r.besoin='Candidature spontanée' AND (?='' OR instr(lower(r.nom),lower(?))>0 OR instr(lower(r.email),lower(?))>0 OR instr(lower(r.message),lower(?))>0) AND (?='' OR (?='PENDING' AND l.consultant_id IS NULL) OR (?='QUALIFIED' AND l.consultant_id IS NOT NULL))"
@@ -45,7 +47,7 @@ def handle(h,connect,method):
             schema(db);db.row_factory=sqlite3.Row
             source=' FROM requests r LEFT JOIN recruitment_links l ON r.id=l.request_id'+where
             total=db.execute('SELECT count(*)'+source,args).fetchone()[0]
-            rows=[dict(r) for r in db.execute('SELECT r.id,r.nom,r.email,r.created_at,r.message,l.consultant_id'+source+' ORDER BY r.created_at DESC,r.id LIMIT 25 OFFSET ?',(*args,(page-1)*25))]
+            rows=[dict(r) for r in db.execute('SELECT r.id,r.nom,r.email,r.created_at,r.message,l.consultant_id'+source+' ORDER BY r.created_at DESC,r.id LIMIT ? OFFSET ?',(*args,size,(page-1)*size))]
         return h.json_response(200,{'items':rows,'total':total})
     try:
         n=int(h.headers.get('Content-Length','0'))

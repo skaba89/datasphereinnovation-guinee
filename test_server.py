@@ -49,7 +49,7 @@ class IntakeTests(unittest.TestCase):
 
     def test_list_page_size_validation(self):
         headers={'Authorization':'Bearer '+server.ADMIN_TOKEN}
-        for resource in ('requests','consultants','crm','tenders','quotes','documents'):
+        for resource in ('requests','consultants','crm','tenders','quotes','documents','missions','recruitment'):
             for size in ('0','11','1000','invalid','10','25','50'):
                 with self.subTest(resource=resource,size=size):
                     code,body,_=self.request('GET',f'/api/admin/{resource}?page_size={size}',headers=headers)
@@ -320,6 +320,9 @@ class IntakeTests(unittest.TestCase):
         self.assertFalse({x['id'] for x in first['items']} & {x['id'] for x in last['items']})
         self.assertEqual(results('?state=QUALIFIED')['items'][0]['id'],rid)
         self.assertEqual(results('?q=Candidat%20104')['total'],1)
+        ten=results('?state=PENDING&page=1&page_size=10');end=results('?state=PENDING&page=11&page_size=10')
+        self.assertEqual((ten['total'],len(ten['items']),len(end['items'])),(105,10,5))
+        self.assertFalse({x['id'] for x in ten['items']} & {x['id'] for x in end['items']})
         self.assertEqual(self.request('GET',path+'?page=0',headers=auth)[0],400)
         self.assertEqual(self.request('GET',path+'?state=UNKNOWN',headers=auth)[0],400)
 
@@ -825,6 +828,9 @@ class IntakeTests(unittest.TestCase):
         _,body,_=self.request('POST','/api/admin/quotes',v,auth);qid=json.loads(body)['id']
         m=dict(quote_id=qid,consultant_id=cid,contract_ref='FICTIF-01',start_date='2020-01-01',end_date='2020-01-31')
         s,body,_=self.request('POST',path,m,auth);self.assertEqual(s,201);mid=json.loads(body)['id']
+        for term,count in [('fictif-01',1),('analytics',1),('absent-test',0)]:
+            d=json.loads(self.request('GET',path+'?page_size=10&q='+term,headers=auth)[1])
+            self.assertEqual((d['total'],len(d['items'])),(count,count))
         self.assertEqual(self.request('POST',path,m,auth)[0],409)
         a=dict(work_date='2020-01-08',worked='1',billable='0.75',expenses='25',description='Test')
         route=path+'/'+mid+'/activity'
