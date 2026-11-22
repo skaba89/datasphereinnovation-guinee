@@ -271,6 +271,13 @@ class BrowserTests(unittest.TestCase):
         expect(self.page.locator('#expense-rows')).to_contain_text('V82-DEP')
         cash = self.page.locator('#cash-rows tr').filter(has_text='EUR')
         amounts(cash,{1:'600',2:'425',3:'175'})
+        expense_search=self.page.get_by_role('searchbox',name='Rechercher un décaissement')
+        expense_search.fill('introuvable-v114')
+        expect(self.page.locator('#expense-rows tr')).to_have_count(0)
+        amounts(cash,{1:'600',2:'425',3:'175'})
+        expense_search.fill('v82-dep')
+        expect(self.page.locator('#expense-rows')).to_contain_text('V82-DEP')
+        expense_search.fill('')
         logout()
 
         activate_mfa('direction.v82','DIRECTION')

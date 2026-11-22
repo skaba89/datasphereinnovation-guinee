@@ -6,6 +6,23 @@ from urllib.parse import urlsplit, parse_qs
 import missions
 import quotes
 
+def matches_search(search, record, fields):
+    return not search or any(search in str(record[k] or '').casefold() for k in fields)
+
+
+def searched_page(db, select, fields, order, search, page, page_size):
+    # SQL fragments are fixed by callers; user input is always a bound parameter.
+    db.create_function('dsig_match', -1, lambda *values: int(any(
+        values[0] in str(value or '').casefold() for value in values[1:])), deterministic=True)
+    source = ' FROM (' + select + ') AS ledger'
+    where = ' WHERE dsig_match(?, ' + ', '.join(fields) + ')' if search else ''
+    args = (search,) if search else ()
+    count = db.execute('SELECT count(*)' + source + where, args).fetchone()[0]
+    rows = db.execute('SELECT *' + source + where + ' ORDER BY ' + order + ' LIMIT ? OFFSET ?',
+                      (*args, page_size, (page-1)*page_size))
+    return rows, count
+
+
 def schema(db):
     db.execute('''CREATE TABLE IF NOT EXISTS milestones(id TEXT PRIMARY KEY, mission_id TEXT NOT NULL, title TEXT NOT NULL, amount TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'PREVU')''')
     db.execute('''CREATE TABLE IF NOT EXISTS invoices(id TEXT PRIMARY KEY, mission_id TEXT NOT NULL, reference TEXT NOT NULL UNIQUE, amount TEXT NOT NULL, due_date TEXT NOT NULL, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)''')
@@ -55,13 +72,16 @@ def handle(h,connect,method):
             page_size=int(query.get('page_size',['25'])[0])
             if page_size not in (10,25,50):raise ValueError()
         except ValueError:return h.json_response(400,{'error':'Page invalide.'})
+        search=query.get('q',[''])[0].strip().casefold()
+        if len(search)>180:return h.json_response(400,{'error':'Filtre invalide.'})
         with connect() as db:
             db.row_factory=sqlite3.Row
             if kind=='planned-expenses':
-                items=[dict(r) for r in db.execute("""SELECT p.*,e.reference AS expense_reference
-                    FROM planned_expenses p LEFT JOIN expenses e ON e.id=p.expense_id
-                    ORDER BY p.due_date,p.id LIMIT ? OFFSET ?""",(page_size,(page-1)*page_size))]
-                return h.json_response(200,{'items':items,'total':db.execute('SELECT count(*) FROM planned_expenses').fetchone()[0]})
+                rows,count=searched_page(db,"""SELECT p.*,e.reference AS expense_reference
+                    FROM planned_expenses p LEFT JOIN expenses e ON e.id=p.expense_id""",
+                    ('reference','currency','amount','due_date','category','description','state','expense_reference'),
+                    'due_date,id',search,page,page_size)
+                return h.json_response(200,{'items':[dict(r) for r in rows],'total':count})
             if kind=='forecast':
                 db.execute('BEGIN')
                 today=date.today(); buckets={}
@@ -102,6 +122,7 @@ def handle(h,connect,method):
                     bucket='current' if days==0 else 'd1_30' if days<=30 else 'd31_60' if days<=60 else 'd61_90' if days<=90 else 'd90_plus'
                     sums=aging.setdefault(x['currency'],{k:Decimal(0) for k in ('current','d1_30','d31_60','d61_90','d90_plus')})
                     sums[bucket]+=balance
+                    if not matches_search(search,x,('company','reference','contract_ref','currency','due_date','amount')):continue
                     history=[dict(y) for y in db.execute('SELECT channel,note,created_at FROM billing_reminders WHERE invoice_id=? ORDER BY created_at DESC,rowid DESC LIMIT 10',(x['id'],))]
                     x.update(balance=str(balance),days_overdue=days,bucket=bucket,reminders=history,
                              reminder_count=db.execute('SELECT count(*) FROM billing_reminders WHERE invoice_id=?',(x['id'],)).fetchone()[0])
@@ -110,21 +131,25 @@ def handle(h,connect,method):
                     'aging':{c:{k:str(v) for k,v in sums.items()} for c,sums in aging.items()}})
             if kind=='schedule':
                 items=[]
-                for record in db.execute("""SELECT s.*,q.currency,q.title,o.company,m.contract_ref,i.reference invoice_reference
+                rows,count=searched_page(db,"""SELECT s.*,q.currency,q.title,o.company,m.contract_ref,i.reference invoice_reference
                     FROM billing_schedule s JOIN missions m ON m.id=s.mission_id JOIN quotes q ON q.id=m.quote_id
-                    JOIN opportunities o ON o.id=m.opportunity_id LEFT JOIN invoices i ON i.id=s.invoice_id
-                    ORDER BY s.due_date,s.id LIMIT ? OFFSET ?""",(page_size,(page-1)*page_size)):
+                    JOIN opportunities o ON o.id=m.opportunity_id LEFT JOIN invoices i ON i.id=s.invoice_id""",
+                    ('company','contract_ref','title','label','kind','amount','currency','due_date','state','invoice_reference'),
+                    'due_date,id',search,page,page_size)
+                for record in rows:
                     x=dict(record)
                     x['overdue']=x['state']=='PREVU' and x['due_date']<date.today().isoformat()
                     items.append(x)
-                return h.json_response(200,{'items':items,'total':db.execute('SELECT count(*) FROM billing_schedule').fetchone()[0]})
+                return h.json_response(200,{'items':items,'total':count})
             if kind=='contracts':
                 items=[]
                 today=date.today().isoformat()
-                for record in db.execute("""SELECT q.*, m.id mission_id,m.contract_ref,m.status mission_status,
-                    o.company,sc.signed_date FROM missions m JOIN quotes q ON q.id=m.quote_id
-                    JOIN opportunities o ON o.id=m.opportunity_id LEFT JOIN signed_contracts sc ON sc.quote_id=q.id
-                    ORDER BY m.created_at DESC,m.id LIMIT ? OFFSET ?""",(page_size,(page-1)*page_size)):
+                rows,count=searched_page(db,"""SELECT q.*, m.id mission_id,m.contract_ref,m.status mission_status,
+                    o.company,sc.signed_date,m.created_at AS mission_created_at FROM missions m JOIN quotes q ON q.id=m.quote_id
+                    JOIN opportunities o ON o.id=m.opportunity_id LEFT JOIN signed_contracts sc ON sc.quote_id=q.id""",
+                    ('company','contract_ref','title','currency','mission_status'),
+                    'mission_created_at DESC,mission_id',search,page,page_size)
+                for record in rows:
                     m=dict(record);mid=m['mission_id']
                     planned=Decimal(quotes.calculate(m)['revenue'])
                     activity=missions.amounts(m,[dict(a) for a in db.execute('SELECT * FROM activity WHERE mission_id=?',(mid,))])
@@ -140,10 +165,11 @@ def handle(h,connect,method):
                             'actual_cost':cost,'earned_margin':earned-cost}
                     items.append({k:m[k] for k in ('mission_id','contract_ref','mission_status','company','title','currency','signed_date')}|
                         {k:str(v.quantize(unit)) for k,v in values.items()})
-                return h.json_response(200,{'items':items,'total':db.execute('SELECT count(*) FROM missions').fetchone()[0]})
+                return h.json_response(200,{'items':items,'total':count})
             if kind=='milestones':
-                rows=[dict(r) for r in db.execute('SELECT j.*,q.currency,q.title AS mission_title FROM milestones j JOIN missions m ON m.id=j.mission_id JOIN quotes q ON q.id=m.quote_id ORDER BY j.id LIMIT ? OFFSET ?',(page_size,(page-1)*page_size))]
-                return h.json_response(200,{'items':rows,'total':db.execute('SELECT count(*) FROM milestones').fetchone()[0]})
+                rows,count=searched_page(db,'SELECT j.*,q.currency,q.title AS mission_title FROM milestones j JOIN missions m ON m.id=j.mission_id JOIN quotes q ON q.id=m.quote_id',
+                    ('title','mission_title','currency','amount','status'),'id',search,page,page_size)
+                return h.json_response(200,{'items':[dict(r) for r in rows],'total':count})
             query=parse_qs(urlsplit(h.path).query)
             search=query.get('q',[''])[0].strip().casefold()
             state=query.get('state',[''])[0]

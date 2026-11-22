@@ -30,10 +30,14 @@ def handle(h,connect,method):
             page_size=int(query.get('page_size',['25'])[0])
             if page_size not in (10,25,50):raise ValueError()
         except ValueError:return h.json_response(400,{'error':'Page invalide.'})
+        search=query.get('q',[''])[0].strip().casefold()
+        if len(search)>180:return h.json_response(400,{'error':'Filtre invalide.'})
         with connect() as db:
             db.row_factory=sqlite3.Row;db.execute('BEGIN')
-            items=[dict(r) for r in db.execute('SELECT e.*,q.title AS mission_title FROM expenses e LEFT JOIN missions m ON m.id=e.mission_id LEFT JOIN quotes q ON q.id=m.quote_id ORDER BY paid_date DESC,e.id LIMIT ? OFFSET ?',(page_size,(page-1)*page_size))]
-            return h.json_response(200,{'items':items,'total':db.execute('SELECT count(*) FROM expenses').fetchone()[0],'cash':cash(db)})
+            rows,count=billing.searched_page(db,'SELECT e.*,q.title AS mission_title FROM expenses e LEFT JOIN missions m ON m.id=e.mission_id LEFT JOIN quotes q ON q.id=m.quote_id',
+                ('reference','paid_date','category','amount','currency','mission_title','description'),
+                'paid_date DESC,id',search,page,page_size)
+            return h.json_response(200,{'items':[dict(r) for r in rows],'total':count,'cash':cash(db)})
     try:
         size=int(h.headers.get('Content-Length','0'))
         if not 0<size<=8000 or h.headers.get_content_type()!='application/json':raise ValueError()

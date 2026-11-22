@@ -888,6 +888,12 @@ class IntakeTests(unittest.TestCase):
         self.assertEqual(aging['aging']['EUR']['d90_plus'],'350')
         self.assertEqual(aging['items'][0]['reminder_count'],1)
         self.assertEqual(aging['items'][0]['reminders'][0]['note'],reminder['note'])
+        for suffix,term in (('/receivables','test-001'),('/schedule','test-001'),('/contracts','fictif-01')):
+            found=json.loads(self.request('GET',finance+suffix+'?q='+term,headers=auth)[1])
+            empty=json.loads(self.request('GET',finance+suffix+'?q=absent-xyz',headers=auth)[1])
+            self.assertEqual(found['total'],1)
+            self.assertEqual((empty['total'],empty['items']),(0,[]))
+            if suffix=='/receivables':self.assertEqual(found['aging'],empty['aging'])
         forecast=finance+'/forecast'
         self.assertEqual(self.request('GET',forecast)[0],401)
         self.assertEqual(self.request('GET',forecast,headers=own)[0],403)
@@ -940,6 +946,8 @@ class IntakeTests(unittest.TestCase):
         j={'mission_id':mid2,'title':'Livrable','amount':'600'}
         s,body,_=self.request('POST',finance+'/milestones',j,auth);self.assertEqual(s,201);jid=json.loads(body)['id']
         self.assertEqual(self.request('POST',finance+'/milestones',j|{'amount':'401'},auth)[0],409)
+        self.assertEqual(json.loads(self.request('GET',finance+'/milestones?q=livrable',headers=auth)[1])['total'],1)
+        self.assertEqual(json.loads(self.request('GET',finance+'/milestones?q=absent',headers=auth)[1])['total'],0)
         inv2=inv|{'mission_id':mid2,'reference':'TEST-F','amount':'600'}
         self.assertEqual(self.request('POST',finance+'/invoices',inv2,auth)[0],409)
         self.assertEqual(self.request('PATCH',finance+'/milestones/'+jid,{'status':'VALIDE'},auth)[0],200)
@@ -1002,6 +1010,8 @@ class IntakeTests(unittest.TestCase):
         self.assertEqual(self.request('PATCH',budget+'/'+bid2,{'expense_reference':'DEP-001'},auth)[0],409)
         self.assertEqual(self.request('PATCH',budget+'/'+bid2,{'state':'ANNULE'},auth)[0],200)
         self.assertEqual(json.loads(self.request('GET',budget,headers=auth)[1])['total'],2)
+        self.assertEqual(json.loads(self.request('GET',budget+'?q=bud-002',headers=auth)[1])['total'],1)
+        self.assertEqual(json.loads(self.request('GET',budget+'?q=absent',headers=auth)[1])['total'],0)
         cash=json.loads(self.request('GET',expenses,headers=auth)[1])['cash']
         self.assertEqual(cash,[{'currency':'EUR','received':'100','outflows':'80','net_flow':'20'},{'currency':'GNF','received':'0','outflows':'1000','net_flow':'-1000'}])
         control=json.loads(self.request('GET','/api/admin/direction',headers=auth)[1])['controlling']
@@ -1057,6 +1067,13 @@ class IntakeTests(unittest.TestCase):
         self.assertEqual((first['total'],len(first['items']),len(second['items'])),(12,10,2))
         self.assertEqual(first['cash'],second['cash'])
         self.assertEqual(first['cash'][0]['outflows'],'12000')
+        filtered=json.loads(self.request('GET',base+'/expenses?q=page-11&page_size=10',headers=auth)[1])
+        self.assertEqual((filtered['total'],filtered['items'][0]['reference']),(1,'PAGE-11'))
+        self.assertEqual(filtered['cash'],first['cash'])
+        empty=json.loads(self.request('GET',base+'/expenses?q=%25',headers=auth)[1])
+        self.assertEqual((empty['total'],empty['items']),(0,[]))
+        for suffix in ('','/expenses','/contracts','/schedule','/receivables','/milestones','/planned-expenses'):
+            self.assertEqual(self.request('GET',base+suffix+'?q='+'x'*181,headers=auth)[0],400)
 
     def test_direction_and_backup(self):
         auth={'Authorization':'Bearer '+server.ADMIN_TOKEN,'Content-Type':'application/json'}
