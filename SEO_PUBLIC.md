@@ -190,3 +190,24 @@ immatriculation et siège, responsable de publication, hébergeur, coordonnées
 commerciales, notice de confidentialité et textes applicables. Ne rien inventer.
 Le contrôle `legal_privacy_review` reste PENDING jusqu'à revue du contenu
 effectivement publié. Aucun déploiement ni modification du DNS automatique.
+
+## V123 — Supervision publique
+
+Après publication approuvée, exécuter `python3 scripts/monitor-public.py`.
+La sonde HTTPS vérifie le nom et la chaîne du certificat, sa durée restante
+(au moins 21 jours), quatre routes et leurs marqueurs, ainsi qu'un seuil de
+réponse de 5 secondes. Le résultat JSON ne contient aucun secret. Le contrôle
+SEO complet reste `node scripts/check-public-indexing.mjs`.
+
+Les unités `dsig-public-monitor.service`, `dsig-public-monitor.timer` et
+`dsig-public-alert.service` sont à installer uniquement après le lancement.
+Préparer `/etc/dsig-public-alert.env` (root, mode 0600) avec les variables
+`DSIG_PUBLIC_ALERT_SMTP_HOST`, `DSIG_PUBLIC_ALERT_FROM`, `DSIG_PUBLIC_ALERT_TO`,
+`DSIG_PUBLIC_ALERT_SMTP_USER`, `DSIG_PUBLIC_ALERT_SMTP_PASSWORD` ; SMTP TLS
+port 465. Tester l'envoi avec le service d'alerte après accord du destinataire.
+Installer ces trois unités, daemon-reload puis enable --now uniquement le
+timer public. Le journal indique les résultats ; chaque échec peut déclencher
+un mail, y compris les échecs répétés toutes les cinq minutes. Prévoir une
+supervision externe indépendante pour détecter une panne totale du VPS.
+Pour arrêter le monitoring public : `sudo systemctl disable --now dsig-public-monitor.timer`.
+Aucun redémarrage automatique de la vitrine, aucune modification des timers REC.
