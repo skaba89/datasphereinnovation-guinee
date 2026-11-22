@@ -5,6 +5,35 @@ from decimal import Decimal
 from urllib.parse import urlsplit, parse_qs
 import missions
 import quotes
+import crm
+
+def saas_receivables(db,today,search,state,page,page_size):
+    db.row_factory=sqlite3.Row
+    totals={};items=[];clients={}
+    source=db.execute('''SELECT i.subscription_id,i.period_start,o.company,f.estimate
+      FROM saas_invoice_register i JOIN saas_subscriptions s ON s.id=i.subscription_id
+      JOIN saas_offers f ON f.id=s.offer_id JOIN opportunities o ON o.id=f.opportunity_id
+      ORDER BY i.due_on,i.id''').fetchall()
+    for entry in source:
+        invoice=crm.saas_invoice_details(db,entry['subscription_id'],entry['period_start'],today.isoformat())
+        product=json.loads(entry['estimate'])['product_name']
+        invoice.update(company=entry['company'],product=product)
+        days=max(0,(today-date.fromisoformat(invoice['due_on'])).days)
+        invoice['days_overdue']=days if Decimal(invoice['balance'])>0 else 0
+        currency=invoice['currency'];balance=Decimal(invoice['balance'])
+        bucket='current' if days==0 else 'd30' if days<=30 else 'd60' if days<=60 else 'd90' if days<=90 else 'older'
+        group=totals.setdefault(currency,dict.fromkeys(('invoiced','paid','balance','overdue','current','d30','d60','d90','older'),Decimal(0)))
+        for key,field in (('invoiced','total'),('paid','paid'),('balance','balance')):group[key]+=Decimal(invoice[field])
+        group[bucket]+=balance
+        if days:group['overdue']+=balance
+        # The company is a display label, not a legal customer identifier.
+        client=clients.setdefault((invoice['company'],currency),{'company':invoice['company'],'currency':currency,'balance':Decimal(0),'overdue':Decimal(0)})
+        client['balance']+=balance
+        if days:client['overdue']+=balance
+        if (not state or invoice['status']==state) and matches_search(search,invoice,('company','product','reference','currency')):items.append(invoice)
+    return {'items':items[(page-1)*page_size:page*page_size],'total':len(items),'as_of':today.isoformat(),
+            'totals':{c:{k:str(v) for k,v in g.items()} for c,g in totals.items()},
+            'clients':[dict(g,balance=str(g['balance']),overdue=str(g['overdue'])) for _,g in sorted(clients.items()) if g['balance']>0]}
 
 def matches_search(search, record, fields):
     return not search or any(search in str(record[k] or '').casefold() for k in fields)
@@ -76,6 +105,11 @@ def handle(h,connect,method):
         if len(search)>180:return h.json_response(400,{'error':'Filtre invalide.'})
         with connect() as db:
             db.row_factory=sqlite3.Row
+            if kind=='saas-receivables':
+                state=query.get('state',[''])[0]
+                if state not in ('','OUVERTE','PARTIELLE','REGLEE','EN_RETARD'):return h.json_response(400,{'error':'État invalide.'})
+                db.execute('BEGIN')
+                return h.json_response(200,saas_receivables(db,date.today(),search,state,page,page_size))
             if kind=='planned-expenses':
                 rows,count=searched_page(db,"""SELECT p.*,e.reference AS expense_reference
                     FROM planned_expenses p LEFT JOIN expenses e ON e.id=p.expense_id""",
