@@ -29,6 +29,24 @@ def schema(db):
     db.execute('''CREATE TABLE IF NOT EXISTS sessions(token_hash TEXT PRIMARY KEY, account_id TEXT NOT NULL, expires INTEGER NOT NULL)''')
     db.execute('''CREATE TABLE IF NOT EXISTS mfa(account_id TEXT PRIMARY KEY, secret TEXT NOT NULL, enabled INTEGER NOT NULL DEFAULT 0, last_step INTEGER NOT NULL DEFAULT -1)''')
     db.execute('''CREATE TABLE IF NOT EXISTS recovery_codes(account_id TEXT NOT NULL, code_hash TEXT NOT NULL, PRIMARY KEY(account_id,code_hash))''')
+    db.execute('''CREATE TABLE IF NOT EXISTS archived_accounts(account_id TEXT PRIMARY KEY, archived_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)''')
+    db.execute('''CREATE TRIGGER IF NOT EXISTS archived_account_no_reactivation BEFORE UPDATE OF enabled ON accounts WHEN NEW.enabled=1 AND EXISTS(SELECT 1 FROM archived_accounts WHERE account_id=OLD.id) BEGIN SELECT RAISE(ABORT,'Archived account'); END''')
+
+def unused(db,oid,username,consultant_id):
+    # Conservative: retain any linked consultant, invitation or recorded use.
+    if consultant_id:return False
+    if db.execute('SELECT 1 FROM access_events WHERE actor=? COLLATE NOCASE LIMIT 1',(username,)).fetchone():return False
+    for table,column in (('credentials','account_id'),('mfa','account_id'),('sessions','account_id'),('recovery_codes','account_id'),('account_invitation','request_id'),('request_workflow','owner_id'),('request_workflow_events','owner_id')):
+        if db.execute(f'SELECT 1 FROM {table} WHERE {column}=? LIMIT 1',(oid,)).fetchone():return False
+    return True
+
+def admin_protected(db,oid):
+    # Keep at least one enabled administrator, and never remove the last usable MFA admin.
+    row=db.execute("SELECT enabled,role FROM accounts WHERE id=?",(oid,)).fetchone()
+    if not row or row[1]!='ADMIN' or not row[0]:return False
+    if not db.execute("SELECT 1 FROM accounts WHERE role='ADMIN' AND enabled=1 AND id<>?",(oid,)).fetchone():return True
+    usable="SELECT 1 FROM accounts a JOIN credentials c ON c.account_id=a.id JOIN mfa m ON m.account_id=a.id AND m.enabled=1 WHERE a.role='ADMIN' AND a.enabled=1 AND a.id"
+    return bool(db.execute(usable+'=?',(oid,)).fetchone() and not db.execute(usable+'<>?',(oid,)).fetchone())
 
 def digest(token):return hashlib.sha256(token.encode()).hexdigest()
 def event(db,actor,action,resource):db.execute('INSERT INTO access_events(actor,action,resource) VALUES(?,?,?)',(actor,action,resource))
@@ -89,6 +107,9 @@ def handle(h,connect,method):
                 items=[dict(r) for r in db.execute('SELECT a.id,a.username,a.role,a.consultant_id,a.enabled,a.created_at,EXISTS(SELECT 1 FROM credentials c WHERE c.account_id=a.id) AS activated,EXISTS(SELECT 1 FROM mfa m WHERE m.account_id=a.id AND m.enabled=1) AS mfa_enabled FROM accounts a ORDER BY a.username')]
                 for item in items:
                     item['self']=item['id']==getattr(h,'actor_id',None)
+                    item['archived']=bool(db.execute('SELECT 1 FROM archived_accounts WHERE account_id=?',(item['id'],)).fetchone())
+                    item['protected']=admin_protected(db,item['id'])
+                    item['deletable']=not item['archived'] and not item['self'] and not item['protected'] and unused(db,item['id'],item['username'],item['consultant_id'])
                     invitation=db.execute('SELECT state FROM account_invitation WHERE request_id=?',(item['id'],)).fetchone()
                     item['invitation_state']=invitation[0] if invitation else 'NONE'
         return h.json_response(200,{'items':items})
@@ -104,14 +125,28 @@ def handle(h,connect,method):
                 if v['role']=='CONSULTANT':
                     if not db.execute('SELECT 1 FROM consultants WHERE id=?',(v['consultant_id'],)).fetchone():raise ValueError()
                 elif v['consultant_id']:raise ValueError()
+                if db.execute("SELECT 1 FROM access_events WHERE action='COMPTE_SUPPRIME' AND resource=? COLLATE NOCASE",(v['username'],)).fetchone():return h.json_response(409,{'error':'Identifiant réservé par le journal d’audit.'})
                 oid=str(uuid.uuid4());key='dsig_'+secrets.token_urlsafe(32)
                 db.execute('INSERT INTO accounts(id,username,role,key_hash,consultant_id) VALUES(?,?,?,?,?)',(oid,v['username'],v['role'],digest(key),v['consultant_id']));event(db,h.actor,'COMPTE_CREE',v['username'])
                 result={'id':oid,'key':key}
             else:
-                if v not in ({'action':'DISABLE'},{'action':'ROTATE'},{'action':'INVITE'}):raise ValueError()
-                oid=path.rsplit('/',1)[-1];row=db.execute('SELECT username,enabled FROM accounts WHERE id=?',(oid,)).fetchone()
+                if v not in ({'action':'DISABLE'},{'action':'ROTATE'},{'action':'INVITE'},{'action':'ARCHIVE'},{'action':'DELETE'}):raise ValueError()
+                oid=path.rsplit('/',1)[-1];row=db.execute('SELECT username,enabled,consultant_id FROM accounts WHERE id=?',(oid,)).fetchone()
                 if not row:return h.json_response(404,{'error':'Compte introuvable.'})
                 if oid==getattr(h,'actor_id',None):return h.json_response(409,{'error':'Impossible de modifier son propre compte.'})
+                if db.execute('SELECT 1 FROM archived_accounts WHERE account_id=?',(oid,)).fetchone():return h.json_response(409,{'error':'Compte archivé : modification interdite.'})
+                if v['action']!='INVITE' and admin_protected(db,oid):return h.json_response(409,{'error':'Dernier administrateur actif ou opérationnel protégé.'})
+                if v['action']=='DELETE':
+                    if not unused(db,oid,row[0],row[2]):return h.json_response(409,{'error':'Compte avec historique ou lien métier : archivez-le.'})
+                    db.execute('DELETE FROM accounts WHERE id=?',(oid,));event(db,h.actor,'COMPTE_SUPPRIME',row[0])
+                    db.commit();return h.json_response(200,{'id':oid})
+                if v['action']=='ARCHIVE':
+                    db.execute('UPDATE accounts SET enabled=0 WHERE id=?',(oid,))
+                    db.execute('INSERT INTO archived_accounts(account_id) VALUES(?)',(oid,))
+                    for table in ('sessions','credentials','mfa','recovery_codes'):
+                        db.execute(f'DELETE FROM {table} WHERE account_id=?',(oid,))
+                    db.execute("UPDATE account_invitation SET state='CANCELLED' WHERE request_id=? AND state='PENDING'",(oid,))
+                    event(db,h.actor,'COMPTE_ARCHIVE',row[0]);db.commit();return h.json_response(200,{'id':oid})
                 if v['action']=='INVITE':
                     if os.environ.get('DSIG_ENV','REC')!='REC':return h.json_response(403,{'error':'Invitations de test REC uniquement.'})
                     if not row[1] or db.execute('SELECT 1 FROM credentials WHERE account_id=?',(oid,)).fetchone():return h.json_response(409,{'error':'Compte non éligible à une invitation.'})
