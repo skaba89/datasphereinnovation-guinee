@@ -1,5 +1,6 @@
 """Browser acceptance tests: isolated loopback server and fictitious records."""
 import os
+import re
 import tempfile
 import threading
 import time
@@ -759,6 +760,33 @@ class BrowserTests(unittest.TestCase):
             self.page.locator('#expertise-contact').click()
             expect(self.page.locator('#need')).to_have_value('Conseil & expertise')
             expect(self.page.locator('#request [name=message]')).to_have_value(('Domaine : ' if path=='/' else 'Expertise: ')+label+' — ')
+        self.assertEqual(self.errors, [])
+
+    def test_quote_templates(self):
+        self.page.goto('/quotes.html')
+        self.page.locator('#token').fill(server.ADMIN_TOKEN)
+        self.page.locator('#login-form button').click()
+        expect(self.page.locator('#workspace')).to_be_visible()
+        editor=self.page.locator('#editor')
+        editor.locator('[name=rate]').fill('650')
+        editor.locator('[name=currency]').select_option('EUR')
+        self.page.locator('#proposal-template').select_option('SAAS')
+        self.page.locator('#apply-template').click()
+        expect(editor.locator('[name=scope]')).to_have_value(re.compile('.*Démonstration.*',re.DOTALL))
+        expect(editor.locator('[name=rate]')).to_have_value('650')
+        expect(editor.locator('[name=currency]')).to_have_value('EUR')
+        self.page.locator('#proposal-template').select_option('FORFAIT')
+        self.page.once('dialog',lambda dialog:dialog.dismiss())
+        self.page.locator('#apply-template').click()
+        expect(editor.locator('[name=title]')).to_have_value(re.compile('Cadrage de solution SaaS'))
+        self.page.once('dialog',lambda dialog:dialog.accept())
+        self.page.locator('#apply-template').click()
+        expect(editor.locator('[name=title]')).to_have_value(re.compile('Projet au forfait'))
+        self.page.locator('#cancel').click()
+        expect(editor.locator('[name=scope]')).to_have_value('')
+        expect(self.page.locator('#apply-template')).to_be_disabled()
+        self.page.set_viewport_size({'width':390,'height':844})
+        self.assertTrue(self.page.evaluate('document.documentElement.scrollWidth <= innerWidth + 1'))
         self.assertEqual(self.errors, [])
 
     def test_crm_prospect_conversion(self):
