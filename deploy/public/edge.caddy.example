@@ -1,0 +1,5 @@
+# Review for duplicate host before importing into the existing edge proxy.
+dsig-consulting.com {
+    header Strict-Transport-Security "max-age=86400"
+    reverse_proxy dsig-public-vitrine:8080
+}

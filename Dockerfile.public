@@ -1,0 +1,16 @@
+FROM node:22-alpine AS build
+WORKDIR /build
+COPY dist/ dist/
+COPY scripts/*.mjs scripts/
+ARG DSIG_PUBLIC_EMAIL
+RUN node scripts/test-public-site.mjs && node scripts/test-public-indexing.mjs \
+    && node scripts/build-public-site.mjs /public "$DSIG_PUBLIC_EMAIL"
+
+FROM caddy:2-alpine
+COPY --from=build /public/ /srv/public/
+COPY deploy/public/Caddyfile /etc/caddy/Caddyfile
+USER 10001:10001
+EXPOSE 8080
+HEALTHCHECK --interval=10s --timeout=3s --retries=3 CMD wget -q -O /dev/null http://127.0.0.1:8080/healthz || exit 1
+ENTRYPOINT ["caddy"]
+CMD ["run", "--config", "/etc/caddy/Caddyfile", "--adapter", "caddyfile"]
