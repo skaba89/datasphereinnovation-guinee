@@ -1358,6 +1358,34 @@ class IntakeTests(unittest.TestCase):
         self.assertEqual(self.request('POST',path+'/'+expired+'/decision',v,auth)[0],409)
         self.assertEqual(self.request('POST',subscriptions,registration|{'offer_id':expired},auth)[0],409)
         self.assertEqual(self.request('POST',path+'/'+expired+'/decision',v|{'action':'ANNULEE'},auth)[0],200)
+        from datetime import date,timedelta
+        today=date.today();end=(today+timedelta(days=15)).isoformat()
+        predecessor=records['items'][0]['id']
+        with server.connect() as db:
+            db.execute('UPDATE saas_subscriptions SET starts_on=?,ends_on=? WHERE id=?',(today.isoformat(),end,predecessor))
+        metrics=json.loads(self.request('GET',subscriptions+'?status=ECHEANCE_30J',headers=auth)[1])
+        self.assertEqual(metrics['total'],1)
+        self.assertEqual(metrics['metrics']['counts']['ECHEANCE_30J'],1)
+        self.assertEqual(metrics['metrics']['groups'][0]['mrr'],'250.00')
+        self.assertEqual(metrics['metrics']['groups'][0]['arr'],'3000.00')
+        self.assertEqual(self.request('GET',subscriptions+'?status=INVALID',headers=auth)[0],400)
+        def accepted_offer():
+            status,body,_=self.request('POST',path,data,auth)
+            self.assertEqual(status,201)
+            new=json.loads(body)['id']
+            for version,action in enumerate(('VALIDEE','TRANSMISE','ACCEPTEE'),1):
+                self.assertEqual(self.request('POST',path+'/'+new+'/decision',{'version':version,'action':action,'evidence':'Preuve fictive'},auth)[0],200)
+            return new
+        successor=accepted_offer()
+        renewal={'offer_id':successor,'starts_on':end,'ends_on':(today+timedelta(days=45)).isoformat(),'reference':'Renouvellement fictif','predecessor_id':predecessor}
+        self.assertEqual(self.request('POST',subscriptions,renewal|{'starts_on':today.isoformat()},auth)[0],409)
+        self.assertEqual(self.request('POST',subscriptions,renewal,auth)[0],201)
+        self.assertEqual(self.request('POST',subscriptions,renewal|{'offer_id':accepted_offer()},auth)[0],409)
+        snapshot=json.loads(self.request('GET',subscriptions,headers=auth)[1])
+        self.assertEqual(snapshot['metrics']['counts']['ACTIF'],1)
+        self.assertEqual(snapshot['metrics']['counts']['PLANIFIE'],1)
+        self.assertEqual(snapshot['items'][0]['successor_id'],snapshot['items'][1]['id'])
+        self.assertEqual(snapshot['items'][1]['predecessor_id'],predecessor)
 
     def test_saas_offer_drafts(self):
         path='/api/admin/crm/saas-offers'

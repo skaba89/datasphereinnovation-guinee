@@ -5,7 +5,7 @@ import sqlite3
 import uuid
 import accounts
 from decimal import Decimal, ROUND_HALF_UP
-from datetime import date
+from datetime import date, timedelta
 from urllib.parse import parse_qs, urlsplit
 
 STATUSES=("PROSPECT","QUALIFIE","PROPOSITION","NEGOCIATION","GAGNE","EN_MISSION","TERMINE","PERDU")
@@ -126,45 +126,91 @@ def schema(db):
       id TEXT PRIMARY KEY, offer_id TEXT NOT NULL UNIQUE REFERENCES saas_offers(id),
       starts_on TEXT NOT NULL, ends_on TEXT NOT NULL, reference TEXT NOT NULL,
       actor TEXT NOT NULL, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)''')
+    db.execute('''CREATE TABLE IF NOT EXISTS saas_subscription_renewals (
+      predecessor_id TEXT PRIMARY KEY REFERENCES saas_subscriptions(id),
+      successor_id TEXT NOT NULL UNIQUE REFERENCES saas_subscriptions(id))''')
+
+def subscription_status(start,end,today):
+    return 'PLANIFIE' if today<start else 'EXPIRE' if today>=end else 'ACTIF'
+
+def subscription_metrics(db,today):
+    counts=dict.fromkeys(('PLANIFIE','ACTIF','EXPIRE','ECHEANCE_30J'),0)
+    groups={}
+    limit=(date.fromisoformat(today)+timedelta(days=30)).isoformat()
+    for start,end,raw in db.execute('SELECT s.starts_on,s.ends_on,f.estimate FROM saas_subscriptions s JOIN saas_offers f ON f.id=s.offer_id'):
+        status=subscription_status(start,end,today)
+        counts[status]+=1
+        if status!='ACTIF':continue
+        if end<=limit:counts['ECHEANCE_30J']+=1
+        estimate=json.loads(raw)
+        key=(estimate['product_id'],estimate['currency'])
+        group=groups.setdefault(key,{'product_id':key[0],'product_name':estimate['product_name'],'currency':key[1],'active':0,'mrr':Decimal(0),'arr':Decimal(0)})
+        group['active']+=1
+        group['mrr']+=Decimal(estimate['mrr']);group['arr']+=Decimal(estimate['arr'])
+    for group in groups.values():
+        for field in ('mrr','arr'):group[field]=format(group[field],'.2f')
+    return {'as_of':today,'counts':counts,'groups':[groups[k] for k in sorted(groups)]}
 
 def saas_subscriptions(h,connect,method):
     if method=='GET':
         query=parse_qs(urlsplit(h.path).query)
         try:
             page=int(query.get('page',['1'])[0]);q=query.get('q',[''])[0][:120]
-            if not 1<=page<=10000:raise ValueError()
+            status=query.get('status',[''])[0]
+            if not 1<=page<=10000 or status not in ('','PLANIFIE','ACTIF','EXPIRE','ECHEANCE_30J'):raise ValueError()
         except ValueError:return h.json_response(400,{'error':'Page invalide.'})
         with connect() as db:
             db.row_factory=sqlite3.Row
+            today=date.today().isoformat()
+            limit=(date.fromisoformat(today)+timedelta(days=30)).isoformat()
             source=''' FROM saas_subscriptions s JOIN saas_offers f ON f.id=s.offer_id
                 JOIN opportunities o ON o.id=f.opportunity_id
-                WHERE instr(lower(f.title||' '||o.company||' '||s.reference),lower(?))>0 OR ?='' '''
-            total=db.execute('SELECT count(*)'+source,(q,q)).fetchone()[0]
-            rows=[dict(r) for r in db.execute('SELECT s.*,f.title,f.estimate,o.company'+source+' ORDER BY s.starts_on DESC,s.id LIMIT 10 OFFSET ?',(q,q,(page-1)*10))]
-            today=date.today().isoformat()
+                WHERE (instr(lower(f.title||' '||o.company||' '||s.reference),lower(?))>0 OR ?='') '''
+            filters={'PLANIFIE':('s.starts_on>?',(today,)),'ACTIF':('s.starts_on<=? AND s.ends_on>?',(today,today)), 'EXPIRE':('s.ends_on<=?',(today,)), 'ECHEANCE_30J':('s.starts_on<=? AND s.ends_on>? AND s.ends_on<=?',(today,today,limit))}
+            clause,params=filters.get(status,('1=1',()))
+            source+=' AND ('+clause+')';args=(q,q,*params)
+            db.execute('BEGIN')
+            total=db.execute('SELECT count(*)'+source,args).fetchone()[0]
+            rows=[dict(r) for r in db.execute('SELECT s.*,f.title,f.estimate,o.company'+source+' ORDER BY s.ends_on,s.id LIMIT 10 OFFSET ?',(*args,(page-1)*10))]
             for row in rows:
                 row['estimate']=json.loads(row['estimate'])
-                row['status']='PLANIFIE' if today<row['starts_on'] else 'EXPIRE' if today>=row['ends_on'] else 'ACTIF'
-        return h.json_response(200,{'items':rows,'total':total,'page':page})
+                row['status']=subscription_status(row['starts_on'],row['ends_on'],today)
+                row['days_to_end']=(date.fromisoformat(row['ends_on'])-date.fromisoformat(today)).days
+                predecessor=db.execute('SELECT predecessor_id FROM saas_subscription_renewals WHERE successor_id=?',(row['id'],)).fetchone()
+                successor=db.execute('SELECT successor_id FROM saas_subscription_renewals WHERE predecessor_id=?',(row['id'],)).fetchone()
+                row['predecessor_id']=predecessor[0] if predecessor else None
+                row['successor_id']=successor[0] if successor else None
+            metrics=subscription_metrics(db,today)
+        return h.json_response(200,{'items':rows,'total':total,'page':page,'metrics':metrics})
     if h.role!='ADMIN':return h.json_response(403,{'error':'Enregistrement réservé à un administrateur.'})
     try:
         length=int(h.headers.get('Content-Length','0'))
         if not 0<length<=4000 or h.headers.get_content_type()!='application/json':raise ValueError()
         data=json.loads(h.rfile.read(length))
-        if not isinstance(data,dict) or set(data)!={'offer_id','starts_on','ends_on','reference'}:raise ValueError()
+        if not isinstance(data,dict) or set(data)-{'predecessor_id'}!={'offer_id','starts_on','ends_on','reference'}:raise ValueError()
         oid,start,end,reference=(data[k] for k in ('offer_id','starts_on','ends_on','reference'))
+        predecessor=data.get('predecessor_id','')
+        if not isinstance(predecessor,str) or (predecessor and str(uuid.UUID(predecessor))!=predecessor):raise ValueError()
         if not all(isinstance(v,str) for v in (oid,start,end,reference)) or str(uuid.UUID(oid))!=oid:raise ValueError()
         if any(date.fromisoformat(d).isoformat()!=d for d in (start,end)) or start>=end:raise ValueError()
         if not reference.strip() or len(reference)>500 or '\x00' in reference:raise ValueError()
     except (ValueError,TypeError,UnicodeError):return h.json_response(400,{'error':'Dates ou référence contractuelle invalides.'})
     with connect() as db:
         db.execute('BEGIN IMMEDIATE')
-        if not db.execute('SELECT 1 FROM saas_offers WHERE id=?',(oid,)).fetchone():return h.json_response(404,{'error':'Offre introuvable.'})
+        offer=db.execute('SELECT opportunity_id,inputs FROM saas_offers WHERE id=?',(oid,)).fetchone()
+        if not offer:return h.json_response(404,{'error':'Offre introuvable.'})
         event=db.execute('SELECT status,created_at FROM saas_offer_events WHERE offer_id=? ORDER BY version DESC LIMIT 1',(oid,)).fetchone()
         if not event or event[0]!='ACCEPTEE' or start<event[1][:10]:return h.json_response(409,{'error':'Offre non acceptée ou début antérieur à son acceptation.'})
         if db.execute('SELECT 1 FROM saas_subscriptions WHERE offer_id=?',(oid,)).fetchone():return h.json_response(409,{'error':'Abonnement déjà enregistré.'})
+        if predecessor:
+            previous=db.execute('SELECT s.ends_on,f.opportunity_id,f.inputs FROM saas_subscriptions s JOIN saas_offers f ON f.id=s.offer_id WHERE s.id=?',(predecessor,)).fetchone()
+            if not previous:return h.json_response(404,{'error':'Abonnement précédent introuvable.'})
+            if start!=previous[0] or offer[0]!=previous[1] or json.loads(offer[1])['product_id']!=json.loads(previous[2])['product_id'] or db.execute('SELECT 1 FROM saas_subscription_renewals WHERE predecessor_id=?',(predecessor,)).fetchone():return h.json_response(409,{'error':'Renouvellement incompatible : même opportunité, même produit, dates contiguës et un seul successeur requis.'})
         identifier=str(uuid.uuid4())
         db.execute('INSERT INTO saas_subscriptions(id,offer_id,starts_on,ends_on,reference,actor) VALUES(?,?,?,?,?,?)',(identifier,oid,start,end,reference.strip(),h.actor))
+        if predecessor:
+            db.execute('INSERT INTO saas_subscription_renewals VALUES(?,?)',(predecessor,identifier))
+            accounts.event(db,h.actor,'ABONNEMENT_SAAS_RENOUVELE',identifier)
         accounts.event(db,h.actor,'ABONNEMENT_SAAS_ENREGISTRE',identifier)
     return h.json_response(201,{'id':identifier,'offer_id':oid})
 
