@@ -42,7 +42,11 @@ def handle(h,connect,method):
     if (h.headers.get('Origin') and h.headers['Origin']!=h.expected_origin()) or h.headers.get('Sec-Fetch-Site')=='cross-site':return h.json_response(403,{'error':'Origine non autorisée.'})
     path=urlsplit(h.path).path
     if method=='GET':
-        try: page=max(1,min(10000,int(parse_qs(urlsplit(h.path).query).get('page',['1'])[0])))
+        query=parse_qs(urlsplit(h.path).query)
+        try:
+            page=max(1,min(10000,int(query.get('page',['1'])[0])))
+            size=int(query.get('page_size',['25'])[0])
+            if size not in (10,25,50):raise ValueError()
         except ValueError:return h.json_response(400,{'error':'Page invalide.'})
         with connect() as db:
             db.row_factory=sqlite3.Row
@@ -54,9 +58,12 @@ def handle(h,connect,method):
                 if not db.execute('SELECT 1 FROM missions WHERE id=?',(match[1],)).fetchone():return h.json_response(404,{'error':'Mission introuvable.'})
                 return h.json_response(200,{'items':[dict(r) for r in db.execute('SELECT * FROM activity WHERE mission_id=? ORDER BY work_date DESC LIMIT 25 OFFSET ?',(match[1],(page-1)*25))],'total':db.execute('SELECT count(*) FROM activity WHERE mission_id=?',(match[1],)).fetchone()[0]})
             rows=[]
-            for r in db.execute('SELECT q.*,m.id AS mission_id,m.consultant_id,m.contract_ref,m.start_date,m.end_date,m.status AS mission_status,o.company,c.name AS consultant FROM missions m JOIN quotes q ON q.id=m.quote_id JOIN opportunities o ON o.id=m.opportunity_id JOIN consultants c ON c.id=m.consultant_id ORDER BY m.created_at DESC,m.id LIMIT 25 OFFSET ?',((page-1)*25,)):
+            search=query.get('q',[''])[0].strip()[:120]
+            source=' FROM missions m JOIN quotes q ON q.id=m.quote_id JOIN opportunities o ON o.id=m.opportunity_id JOIN consultants c ON c.id=m.consultant_id WHERE instr(lower(q.title),lower(?))>0 OR instr(lower(o.company),lower(?))>0 OR instr(lower(m.contract_ref),lower(?))>0 OR instr(lower(m.status),lower(?))>0 OR instr(lower(c.name),lower(?))>0 OR EXISTS(SELECT 1 FROM mission_members x JOIN consultants cm ON cm.id=x.consultant_id WHERE x.mission_id=m.id AND instr(lower(cm.name),lower(?))>0)'
+            args=(search,)*6
+            for r in db.execute('SELECT q.*,m.id AS mission_id,m.consultant_id,m.contract_ref,m.start_date,m.end_date,m.status AS mission_status,o.company,c.name AS consultant'+source+' ORDER BY m.created_at DESC,m.id LIMIT ? OFFSET ?',(*args,size,(page-1)*size)):
                 m=dict(r); entries=[dict(e) for e in db.execute('SELECT * FROM activity WHERE mission_id=?',(m['mission_id'],))];m['team']=[{'id':m['consultant_id'],'name':m['consultant']}]+[dict(e) for e in db.execute('SELECT c.id,c.name FROM mission_members x JOIN consultants c ON c.id=x.consultant_id WHERE x.mission_id=? ORDER BY c.name,c.id',(m['mission_id'],))];rows.append(m|amounts(m,entries))
-            return h.json_response(200,{'items':rows,'total':db.execute('SELECT count(*) FROM missions').fetchone()[0],'can_write':accounts.allowed(h.role,'missions','POST')})
+            return h.json_response(200,{'items':rows,'total':db.execute('SELECT count(*)'+source,args).fetchone()[0],'can_write':accounts.allowed(h.role,'missions','POST')})
     try:
         n=int(h.headers.get('Content-Length','0'))
         if not 0<n<=16000 or h.headers.get_content_type()!='application/json':raise ValueError()
