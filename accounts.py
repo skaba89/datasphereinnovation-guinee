@@ -1,7 +1,7 @@
 """Local named accounts with hashed random access keys and server-side RBAC."""
 import contact_mail
 import hashlib, secrets, json, re, sqlite3, uuid, time, os
-from urllib.parse import urlsplit
+from urllib.parse import urlsplit,parse_qs
 
 ROLES={
  'ADMIN': {'*':'RW','my-activity':'','client-portal':''},
@@ -52,6 +52,28 @@ def admin_protected(db,oid):
 
 def digest(token):return hashlib.sha256(token.encode()).hexdigest()
 def event(db,actor,action,resource):db.execute('INSERT INTO access_events(actor,action,resource) VALUES(?,?,?)',(actor,action,resource))
+
+def audit_snapshot(db,query):
+    params=parse_qs(query,keep_blank_values=True)
+    allowed_params={'page','size','q','action','snapshot'}
+    if set(params)-allowed_params or any(len(v)!=1 for v in params.values()):raise ValueError()
+    def get(name,default=''):return params.get(name,[default])[0]
+    page=int(get('page','1'));size=int(get('size','100'));search=get('q').strip();action=get('action').strip()
+    maximum=db.execute('SELECT COALESCE(MAX(id),0) FROM access_events').fetchone()[0]
+    snapshot=int(get('snapshot',str(maximum)))
+    if not 1<=page<=100000 or size not in (10,25,50,100) or not 0<=snapshot<=maximum or len(search)>180 or len(action)>80:raise ValueError()
+    where=['id<=?'];values=[snapshot]
+    if search:
+        where.append('(instr(lower(actor),lower(?))>0 OR instr(lower(resource),lower(?))>0 OR instr(lower(action),lower(?))>0)');values.extend([search]*3)
+    if action:where.append('action=?');values.append(action)
+    clause=' AND '.join(where)
+    items=[dict(r) for r in db.execute('SELECT * FROM access_events WHERE '+clause+' ORDER BY id DESC LIMIT ? OFFSET ?',(*values,size,(page-1)*size))]
+    total=db.execute('SELECT count(*) FROM access_events WHERE '+clause,values).fetchone()[0]
+    roles=[]
+    for role in ROLES:
+        active,activated,mfa=db.execute('''SELECT count(*),COALESCE(sum(EXISTS(SELECT 1 FROM credentials c WHERE c.account_id=a.id)),0),COALESCE(sum(EXISTS(SELECT 1 FROM mfa m WHERE m.account_id=a.id AND m.enabled=1)),0) FROM accounts a WHERE enabled=1 AND role=?''',(role,)).fetchone()
+        roles.append({'role':role,'active':active,'activated':activated,'mfa':mfa,'mfa_required':mfa_required(role)})
+    return {'items':items,'total':total,'page':page,'size':size,'snapshot':snapshot,'roles':roles}
 def allowed(role,resource,method):
     if resource not in RESOURCES or method not in ('GET','POST','PATCH','DELETE'):return False
     mode=ROLES.get(role,{}).get(resource,ROLES.get(role,{}).get('*',''))
@@ -104,7 +126,8 @@ def handle(h,connect,method):
         with connect() as db:
             db.row_factory=sqlite3.Row
             if path.endswith('/audit'):
-                items=[dict(r) for r in db.execute('SELECT * FROM access_events ORDER BY id DESC LIMIT 100')]
+                try:return h.json_response(200,audit_snapshot(db,urlsplit(h.path).query))
+                except (ValueError,OverflowError):return h.json_response(400,{'error':'Filtre du journal invalide.'})
             else:
                 items=[dict(r) for r in db.execute('SELECT a.id,a.username,a.role,a.consultant_id,a.enabled,a.created_at,EXISTS(SELECT 1 FROM credentials c WHERE c.account_id=a.id) AS activated,EXISTS(SELECT 1 FROM mfa m WHERE m.account_id=a.id AND m.enabled=1) AS mfa_enabled FROM accounts a ORDER BY a.username')]
                 for item in items:

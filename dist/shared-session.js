@@ -31,7 +31,7 @@ function groupRowActions(cell,label){
 document.addEventListener('DOMContentLoaded',()=>{
  const page=location.pathname.split('/').pop();
  const lists={
-  'accounts.html':['rows'],'audit.html':['rows'],
+  'accounts.html':['rows'],
   'crm.html':['catalogue-rows'],'direction.html':['financial','report-rows'],
   'billing.html':['forecast-rows','aging-rows','totals','cash-rows'],
   'my-activity.html':['rows'],'appointments.html':['rows']

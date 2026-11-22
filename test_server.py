@@ -589,6 +589,18 @@ class IntakeTests(unittest.TestCase):
         self.assertEqual(self.request('GET','/api/admin/billing/saas-monthly',headers=user)[0],403)
         self.assertEqual(self.request('GET','/api/admin/direction/saas-monthly?start=2026-13',headers=user)[0],400)
         self.assertEqual(self.request('GET','/api/admin/audit',headers=user)[0],200)
+        with server.connect() as db:
+            for n in range(23):db.execute("INSERT INTO access_events(actor,action,resource) VALUES('audit-fixture','REFUSE',?)",(str(n),))
+        audit='/api/admin/audit?size=10&q=audit-fixture&action=REFUSE'
+        first=json.loads(self.request('GET',audit,headers=user)[1])
+        self.assertEqual(first['total'],23);self.assertEqual(len(first['items']),10)
+        with server.connect() as db:db.execute("INSERT INTO access_events(actor,action,resource) VALUES('audit-fixture','REFUSE','new')")
+        second=json.loads(self.request('GET',audit+'&page=2&snapshot='+str(first['snapshot']),headers=user)[1])
+        self.assertEqual(second['total'],23);self.assertEqual(len(second['items']),10)
+        self.assertFalse({x['id'] for x in first['items']} & {x['id'] for x in second['items']})
+        self.assertEqual(next(r for r in first['roles'] if r['role']=='AUDITEUR')['active'],1)
+        self.assertEqual(self.request('GET','/api/admin/audit?size=999',headers=user)[0],400)
+        self.assertEqual(self.request('GET','/api/admin/audit?size=10&size=25',headers=user)[0],400)
         self.assertEqual(self.request('GET','/api/admin/billing',headers=user)[0],403)
         self.assertEqual(self.request('POST',path,{'username':'bad','role':'ADMIN','consultant_id':''},user)[0],403)
         self.assertNotIn(a['key'].encode(),self.request('GET',path,headers=auth)[1])
