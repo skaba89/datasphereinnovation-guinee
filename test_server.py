@@ -1324,6 +1324,21 @@ class IntakeTests(unittest.TestCase):
         self.assertEqual((result['state'],result['balance']),('REGLEE','0.00'))
         result=json.loads(self.request('GET','/api/admin/direction/partner-commissions',headers=auth)[1])['items'][0]
         self.assertEqual(result['paid'],'12.51');self.assertNotIn('payments',result)
+        profit='/api/admin/direction/partner-profitability'
+        self.assertEqual(self.request('GET',profit)[0],401)
+        with server.connect() as db:
+            db.execute("INSERT INTO quotes(id,opportunity_id,title,scope,mode,currency,days,rate,daily_cost,expenses,fixed_price,status) VALUES('pq',?,'Test','','REGIE','EUR','1','100','20','0','0','ACCEPTE')",(oid,))
+            db.execute("INSERT INTO missions(id,quote_id,opportunity_id,consultant_id,contract_ref,start_date,end_date) VALUES('pm','pq',?,'','C',?,?)",(oid,today,today))
+            db.execute("INSERT INTO invoices(id,mission_id,reference,amount,due_date) VALUES('pi','pm','FACT-1','100',?)",(today,))
+            db.execute("INSERT INTO payments VALUES('pp','pi','CLIENT-1','100',?)",(today,))
+            db.execute("INSERT INTO expenses(id,reference,currency,amount,paid_date,category,description,mission_id,actor) VALUES('pe','VIR-1','EUR','5.00',?,'AUTRE','','pm','test')",(today,))
+            db.execute("INSERT INTO expenses(id,reference,currency,amount,paid_date,category,description,mission_id,actor) VALUES('pe2','COST','EUR','20.00',?,'AUTRE','','pm','test')",(today,))
+        r=json.loads(self.request('GET',profit+'?currency=EUR&q=partenaire',headers=auth)[1])['items'][0]
+        self.assertEqual((r['received'],r['commission_overlap'],r['contribution']),('100','5.00','67.49'))
+        self.assertEqual(r['contribution_pct'],'67.49')
+        with server.connect() as db:db.execute("UPDATE expenses SET amount='6.00' WHERE id='pe'")
+        r=json.loads(self.request('GET',profit,headers=auth)[1])['items'][0]
+        self.assertEqual(r['conflicts'],1);self.assertIsNone(r['contribution'])
 
     def test_customer_growth(self):
         from datetime import date,timedelta

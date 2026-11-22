@@ -1169,7 +1169,7 @@ class BrowserTests(unittest.TestCase):
         nested = {
             'crm': ('crm/catalogue','crm/organizations','crm/appointments','crm/saas-commercial','crm/saas-renewals','crm/customer-success','crm/customer-growth','crm/partners'),
             'billing': ('billing/expenses','billing/milestones','billing/contracts','billing/schedule','billing/receivables','billing/forecast','billing/planned-expenses','billing/saas-monthly','billing/partner-commissions'),
-            'direction': ('direction/saas-monthly','direction/saas-commercial','direction/saas-renewals','direction/customer-success','direction/customer-growth','direction/partners','direction/partner-commissions'),
+            'direction': ('direction/saas-monthly','direction/saas-commercial','direction/saas-renewals','direction/customer-success','direction/customer-growth','direction/partners','direction/partner-commissions','direction/partner-profitability'),
             'missions': ('missions/eligible',),
         }
         for role, (read, write) in matrix.items():
