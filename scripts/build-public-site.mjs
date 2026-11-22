@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import vm from 'node:vm';
 import {fileURLToPath} from 'node:url';
+import {posts} from './blog-content.mjs';
 
 const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'..');
 const source=path.join(root,'dist');
@@ -32,7 +33,7 @@ function put(out,name,content){fs.writeFileSync(path.join(out,name),content);}
 function publicPath(lang,slug){return '/expertise-'+(lang==='en'?'en-':'')+slug+'.html'}
 function home(lang){return lang==='fr'?'/':'/en.html'}
 const orgId=origin+'/#organization',siteId=origin+'/#website';
-function structuredData(html,lang,url,title,description,contact,service=null){
+function structuredData(html,lang,url,title,description,contact,service=null,article=null){
  const en=lang==='en',canonical=origin+url;
  const areaServed=[{'@type':'City',name:'Conakry',containedInPlace:{'@type':'Country',name:en?'Guinea':'Guinée'}},
   {'@type':'Country',name:en?'Guinea':'Guinée'},{'@type':'Country',name:'France'}];
@@ -49,9 +50,53 @@ function structuredData(html,lang,url,title,description,contact,service=null){
    {'@type':'ListItem',position:2,name:service,item:canonical}
   ]});
  }
+ if(article){
+  const articleId=canonical+'#article',breadcrumbId=canonical+'#breadcrumb';
+  page.mainEntity={'@id':articleId};page.breadcrumb={'@id':breadcrumbId};
+  graph.push({'@type':'BlogPosting','@id':articleId,headline:article.title,description,
+   inLanguage:lang,mainEntityOfPage:{'@id':page['@id']},author:{'@id':orgId},publisher:{'@id':orgId}});
+  graph.push({'@type':'BreadcrumbList','@id':breadcrumbId,itemListElement:[
+   {'@type':'ListItem',position:1,name:en?'Home':'Accueil',item:origin+home(lang)},
+   {'@type':'ListItem',position:2,name:'Blog',item:origin+blogPath(lang)},
+   {'@type':'ListItem',position:3,name:article.title,item:canonical}
+  ]});
+ }
  // Escape markup-breaking characters so JSON can never terminate its script tag.
  const json=JSON.stringify({'@context':'https://schema.org','@graph':graph}).replaceAll('<','\\u003c');
  return html.replace('</head>','<script type="application/ld+json">'+json+'</script>\n</head>');
+}
+const blogPath=(lang,slug='')=>'/blog'+(lang==='en'?'-en':'')+(slug?'-'+slug:'')+'.html';
+function blogTemplate(lang,body,alternate){
+ const en=lang==='en';
+ return '<!doctype html><html lang="'+lang+'"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Blog | DSIG</title><link rel="icon" href="/favicon.svg">'+
+ ['style.css','brand.css','premium.css','studio.css','identity.css','expertise.css','accessibility.css'].map(css=>'<link rel="stylesheet" href="/'+css+'">').join('')+
+ '</head><body><a class="skip-link" href="#main">'+(en?'Skip to content':'Aller au contenu')+'</a><header class="nav"><a class="brand" href="'+home(lang)+'"><img class="dsig-logo" src="/dsig-mark.svg" width="100" height="40" alt="DSIG"></a><a href="'+blogPath(lang)+'">Blog</a><a href="'+alternate+'" hreflang="'+(en?'fr':'en')+'">'+(en?'Français':'English')+'</a></header><main class="section" id="main" tabindex="-1">'+body+'</main><footer><p>DataSphere Innovation Guinée</p><a href="'+(en?'/privacy-en.html':'/confidentialite.html')+'">'+(en?'Privacy':'Confidentialité')+'</a></footer></body></html>';
+}
+function buildBlog(out,contact){
+ const slugs=new Set();
+ for(const post of posts){
+  if(!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(post.slug)||slugs.has(post.slug))throw Error('Invalid or duplicate post slug');
+  slugs.add(post.slug);
+  for(const lang of ['fr','en']){
+   const en=lang==='en',entry=post[lang],url=blogPath(lang,post.slug);
+   const expertise=publicPath(lang,post.expertise);
+   if(!pages.includes(expertise))throw Error('Unknown related expertise: '+expertise);
+   const body='<nav aria-label="'+(en?'Breadcrumb':'Fil d’Ariane')+'"><a href="'+home(lang)+'">'+(en?'Home':'Accueil')+'</a> / <a href="'+blogPath(lang)+'">Blog</a> / <span aria-current="page">'+esc(entry.title)+'</span></nav><article class="policy"><h1>'+esc(entry.title)+'</h1><p>'+esc(entry.description)+'</p><p>DataSphere Innovation Guinée</p>'+
+    entry.sections.map(([heading,text])=>'<h2>'+esc(heading)+'</h2><p>'+esc(text)+'</p>').join('')+
+    '<p><a href="'+expertise+'">'+(en?'Explore the related expertise':'Découvrir l’expertise associée')+'</a></p><p><a class="btn" href="mailto:'+esc(contact)+'">'+(en?'Discuss your project':'Parlons de votre projet')+'</a></p><p><a href="'+blogPath(lang)+'">'+(en?'Back to the blog':'Retour au blog')+'</a></p></article>';
+   const fr=blogPath('fr',post.slug),english=blogPath('en',post.slug);
+   let html=metadata(blogTemplate(lang,body,en?fr:english),entry.title+' | DSIG',entry.description,fr,english,lang).replace('property="og:type" content="website"','property="og:type" content="article"');
+   html=structuredData(html,lang,url,entry.title+' | DSIG',entry.description,contact,null,entry);
+   put(out,url.slice(1),html);pages.push(url);
+  }
+ }
+ for(const lang of ['fr','en']){
+  const en=lang==='en',url=blogPath(lang),title=en?'DSIG Insights — Data, AI and digital transformation':'Blog DSIG — Data, IA et transformation digitale',description=en?'Practical guides for organisations in Guinea and Africa.':'Guides pratiques pour les organisations en Guinée et en Afrique.';
+  const body='<h1>'+esc(title)+'</h1><p>'+esc(description)+'</p><div class="expertise-grid">'+posts.map(post=>'<article><h2><a href="'+blogPath(lang,post.slug)+'">'+esc(post[lang].title)+'</a></h2><p>'+esc(post[lang].description)+'</p></article>').join('')+'</div>';
+  let html=metadata(blogTemplate(lang,body,blogPath(en?'fr':'en')),title,description,blogPath('fr'),blogPath('en'),lang);
+  html=structuredData(html,lang,url,title,description,contact);
+  put(out,url.slice(1),html);pages.push(url);
+ }
 }
 
 export function build(out,contact){
@@ -109,7 +154,7 @@ export function build(out,contact){
    .replace('<small>Final commercial contact details to be confirmed.</small>','')
    .replace(/<form id="request">[\s\S]*?<\/form>/,'<div class="contact-public"><p>'+(english?'Contact our team by email. Do not send sensitive information.':'Contactez notre équipe par e-mail. Ne transmettez pas de données sensibles.')+'</p><a class="btn" href="mailto:'+esc(contact)+'">'+esc(contact)+'</a></div>')
    .replace('<script src="expertise.js"></script>','').replace('<script src="app.js"></script>','<script src="public-menu.js"></script>')
-   .replace('</nav>','<a href="'+home(english?'fr':'en')+'" hreflang="'+(english?'fr':'en')+'">'+(english?'Français':'English')+'</a></nav>')
+   .replace('</nav>','<a href="'+blogPath(lang)+'">Blog</a><a href="'+home(english?'fr':'en')+'" hreflang="'+(english?'fr':'en')+'">'+(english?'Français':'English')+'</a></nav>')
    .replaceAll('href="index.html','href="/');
   const title=english?'DataSphere Innovation Guinea | Data, AI & digital consulting':'DataSphere Innovation Guinée | Conseil Data, IA et transformation digitale';
   const description=english?'Digital consulting, Data Engineering, AI, BI, cybersecurity, SaaS and logistics expertise for organisations in Guinea and Africa.':'Cabinet de conseil numérique en Guinée : Data Engineering, IA, BI, cybersécurité, SaaS, logistique et transformation digitale pour les organisations.';
@@ -121,6 +166,7 @@ export function build(out,contact){
    '<main class="policy" id="main"><h1>'+(english?'Privacy':'Confidentialité')+'</h1><p>'+(english?'This static website contains no contact form. Email links open your own email application. Do not send sensitive information.':'Ce site statique ne contient aucun formulaire de contact. Les liens e-mail ouvrent votre messagerie. Ne transmettez pas de données sensibles.')+'</p><p>'+(english?'Contact: ':'Contact : ')+esc(contact)+'</p><a href="'+home(lang)+'">'+(english?'Back to website':'Retour au site')+'</a></main>');
   put(out,english?'privacy-en.html':'confidentialite.html',privacy);
  }
+ buildBlog(out,contact);
  put(out,'public-menu.js',`const menu=document.querySelector('#menu'),nav=document.querySelector('#links');function closeMenu(){nav.classList.remove('open');menu.setAttribute('aria-expanded','false')}menu.onclick=()=>menu.setAttribute('aria-expanded',String(nav.classList.toggle('open')));nav.addEventListener('click',e=>{if(e.target.closest('a'))closeMenu()});document.addEventListener('keydown',e=>{if(e.key==='Escape'){closeMenu();menu.focus()}});`);
  put(out,'robots.txt','User-agent: *\nAllow: /\nSitemap: '+origin+'/sitemap.xml\n');
  put(out,'sitemap.xml','<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n'+pages.sort().map(u=>'<url><loc>'+origin+u+'</loc></url>').join('\n')+'\n</urlset>\n');

@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import {build} from './build-public-site.mjs';
+import {posts} from './blog-content.mjs';
 
 const tmp=fs.mkdtempSync(path.join(os.tmpdir(),'dsig-public-test-'));
 const out=path.join(tmp,'site');
@@ -45,11 +46,26 @@ try{
    assert.equal(breadcrumb.itemListElement[1].item,page.url);
    assert(html.includes('aria-current="page"'));
   }
+  if(url.startsWith('/blog-')&&url!=='/blog-en.html'){
+   const article=graph.find(n=>n['@type']==='BlogPosting');
+   assert(article);
+   assert.equal(article.author['@id'],org['@id']);
+   assert.equal(page.mainEntity['@id'],article['@id']);
+   assert(html.includes('property="og:type" content="article"'));
+   assert(html.includes('<article'));
+   assert(urls.some(u=>u.startsWith('/expertise-')&&html.includes('href="'+u+'"')));
+  }
  }
  for(const name of ['index.html','en.html']){
   const html=read(name);
   assert(html.includes('mailto:test@dsig-consulting.com'));
-  assert.equal([...html.matchAll(/href="\/expertise-[^"]+"/g)].length,(count-2)/2);
+  assert.equal([...html.matchAll(/href="\/expertise-[^"]+"/g)].length,urls.filter(u=>u.startsWith('/expertise-')).length/2);
+  assert(html.includes('href="'+(name==='en.html'?'/blog-en.html':'/blog.html')+'"'));
+ }
+ assert.equal(urls.filter(u=>u.startsWith('/blog')).length,2+posts.length*2);
+ for(const post of posts)for(const lang of ['fr','en']){
+  const index=read(lang==='en'?'blog-en.html':'blog.html');
+  assert(index.includes('href="/blog'+(lang==='en'?'-en':'')+'-'+post.slug+'.html"'));
  }
  assert(fs.readFileSync(new URL('../dist/robots.txt',import.meta.url),'utf8').includes('Disallow: /'));
  assert(fs.readFileSync(new URL('../dist/index.html',import.meta.url),'utf8').includes('noindex,nofollow'));

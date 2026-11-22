@@ -51,3 +51,17 @@ coordonnées GPS, horaires, téléphone, avis ou certifications sans confirmatio
 Après publication, contrôler les pages avec le validateur Schema.org et le test
 des résultats enrichis Google. Créer une fiche Google Business Profile uniquement
 si l'activité remplit les conditions d'éligibilité et avec les informations réelles.
+
+## V117 — Blog professionnel bilingue
+
+Le catalogue éditorial `scripts/blog-content.mjs` est séparé de REC. Les quatre
+guides initiaux sont disponibles en français et en anglais : Data Engineering,
+IA, cybersécurité et transformation digitale. Chaque article possède une URL
+stable, un lien vers sa traduction, un lien vers l'expertise associée et un
+balisage BlogPosting. Les index du blog et les articles figurent dans le sitemap.
+
+Avant une publication, relire et valider le contenu. Ne pas inventer de références
+clients, de signatures individuelles ou de dates de publication. Les articles
+existants ne déclarent pas de date tant que la publication réelle n'est pas
+confirmée. Pour ajouter un guide, compléter les deux langues et conserver les
+slugs des articles déjà publiés ; lancer le test SEO avant livraison.
