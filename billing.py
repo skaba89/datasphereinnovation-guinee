@@ -10,6 +10,31 @@ import accounts
 
 SAAS_COST_CATEGORIES=('INFRASTRUCTURE','SUPPORT','ACQUISITION','EXPLOITATION')
 
+def saas_monthly(db,start,end,product='',currency=''):
+    """Calendar months, each flow dated by its own source event."""
+    months={}
+    products={p['id']:p['name'] for p in crm.CATALOGUE}
+    def add(day,p,c,key,amount):
+        month=day[:7]
+        if not start<=month<=end or (product and p!=product) or (currency and c!=currency):return
+        values=months.setdefault((month,p,c),dict.fromkeys(('invoiced_ht','received_ttc','allocated',*SAAS_COST_CATEGORIES),Decimal(0)))
+        values[key]+=Decimal(amount)
+        if key in SAAS_COST_CATEGORIES:values['allocated']+=Decimal(amount)
+    join=''' FROM saas_invoice_register i JOIN saas_billing_preparations b
+      ON b.subscription_id=i.subscription_id AND b.period_start=i.period_start
+      JOIN saas_subscriptions s ON s.id=i.subscription_id JOIN saas_offers f ON f.id=s.offer_id'''
+    for day,raw,c,rec,one in db.execute('SELECT i.issued_on,f.inputs,b.currency,b.recurring,b.one_off'+join):
+        add(day,json.loads(raw)['product_id'],c,'invoiced_ht',Decimal(rec)+Decimal(one))
+    for day,raw,c,amount in db.execute('SELECT r.paid_on,f.inputs,b.currency,r.amount'+join+' JOIN saas_receipts r ON r.invoice_id=i.id'):
+        add(day,json.loads(raw)['product_id'],c,'received_ttc',amount)
+    for day,p,c,category,amount in db.execute('''SELECT e.paid_date,a.product_id,e.currency,a.category,a.amount
+      FROM saas_expense_allocations a JOIN expenses e ON e.id=a.expense_id'''):
+        add(day,p,c,category,amount)
+    return {'start':start,'end':end,'products':products,'items':[
+        {'month':m,'product_id':p,'product':products.get(p,p),'currency':c,
+         **{k:str(v) for k,v in g.items()},'cash_contribution':str(g['received_ttc']-g['allocated'])}
+        for (m,p,c),g in sorted(months.items())]}
+
 def saas_profitability(db,search='',page=1,page_size=10):
     db.row_factory=sqlite3.Row
     products={p['id']:p['name'] for p in crm.CATALOGUE}
@@ -196,6 +221,19 @@ def handle(h,connect,method):
             if kind=='saas-profitability':
                 db.execute('BEGIN')
                 return h.json_response(200,saas_profitability(db,search,page,page_size)|{'can_allocate':h.role in ('ADMIN','COMPTABLE')})
+            if kind=='saas-monthly':
+                start=query.get('start',[str(date.today().year)+'-01'])[0]
+                end=query.get('end',[date.today().isoformat()[:7]])[0]
+                product=query.get('product',[''])[0];currency=query.get('currency',[''])[0]
+                try:
+                    if not all(re.fullmatch(r'[0-9]{4}-[0-9]{2}',v) for v in (start,end)):raise ValueError()
+                    a,b=(date.fromisoformat(v+'-01') for v in (start,end))
+                    if not 0<=(b.year-a.year)*12+b.month-a.month<24:raise ValueError()
+                    if product and product not in {p['id'] for p in crm.CATALOGUE}:raise ValueError()
+                    if currency not in ('','EUR','USD','GNF','XOF'):raise ValueError()
+                except ValueError:return h.json_response(400,{'error':'Période ou filtre invalide (24 mois maximum).'})
+                db.execute('BEGIN')
+                return h.json_response(200,saas_monthly(db,start,end,product,currency))
             if kind=='saas-receivables':
                 state=query.get('state',[''])[0]
                 if state not in ('','OUVERTE','PARTIELLE','REGLEE','EN_RETARD'):return h.json_response(400,{'error':'État invalide.'})
