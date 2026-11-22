@@ -16,6 +16,17 @@ function renderSidebar(me){
 }
 
 
+/* Keep original action buttons and their permission/confirmation handlers intact. */
+function groupRowActions(cell,label){
+ const buttons=Array.from(cell.children).filter(node=>node.tagName==='BUTTON');
+ if(buttons.length<2)return;
+ const details=document.createElement('details'),summary=document.createElement('summary'),body=document.createElement('div');
+ details.className='row-actions';summary.textContent='Actions';summary.setAttribute('aria-label','Actions pour '+label);body.className='row-actions-body';
+ details.append(summary,body);cell.insertBefore(details,buttons[0]);
+ for(const button of buttons){button.type='button';body.append(button);}
+ details.addEventListener('keydown',e=>{if(e.key==='Escape'&&details.open){details.open=false;summary.focus();e.stopPropagation()}});
+}
+
 /* Paginate already-loaded lists only; keep server-side pagination untouched. */
 document.addEventListener('DOMContentLoaded',()=>{
  const page=location.pathname.split('/').pop();
