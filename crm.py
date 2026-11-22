@@ -139,6 +139,13 @@ def schema(db):
       subscription_id TEXT NOT NULL REFERENCES saas_subscriptions(id), milestone INTEGER NOT NULL,
       note TEXT NOT NULL, actor TEXT NOT NULL, contacted_on TEXT NOT NULL,
       PRIMARY KEY(subscription_id,milestone))''')
+    db.execute('''CREATE TABLE IF NOT EXISTS customer_tickets (
+      id TEXT PRIMARY KEY, organization_id TEXT NOT NULL REFERENCES organizations(id),
+      title TEXT NOT NULL, priority TEXT NOT NULL, due_on TEXT NOT NULL, status TEXT NOT NULL,
+      opened_on TEXT NOT NULL, closed_on TEXT, resolution TEXT NOT NULL DEFAULT '',
+      csat INTEGER, nps INTEGER, feedback_note TEXT NOT NULL DEFAULT '',
+      actor TEXT NOT NULL, version INTEGER NOT NULL DEFAULT 1)''')
+    db.execute('CREATE INDEX IF NOT EXISTS customer_tickets_org ON customer_tickets(organization_id,status,due_on)')
     db.execute('''CREATE TABLE IF NOT EXISTS saas_billing_preparations (
       subscription_id TEXT NOT NULL REFERENCES saas_subscriptions(id), period_start TEXT NOT NULL,
       period_end TEXT NOT NULL, currency TEXT NOT NULL, recurring TEXT NOT NULL, one_off TEXT NOT NULL,
@@ -352,6 +359,72 @@ def saas_commercial(h,connect):
     with connect() as db:
         db.execute('BEGIN')
         return h.json_response(200,saas_commercial_report(db,date.today().isoformat()))
+
+def customer_success(h,connect,method,identifier=None):
+    today=date.today().isoformat()
+    if method=='GET':
+        query=parse_qs(urlsplit(h.path).query)
+        try:
+            page=int(query.get('page',['1'])[0]);q=query.get('q',[''])[0][:120].casefold()
+            status=query.get('status',[''])[0]
+            if not 1<=page<=10000 or status not in ('','OUVERT','RESOLU','RETARD'):raise ValueError()
+        except ValueError:return h.json_response(400,{'error':'Filtre invalide.'})
+        with connect() as db:
+            db.row_factory=sqlite3.Row
+            db.execute('BEGIN')
+            rows=[dict(r) for r in db.execute('''SELECT t.*,o.name AS company FROM customer_tickets t
+              JOIN organizations o ON o.id=t.organization_id ORDER BY t.opened_on DESC,t.id''')]
+        groups={}
+        for r in rows:
+            r['overdue']=r['status']=='OUVERT' and r['due_on']<today
+            r['sla_met']=r['closed_on']<=r['due_on'] if r['closed_on'] else None
+            g=groups.setdefault(r['organization_id'],{'company':r['company'],'open':0,'overdue':0,'resolved':0,'sla_met':0,'csat':[],'nps':[]})
+            g['open']+=r['status']=='OUVERT';g['overdue']+=r['overdue'];g['resolved']+=r['status']=='RESOLU';g['sla_met']+=r['sla_met'] is True
+            for k in ('csat','nps'):
+                if r[k] is not None:g[k].append(r[k])
+        for g in groups.values():
+            c,n=g.pop('csat'),g.pop('nps')
+            g.update(csat_count=len(c),nps_count=len(n),csat_pct=round(sum(v>=4 for v in c)*100/len(c),1) if c else None,
+                     nps_score=round((sum(v>=9 for v in n)-sum(v<=6 for v in n))*100/len(n),1) if n else None,
+                     risk=g['overdue']>0 or any(v<=2 for v in c))
+        if urlsplit(h.path).path=='/api/admin/direction/customer-success':
+            return h.json_response(200,{'accounts':list(groups.values()),'total':len(rows),'as_of':today})
+        selected=[r for r in rows if q in (r['company']+' '+r['title']).casefold() and (not status or status==r['status'] or status=='RETARD' and r['overdue'])]
+        return h.json_response(200,{'items':selected[(page-1)*10:page*10],'total':len(selected),'page':page,'accounts':list(groups.values()),'as_of':today,'can_write':h.role in ('ADMIN','COMMERCIAL')})
+    if h.role not in ('ADMIN','COMMERCIAL'):return h.json_response(403,{'error':'Action réservée au commerce.'})
+    try:
+        size=int(h.headers.get('Content-Length','0'))
+        if not 0<size<=8000 or h.headers.get_content_type()!='application/json':raise ValueError()
+        data=json.loads(h.rfile.read(size))
+        if not isinstance(data,dict):raise ValueError()
+        def content(key,limit,required=True):
+            v=data[key]
+            if not isinstance(v,str) or len(v)>limit or chr(0) in v or (required and not v.strip()):raise ValueError()
+            return v.strip()
+        if identifier is None:
+            if set(data)!={'organization_id','title','priority','due_on'}:raise ValueError()
+            org=content('organization_id',36);title=content('title',180);priority=content('priority',20);due=content('due_on',10)
+            if str(uuid.UUID(org))!=org or priority not in ('BASSE','NORMALE','HAUTE','CRITIQUE') or date.fromisoformat(due).isoformat()!=due or due<today:raise ValueError()
+        else:
+            if set(data)!={'version','resolution','csat','nps','feedback_note'} or type(data['version']) is not int or data['version']<1:raise ValueError()
+            resolution=content('resolution',1000);feedback=content('feedback_note',1000,False)
+            for k,low,high in (('csat',1,5),('nps',0,10)):
+                if data[k] is not None and (type(data[k]) is not int or not low<=data[k]<=high):raise ValueError()
+    except (ValueError,TypeError,UnicodeError,KeyError):return h.json_response(400,{'error':'Champs invalides.'})
+    with connect() as db:
+        db.execute('BEGIN IMMEDIATE')
+        if identifier is None:
+            if not db.execute("SELECT 1 FROM organizations WHERE id=? AND kind='CLIENT'",(org,)).fetchone():return h.json_response(409,{'error':'Organisation cliente requise.'})
+            identifier=str(uuid.uuid4())
+            db.execute('INSERT INTO customer_tickets(id,organization_id,title,priority,due_on,status,opened_on,actor) VALUES(?,?,?,?,?,?,?,?)',(identifier,org,title,priority,due,'OUVERT',today,h.actor))
+            accounts.event(db,h.actor,'TICKET_CLIENT_OUVERT',identifier)
+        else:
+            row=db.execute('SELECT version,status FROM customer_tickets WHERE id=?',(identifier,)).fetchone()
+            if not row:return h.json_response(404,{'error':'Ticket introuvable.'})
+            if row[0]!=data['version'] or row[1]!='OUVERT':return h.json_response(409,{'error':'Ticket déjà résolu ou version obsolète.'})
+            db.execute("UPDATE customer_tickets SET status='RESOLU',closed_on=?,resolution=?,csat=?,nps=?,feedback_note=?,version=version+1 WHERE id=?",(today,resolution,data['csat'],data['nps'],feedback,identifier))
+            accounts.event(db,h.actor,'TICKET_CLIENT_RESOLU',identifier)
+    return h.json_response(201 if method=='POST' and 'organization_id' in data else 200,{'id':identifier})
 
 def renewal_milestone(days):
     return next((n for n in (7,30,60,90) if days<=n),None) if days>=0 else None
@@ -615,6 +688,10 @@ def handle(h,connect,method):
         return saas_commercial(h,connect)
     if method=='GET' and path in ('/api/admin/crm/saas-renewals','/api/admin/direction/saas-renewals'):
         return saas_renewal_queue(h,connect)
+    if path in ('/api/admin/crm/customer-success','/api/admin/direction/customer-success'):
+        return customer_success(h,connect,method)
+    ticket_route=re.fullmatch(r'/api/admin/crm/customer-success/([0-9a-f-]{36})/resolve',path)
+    if ticket_route and method=='POST':return customer_success(h,connect,method,ticket_route.group(1))
     contact_route=re.fullmatch(r'/api/admin/crm/saas-subscriptions/([0-9a-f-]{36})/renewal-contact',path)
     if contact_route and method=='POST':return saas_renewal_contact(h,connect,contact_route.group(1))
     billing_route=re.fullmatch(r'/api/admin/crm/saas-subscriptions/([0-9a-f-]{36})/billing',path)

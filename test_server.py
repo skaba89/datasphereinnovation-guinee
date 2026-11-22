@@ -1247,6 +1247,39 @@ class IntakeTests(unittest.TestCase):
         self.assertEqual(self.request('PATCH',crm_path+'/'+pid,data|{'version':2,'organization_id':''},auth)[0],200)
         self.assertEqual(json.loads(self.request('GET',path,headers=auth)[1])['items'][0]['opportunities'],0)
 
+    def test_customer_success(self):
+        from datetime import date,timedelta
+        auth={'Authorization':'Bearer '+server.ADMIN_TOKEN,'Content-Type':'application/json'}
+        path='/api/admin/crm/customer-success'
+        org={'name':'Client support fictif','kind':'CLIENT','country':'Guinée','notes':''}
+        code,body,_=self.request('POST','/api/admin/crm/organizations',org,auth)
+        self.assertEqual(code,201)
+        today=date.today().isoformat()
+        ticket={'organization_id':json.loads(body)['id'],'title':'Incident fictif','priority':'HAUTE','due_on':today}
+        self.assertEqual(self.request('GET',path)[0],401)
+        self.assertEqual(self.request('POST',path,ticket|{'due_on':'2000-01-01'},auth)[0],400)
+        self.assertEqual(self.request('POST',path,ticket|{'organization_id':'00000000-0000-0000-0000-000000000000'},auth)[0],409)
+        code,body,_=self.request('POST',path,ticket,auth)
+        self.assertEqual(code,201)
+        identifier=json.loads(body)['id']
+        resolution={'version':1,'resolution':'Corrigé','csat':5,'nps':9,'feedback_note':'Retour fictif'}
+        self.assertEqual(self.request('POST',path+'/'+identifier+'/resolve',resolution|{'csat':True},auth)[0],400)
+        self.assertEqual(self.request('POST',path+'/'+identifier+'/resolve',resolution,auth)[0],200)
+        self.assertEqual(self.request('POST',path+'/'+identifier+'/resolve',resolution,auth)[0],409)
+        report=json.loads(self.request('GET',path,headers=auth)[1])
+        self.assertEqual(report['accounts'][0]['csat_pct'],100)
+        self.assertEqual(report['accounts'][0]['nps_score'],100)
+        self.assertEqual(report['accounts'][0]['sla_met'],1)
+        executive=json.loads(self.request('GET','/api/admin/direction/customer-success',headers=auth)[1])
+        self.assertNotIn('items',executive)
+        self.assertEqual(executive['accounts'][0]['nps_score'],100)
+        self.assertEqual(self.request('POST',path,ticket,auth)[0],201)
+        with server.connect() as db:
+            db.execute("UPDATE customer_tickets SET due_on=? WHERE status='OUVERT'",((date.today()-timedelta(days=1)).isoformat(),))
+        risk=json.loads(self.request('GET',path+'?status=RETARD',headers=auth)[1])
+        self.assertEqual(risk['total'],1)
+        self.assertTrue(risk['accounts'][0]['risk'])
+
     def test_prospect_client_conversion(self):
         path='/api/admin/crm/organizations'
         auth={'Authorization':'Bearer '+server.ADMIN_TOKEN,'Content-Type':'application/json'}
