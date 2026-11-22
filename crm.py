@@ -385,6 +385,39 @@ def saas_commercial(h,connect):
         db.execute('BEGIN')
         return h.json_response(200,saas_commercial_report(db,date.today().isoformat()))
 
+def partner_profitability(h,connect):
+    try:
+        query=parse_qs(urlsplit(h.path).query);page=int(query.get('page',['1'])[0]);q=query.get('q',[''])[0][:120].casefold();currency=query.get('currency',[''])[0]
+        if not 1<=page<=10000 or currency not in ('','EUR','USD','GNF','XOF'):raise ValueError()
+    except ValueError:return h.json_response(400,{'error':'Filtre invalide.'})
+    with connect() as db:
+        db.execute('BEGIN');groups={}
+        def group(pid,name,c):
+            return groups.setdefault((pid,c),{'partner_id':pid,'partner':name,'currency':c,'mission_received':Decimal(0),'saas_received':Decimal(0),'mission_expenses':Decimal(0),'commission_paid':Decimal(0),'commission_approved':Decimal(0),'commission_overlap':Decimal(0),'conflicts':0,'referrals':0})
+        for oid,pid,name,c in db.execute('''SELECT r.opportunity_id,o.id,o.name,r.currency FROM partner_referrals r JOIN partner_agreements a ON a.id=r.agreement_id JOIN organizations o ON o.id=a.partner_id'''):
+            group(pid,name,c)['referrals']+=1
+            for cur,amount in db.execute('''SELECT q.currency,p.amount FROM payments p JOIN invoices i ON i.id=p.invoice_id JOIN missions m ON m.id=i.mission_id JOIN quotes q ON q.id=m.quote_id WHERE m.opportunity_id=?''',(oid,)):
+                group(pid,name,cur)['mission_received']+=Decimal(amount)
+            for cur,amount in db.execute('''SELECT e.currency,e.amount FROM expenses e JOIN missions m ON m.id=e.mission_id WHERE m.opportunity_id=?''',(oid,)):
+                group(pid,name,cur)['mission_expenses']+=Decimal(amount)
+            for cur,amount in db.execute('''SELECT p.currency,r.amount FROM saas_receipts r JOIN saas_invoice_register i ON i.id=r.invoice_id JOIN saas_billing_preparations p ON p.subscription_id=i.subscription_id AND p.period_start=i.period_start JOIN saas_subscriptions s ON s.id=i.subscription_id JOIN saas_offers f ON f.id=s.offer_id WHERE f.opportunity_id=?''',(oid,)):
+                group(pid,name,cur)['saas_received']+=Decimal(amount)
+            g=group(pid,name,c)
+            for (amount,) in db.execute('SELECT amount FROM partner_commission_approvals WHERE opportunity_id=?',(oid,)):g['commission_approved']+=Decimal(amount)
+            for ref,amount in db.execute('SELECT reference,amount FROM partner_commission_payments WHERE opportunity_id=?',(oid,)):
+                n=Decimal(amount);g['commission_paid']+=n
+                expense=db.execute('SELECT e.currency,e.amount,m.opportunity_id FROM expenses e LEFT JOIN missions m ON m.id=e.mission_id WHERE e.reference=? COLLATE NOCASE',(ref,)).fetchone()
+                if expense:
+                    if expense[0]==c and Decimal(expense[1])==n and expense[2]==oid:g['commission_overlap']+=n
+                    else:g['conflicts']+=1
+        items=[]
+        for g in groups.values():
+            received=g['mission_received']+g['saas_received'];out=g['mission_expenses']+g['commission_paid']-g['commission_overlap'];net=received-out
+            g.update(received=received,documented_outflows=out,contribution=None if g['conflicts'] else net,contribution_pct=None if g['conflicts'] or not received else (net*100/received).quantize(Decimal('0.01'),rounding=ROUND_HALF_UP))
+            if (not currency or g['currency']==currency) and q in (g['partner']+' '+g['currency']).casefold():items.append(g)
+        items.sort(key=lambda g:(g['currency'],g['contribution'] is None,-(g['contribution'] or Decimal(0)),g['partner'].casefold(),g['partner_id']))
+    return h.json_response(200,{'items':[{k:str(v) if isinstance(v,Decimal) else v for k,v in g.items()} for g in items[(page-1)*10:page*10]],'total':len(items),'page':page,'as_of':date.today().isoformat()})
+
 def partner_finance(h,connect,method):
     today=date.today().isoformat()
     if method=='GET':
@@ -924,6 +957,7 @@ def handle(h,connect,method):
     if (h.headers.get("Origin") and h.headers["Origin"]!=h.expected_origin()) or h.headers.get("Sec-Fetch-Site")=="cross-site":
         return h.json_response(403,{"error":"Origine non autorisée."})
     path=urlsplit(h.path).path
+    if path=='/api/admin/direction/partner-profitability' and method=='GET':return partner_profitability(h,connect)
     if path in ('/api/admin/billing/partner-commissions','/api/admin/direction/partner-commissions'):
         return partner_finance(h,connect,method)
     if path in ('/api/admin/crm/partners','/api/admin/direction/partners'):
