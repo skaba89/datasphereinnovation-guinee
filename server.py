@@ -22,6 +22,7 @@ import contracts
 import billing
 import treasury
 import reporting
+import reconciliation
 import documents
 import alerts
 import notifications
@@ -84,6 +85,7 @@ def connect():
     contracts.schema(db)
     billing.schema(db)
     treasury.schema(db)
+    reconciliation.schema(db)
     accounts.schema(db)
     documents.schema(db)
     notifications.schema(db)
@@ -205,6 +207,7 @@ class Handler(SimpleHTTPRequestHandler):
         if re.fullmatch(r'/api/admin/documents(?:/[0-9a-f-]{36})?',urlsplit(self.path).path):return documents.handle(self,connect,'GET')
         if urlsplit(self.path).path=='/api/admin/direction/reporting':return reporting.handle(self,connect)
         if urlsplit(self.path).path=='/api/admin/direction/financial-consolidation':return reporting.consolidation(self,connect)
+        if urlsplit(self.path).path in ('/api/admin/billing/reconciliation','/api/admin/direction/reconciliation'):return reconciliation.handle(self,connect,'GET')
         if urlsplit(self.path).path=='/api/admin/direction/saas-monthly':return billing.handle(self,connect,'GET')
         if urlsplit(self.path).path in ('/api/admin/direction/saas-commercial','/api/admin/crm/saas-commercial','/api/admin/crm/saas-renewals','/api/admin/direction/saas-renewals','/api/admin/crm/customer-success','/api/admin/direction/customer-success','/api/admin/crm/customer-growth','/api/admin/direction/customer-growth','/api/admin/crm/partners','/api/admin/direction/partners','/api/admin/billing/partner-commissions','/api/admin/direction/partner-commissions','/api/admin/direction/partner-profitability','/api/admin/billing/partner-targets','/api/admin/direction/partner-targets','/api/admin/billing/partner-costs'):return crm.handle(self,connect,'GET')
         if urlsplit(self.path).path=='/api/admin/billing/expenses':return treasury.handle(self,connect,'GET')
@@ -407,6 +410,7 @@ class Handler(SimpleHTTPRequestHandler):
         if self.path in ('/api/auth/activate','/api/auth/login','/api/auth/logout','/api/auth/mfa-setup','/api/auth/mfa-confirm','/api/auth/revoke-others','/api/auth/change-password'):return authentication.handle(self,connect)
         if self.path=='/api/admin/my-activity':return own_activity.handle(self,connect,'POST')
         if self.path=='/api/admin/accounts':return accounts.handle(self,connect,'POST')
+        if self.path=='/api/admin/billing/reconciliation':return reconciliation.handle(self,connect,'POST')
         if re.fullmatch(r'/api/admin/billing/(?:milestones|invoices|payments|schedule|reminders|planned-expenses|saas-profitability|saas-budget)',self.path): return billing.handle(self,connect,'POST')
         if re.fullmatch(r'/api/admin/billing/saas-receivables/[0-9]{1,18}/(?:receipt|reminder)',self.path):return billing.handle(self,connect,'POST')
         if re.fullmatch(r'/api/admin/missions(?:/[0-9a-f-]{36}/(?:activity|team))?',self.path):

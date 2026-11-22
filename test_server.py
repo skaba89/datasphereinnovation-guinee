@@ -1396,6 +1396,49 @@ class IntakeTests(unittest.TestCase):
         self.assertIsNone(annual['EUR']['net_flow'])
         self.assertEqual(annual['USD']['net_flow'],'-12')
         self.assertIsNone(json.loads(self.request('GET',path,headers=auth)[1])['annual'][0]['net_flow'])
+        rec='/api/admin/billing/reconciliation'
+        def named(role,name):
+            code,body,_=self.request('POST','/api/admin/accounts',{'username':name,'role':role,'consultant_id':''},auth)
+            self.assertEqual(code,201)
+            a=json.loads(body)
+            if role=='ADMIN':
+                with server.connect() as db:db.execute("INSERT INTO mfa(account_id,secret,enabled) VALUES(?,'test',1)",(a['id'],))
+            return auth|{'Authorization':'Bearer '+a['key']}
+        proposer=named('COMPTABLE','reconcile.finance')
+        reviewer=named('ADMIN','reconcile.admin')
+        proposal={'reference':'VIR-1','treatment':'DOUBLON','reason':'Même transfert, date rectifiée','evidence':'JUST-1'}
+        proposal['fingerprint']=json.loads(self.request('GET',rec,headers=proposer)[1])['items'][0]['fingerprint']
+        self.assertEqual(self.request('POST',rec,proposal,auth)[0],403)
+        self.assertEqual(self.request('GET',rec)[0],401)
+        code,body,_=self.request('POST',rec,proposal,proposer)
+        self.assertEqual(code,201);rid=json.loads(body)['id']
+        self.assertEqual(self.request('POST',rec,proposal,proposer)[0],409)
+        decision={'request_id':rid,'decision':'APPROUVE','reason':'Pièce contrôlée'}
+        self.assertEqual(self.request('POST',rec,decision,proposer)[0],403)
+        self.assertEqual(self.request('POST',rec,decision,reviewer)[0],201)
+        self.assertEqual(self.request('POST',rec,decision,reviewer)[0],409)
+        data=json.loads(self.request('GET',rec,headers=reviewer)[1])
+        self.assertEqual(data['items'][0]['treatment'],'DOUBLON')
+        self.assertEqual(data['items'][0]['history'][0]['reviewer'],'reconcile.admin')
+        annual=json.loads(self.request('GET',path,headers=auth)[1])['annual'][0]
+        self.assertEqual((annual['net_flow'],annual['reviewed_conflicts']),('42.49',1))
+        with server.connect() as db:
+            self.assertEqual(db.execute("SELECT paid_date,amount FROM expenses WHERE id='pe'").fetchone(),('2001-01-01','5.00'))
+            db.execute("UPDATE expenses SET amount='6.00' WHERE id='pe'")
+        self.assertIsNone(json.loads(self.request('GET',path,headers=auth)[1])['annual'][0]['net_flow'])
+        self.assertEqual(self.request('POST',rec,proposal,proposer)[0],409)
+        proposal['treatment']='DISTINCTS'
+        proposal['fingerprint']=json.loads(self.request('GET',rec,headers=reviewer)[1])['items'][0]['fingerprint']
+        code,body,_=self.request('POST',rec,proposal,reviewer)
+        self.assertEqual(code,201);rid=json.loads(body)['id']
+        self.assertEqual(self.request('POST',rec,decision|{'request_id':rid},reviewer)[0],409)
+        reviewer2=named('ADMIN','reconcile.admin2')
+        self.assertEqual(self.request('POST',rec,decision|{'request_id':rid,'decision':'REJETE'},reviewer2)[0],201)
+        code,body,_=self.request('POST',rec,proposal,proposer)
+        self.assertEqual(code,201);rid=json.loads(body)['id']
+        self.assertEqual(self.request('POST',rec,decision|{'request_id':rid},reviewer)[0],201)
+        annual=json.loads(self.request('GET',path,headers=auth)[1])['annual'][0]
+        self.assertEqual((annual['net_flow'],annual['reviewed_conflicts']),('37.49',1))
 
     def test_customer_growth(self):
         from datetime import date,timedelta
