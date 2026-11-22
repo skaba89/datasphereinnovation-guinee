@@ -762,6 +762,28 @@ class BrowserTests(unittest.TestCase):
             expect(self.page.locator('#request [name=message]')).to_have_value(('Domaine : ' if path=='/' else 'Expertise: ')+label+' — ')
         self.assertEqual(self.errors, [])
 
+    def test_saas_simulator(self):
+        self.page.goto('/crm.html')
+        self.page.locator('#token').fill(server.ADMIN_TOKEN)
+        self.page.locator('#login-form button').click()
+        expect(self.page.locator('#workspace')).to_be_visible()
+        form=self.page.locator('#saas-form')
+        form.locator('[name=product_id]').select_option('minefleet360')
+        form.locator('[name=currency]').select_option('EUR')
+        for name,value in {'quantity':'10','unit_price':'25.50','options':'10','setup':'200','training':'100'}.items():
+            form.locator('[name='+name+']').fill(value)
+        form.get_by_role('button',name='Simuler les revenus').click()
+        expect(self.page.locator('#saas-results')).to_contain_text('3480.00 EUR')
+        form.locator('[name=cycle]').select_option('ANNUAL')
+        expect(self.page.locator('#saas-results .count')).to_have_count(0)
+        form.get_by_role('button',name='Simuler les revenus').click()
+        expect(self.page.locator('#saas-results')).to_contain_text('22.08 EUR')
+        form.get_by_role('button',name='Effacer la simulation').click()
+        expect(self.page.locator('#saas-results .count')).to_have_count(0)
+        self.page.set_viewport_size({'width':390,'height':844})
+        self.assertTrue(self.page.evaluate('document.documentElement.scrollWidth <= innerWidth + 1'))
+        self.assertEqual(self.errors,[])
+
     def test_quote_templates(self):
         self.page.goto('/quotes.html')
         self.page.locator('#token').fill(server.ADMIN_TOKEN)

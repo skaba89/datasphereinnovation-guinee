@@ -1298,6 +1298,27 @@ class IntakeTests(unittest.TestCase):
             self.assertEqual(db.execute("SELECT status FROM opportunity_events WHERE opportunity_id=? ORDER BY id",(oid,)).fetchall(),[("PROSPECT",),("EN_MISSION",)])
         self.assertEqual(self.request("GET","/crm.html")[0],200)
 
+    def test_saas_simulation(self):
+        path='/api/admin/crm/saas-simulation'
+        auth={'Authorization':'Bearer '+server.ADMIN_TOKEN,'Content-Type':'application/json'}
+        data={'product_id':'minefleet360','currency':'EUR','cycle':'MONTHLY','quantity':10,'unit_price':'25.50','options':'10','setup':'200','training':'100'}
+        self.assertEqual(self.request('POST',path,data)[0],401)
+        self.assertEqual(self.request('POST',path,data,auth|{'Origin':'https://invalid.example'})[0],403)
+        status,body,_=self.request('POST',path,data,auth)
+        self.assertEqual(status,200)
+        result=json.loads(body)
+        self.assertEqual(tuple(result[k] for k in ('recurring','mrr','arr','one_off','first_year')),('265.00','265.00','3180.00','300.00','3480.00'))
+        self.assertIs(result['simulation_only'],True)
+        status,body,_=self.request('POST',path,data|{'cycle':'ANNUAL'},auth)
+        self.assertEqual(status,200)
+        result=json.loads(body)
+        self.assertEqual((result['mrr'],result['arr'],result['first_year']),('22.08','265.00','565.00'))
+        for change in ({'quantity':True},{'quantity':0},{'quantity':100001},{'unit_price':'0'},{'unit_price':'NaN'},{'setup':'-1'},{'currency':'GNF'},{'product_id':'unknown'},{'cycle':'WEEKLY'},{'options':1},{'extra':'field'}):
+            self.assertEqual(self.request('POST',path,data|change,auth)[0],400,change)
+        with server.connect() as db:
+            self.assertEqual(db.execute('SELECT count(*) FROM quotes').fetchone()[0],0)
+            self.assertEqual(db.execute('SELECT count(*) FROM opportunities').fetchone()[0],0)
+
     def test_crm_qualification(self):
         path = '/api/admin/crm'
         auth = {'Authorization':'Bearer '+server.ADMIN_TOKEN, 'Content-Type':'application/json'}

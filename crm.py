@@ -3,6 +3,7 @@ import json
 import re
 import sqlite3
 import uuid
+from decimal import Decimal, ROUND_HALF_UP
 from datetime import date
 from urllib.parse import parse_qs, urlsplit
 
@@ -71,6 +72,34 @@ CATALOGUE = [
     }
 ]
 
+def simulate_saas(data):
+    """Indicative HT scenario; no subscription, contract or accounting write."""
+    fields = {'product_id','currency','cycle','quantity','unit_price','options','setup','training'}
+    if not isinstance(data,dict) or set(data)!=fields:
+        raise ValueError()
+    product = next((p for p in CATALOGUE if p['id']==data['product_id']),None)
+    if not product or data['currency'] not in ('GNF','XOF','EUR','USD') or data['cycle'] not in ('MONTHLY','ANNUAL'):
+        raise ValueError()
+    quantity=data['quantity']
+    if type(quantity) is not int or not 1<=quantity<=100000:
+        raise ValueError()
+    unit=Decimal('1' if data['currency'] in ('GNF','XOF') else '0.01')
+    amounts={}
+    for key in ('unit_price','options','setup','training'):
+        raw=data[key]
+        if not isinstance(raw,str) or not re.fullmatch(r'\d{1,12}(?:\.\d{1,2})?',raw):raise ValueError()
+        value=Decimal(raw)
+        if value!=value.quantize(unit):raise ValueError()
+        amounts[key]=value
+    if amounts['unit_price']<=0:raise ValueError()
+    recurring=quantity*amounts['unit_price']+amounts['options']
+    annual=recurring*(12 if data['cycle']=='MONTHLY' else 1)
+    one_off=amounts['setup']+amounts['training']
+    money=lambda x:str(x.quantize(unit,rounding=ROUND_HALF_UP))
+    return {'product_id':product['id'],'product_name':product['name'],'currency':data['currency'],'cycle':data['cycle'],
+            'recurring':money(recurring),'mrr':money(annual/12),'arr':money(annual),
+            'one_off':money(one_off),'first_year':money(annual+one_off),'simulation_only':True}
+
 def schema(db):
     db.execute("""CREATE TABLE IF NOT EXISTS opportunities (
       id TEXT PRIMARY KEY, company TEXT NOT NULL, contact TEXT NOT NULL,
@@ -105,6 +134,14 @@ def handle(h,connect,method):
     path=urlsplit(h.path).path
     if method=="GET" and path=="/api/admin/crm/catalogue":
         return h.json_response(200,{"items":CATALOGUE})
+    if method=='POST' and path=='/api/admin/crm/saas-simulation':
+        try:
+            length=int(h.headers.get('Content-Length','0'))
+            if not 0<length<=4000 or h.headers.get_content_type()!='application/json':raise ValueError()
+            result=simulate_saas(json.loads(h.rfile.read(length)))
+        except (ValueError,TypeError,UnicodeError):
+            return h.json_response(400,{'error':'Paramètres de simulation invalides.'})
+        return h.json_response(200,result)
     if method=="GET":
         query=parse_qs(urlsplit(h.path).query)
         status=query.get("status",[""])[0]
