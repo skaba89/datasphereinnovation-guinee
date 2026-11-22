@@ -176,6 +176,10 @@ def schema(db):
       month TEXT NOT NULL, currency TEXT NOT NULL, target TEXT NOT NULL,
       actor TEXT NOT NULL, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)''')
     db.execute('CREATE INDEX IF NOT EXISTS partner_targets_lookup ON partner_targets(partner_id,month,currency,id)')
+    db.execute('''CREATE TABLE IF NOT EXISTS partner_expense_allocations (
+      id TEXT PRIMARY KEY, expense_id TEXT NOT NULL REFERENCES expenses(id), partner_id TEXT NOT NULL REFERENCES organizations(id),
+      amount TEXT NOT NULL, reason TEXT NOT NULL, actor TEXT NOT NULL, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)''')
+    db.execute('CREATE INDEX IF NOT EXISTS partner_expense_lookup ON partner_expense_allocations(expense_id)')
     db.execute('''CREATE TABLE IF NOT EXISTS saas_billing_preparations (
       subscription_id TEXT NOT NULL REFERENCES saas_subscriptions(id), period_start TEXT NOT NULL,
       period_end TEXT NOT NULL, currency TEXT NOT NULL, recurring TEXT NOT NULL, one_off TEXT NOT NULL,
@@ -436,6 +440,46 @@ def partner_targets(h,connect,method):
         accounts.event(db,h.actor,'OBJECTIF_PARTENAIRE_REVISE',str(identifier))
     return h.json_response(201,{'id':identifier})
 
+def expense_allocated(db,expense_id):
+    return sum((Decimal(r[0]) for r in db.execute('SELECT amount FROM saas_expense_allocations WHERE expense_id=? UNION ALL SELECT amount FROM partner_expense_allocations WHERE expense_id=?',(expense_id,expense_id))),Decimal(0))
+
+def partner_costs(h,connect,method):
+    if method=='GET':
+        try:
+            query=parse_qs(urlsplit(h.path).query);page=int(query.get('page',['1'])[0]);q=query.get('q',[''])[0][:120].casefold()
+            if not 1<=page<=10000:raise ValueError()
+        except ValueError:return h.json_response(400,{'error':'Page invalide.'})
+        with connect() as db:
+            db.row_factory=sqlite3.Row;db.execute('BEGIN')
+            rows=[dict(r) for r in db.execute('SELECT a.*,o.name AS partner,e.reference,e.currency,e.paid_date FROM partner_expense_allocations a JOIN expenses e ON e.id=a.expense_id JOIN organizations o ON o.id=a.partner_id ORDER BY a.created_at DESC,a.id')]
+            rows=[r for r in rows if q in (r['partner']+' '+r['reference']+' '+r['currency']).casefold()]
+            options=[dict(r) for r in db.execute("SELECT id,name FROM organizations WHERE kind='PARTENAIRE' ORDER BY name_key,id")]
+            available=[]
+            for e in db.execute("SELECT id,reference,currency,amount FROM expenses WHERE mission_id='' AND NOT EXISTS(SELECT 1 FROM partner_commission_payments p WHERE p.reference=expenses.reference COLLATE NOCASE) ORDER BY reference"):
+                remaining=Decimal(e['amount'])-expense_allocated(db,e['id'])
+                if remaining>0:available.append({'reference':e['reference'],'currency':e['currency'],'remaining':str(remaining)})
+        return h.json_response(200,{'items':rows[(page-1)*10:page*10],'total':len(rows),'page':page,'partners':options,'available':available,'can_write':h.role in ('ADMIN','COMPTABLE')})
+    if h.role not in ('ADMIN','COMPTABLE'):return h.json_response(403,{'error':'Action réservée à la finance.'})
+    try:
+        size=int(h.headers.get('Content-Length','0'))
+        if not 0<size<=8000 or h.headers.get_content_type()!='application/json':raise ValueError()
+        v=json.loads(h.rfile.read(size))
+        if not isinstance(v,dict) or set(v)!={'reference','partner_id','amount','reason'} or any(not isinstance(x,str) or not x.strip() or len(x)>180 or any(ord(c)<32 for c in x) for x in v.values()):raise ValueError()
+        if str(uuid.UUID(v['partner_id']))!=v['partner_id']:raise ValueError()
+        with connect() as db:
+            db.execute('BEGIN IMMEDIATE')
+            e=db.execute('SELECT id,currency,amount,mission_id FROM expenses WHERE reference=? COLLATE NOCASE',(v['reference'].strip(),)).fetchone()
+            if not e:return h.json_response(404,{'error':'Décaissement introuvable.'})
+            if e[3] or db.execute('SELECT 1 FROM partner_commission_payments WHERE reference=? COLLATE NOCASE',(v['reference'].strip(),)).fetchone():return h.json_response(409,{'error':'Décaissement déjà lié à une mission ou commission.'})
+            if not db.execute("SELECT 1 FROM organizations WHERE id=? AND kind='PARTENAIRE'",(v['partner_id'],)).fetchone():return h.json_response(409,{'error':'Partenaire requis.'})
+            amount=saas_money(v['amount'],e[1])
+            if amount<=0:raise ValueError()
+            if expense_allocated(db,e[0])+amount>Decimal(e[2]):return h.json_response(409,{'error':'Montant supérieur au solde disponible.'})
+            identifier=str(uuid.uuid4());db.execute('INSERT INTO partner_expense_allocations(id,expense_id,partner_id,amount,reason,actor) VALUES(?,?,?,?,?,?)',(identifier,e[0],v['partner_id'],str(amount),v['reason'].strip(),h.actor))
+            accounts.event(db,h.actor,'COUT_PARTENAIRE_AFFECTE',identifier)
+        return h.json_response(201,{'id':identifier})
+    except (ValueError,TypeError,UnicodeError):return h.json_response(400,{'error':'Données invalides.'})
+
 def partner_profitability(h,connect):
     try:
         query=parse_qs(urlsplit(h.path).query);page=int(query.get('page',['1'])[0]);q=query.get('q',[''])[0][:120].casefold();currency=query.get('currency',[''])[0]
@@ -461,9 +505,12 @@ def partner_profitability(h,connect):
                 if expense:
                     if expense[0]==c and Decimal(expense[1])==n and expense[2]==oid:g['commission_overlap']+=n
                     else:g['conflicts']+=1
+        for pid,name,cur,amount in db.execute('SELECT a.partner_id,o.name,e.currency,a.amount FROM partner_expense_allocations a JOIN organizations o ON o.id=a.partner_id JOIN expenses e ON e.id=a.expense_id'):
+            g=group(pid,name,cur);g['allocated_costs']=g.get('allocated_costs',Decimal(0))+Decimal(amount)
         items=[]
         for g in groups.values():
-            received=g['mission_received']+g['saas_received'];out=g['mission_expenses']+g['commission_paid']-g['commission_overlap'];net=received-out
+            g.setdefault('allocated_costs',Decimal(0))
+            received=g['mission_received']+g['saas_received'];out=g['mission_expenses']+g['commission_paid']-g['commission_overlap']+g['allocated_costs'];net=received-out
             g.update(received=received,documented_outflows=out,contribution=None if g['conflicts'] else net,contribution_pct=None if g['conflicts'] or not received else (net*100/received).quantize(Decimal('0.01'),rounding=ROUND_HALF_UP))
             if (not currency or g['currency']==currency) and q in (g['partner']+' '+g['currency']).casefold():items.append(g)
         items.sort(key=lambda g:(g['currency'],g['contribution'] is None,-(g['contribution'] or Decimal(0)),g['partner'].casefold(),g['partner_id']))
@@ -525,6 +572,7 @@ def partner_finance(h,connect,method):
                 amount=saas_money(data['amount'],row[0])
                 if amount<=0:raise ValueError()
             except ValueError:return h.json_response(400,{'error':'Montant invalide.'})
+            if db.execute('SELECT 1 FROM expenses e WHERE e.reference=? COLLATE NOCASE AND (EXISTS(SELECT 1 FROM partner_expense_allocations a WHERE a.expense_id=e.id) OR EXISTS(SELECT 1 FROM saas_expense_allocations a WHERE a.expense_id=e.id))',(reference,)).fetchone():return h.json_response(409,{'error':'Référence déjà affectée à des charges mutualisées.'})
             paid=sum((Decimal(p[0]) for p in db.execute('SELECT amount FROM partner_commission_payments WHERE opportunity_id=?',(oid,))),Decimal(0))
             if paid+amount>Decimal(approval[0]) or db.execute('SELECT 1 FROM partner_commission_payments WHERE reference=?',(reference,)).fetchone():return h.json_response(409,{'error':'Surpaiement ou référence déjà utilisée.'})
             db.execute('INSERT INTO partner_commission_payments VALUES(?,?,?,?,?,?)',(str(uuid.uuid4()),oid,reference,str(amount),paid_on,h.actor));event='COMMISSION_PARTENAIRE_REGLEE'
@@ -1008,6 +1056,7 @@ def handle(h,connect,method):
     if (h.headers.get("Origin") and h.headers["Origin"]!=h.expected_origin()) or h.headers.get("Sec-Fetch-Site")=="cross-site":
         return h.json_response(403,{"error":"Origine non autorisée."})
     path=urlsplit(h.path).path
+    if path=='/api/admin/billing/partner-costs':return partner_costs(h,connect,method)
     if path in ('/api/admin/billing/partner-targets','/api/admin/direction/partner-targets'):return partner_targets(h,connect,method)
     if path=='/api/admin/direction/partner-profitability' and method=='GET':return partner_profitability(h,connect)
     if path in ('/api/admin/billing/partner-commissions','/api/admin/direction/partner-commissions'):
