@@ -1342,6 +1342,19 @@ class IntakeTests(unittest.TestCase):
         self.assertEqual(records['total'],1)
         self.assertEqual(records['items'][0]['status'],'PLANIFIE')
         self.assertEqual(records['items'][0]['estimate'],result['estimate'])
+        billing_path=subscriptions+'/'+records['items'][0]['id']+'/billing'
+        self.assertEqual(self.request('GET',billing_path)[0],401)
+        schedule=json.loads(self.request('GET',billing_path,headers=auth)[1])
+        self.assertEqual(schedule['total'],1)
+        self.assertEqual(schedule['items'][0]['total_ht'],'250.00')
+        period={'period_start':'2099-01-01'}
+        self.assertEqual(self.request('POST',billing_path,period,commercial)[0],403)
+        self.assertEqual(self.request('POST',billing_path,period|{'period_start':'2099-01-02'},auth)[0],400)
+        self.assertEqual(self.request('POST',billing_path,period,auth)[0],201)
+        self.assertEqual(self.request('POST',billing_path,period,auth)[0],409)
+        self.assertTrue(json.loads(self.request('GET',billing_path,headers=auth)[1])['items'][0]['prepared'])
+        with server.connect() as db:
+            self.assertEqual(db.execute('SELECT count(*) FROM invoices').fetchone()[0],0)
         with server.connect() as db:
             db.execute("UPDATE saas_subscriptions SET starts_on='2000-01-01' WHERE offer_id=?",(offer,))
         self.assertEqual(json.loads(self.request('GET',subscriptions,headers=auth)[1])['items'][0]['status'],'ACTIF')
@@ -1386,6 +1399,17 @@ class IntakeTests(unittest.TestCase):
         self.assertEqual(snapshot['metrics']['counts']['PLANIFIE'],1)
         self.assertEqual(snapshot['items'][0]['successor_id'],snapshot['items'][1]['id'])
         self.assertEqual(snapshot['items'][1]['predecessor_id'],predecessor)
+
+    def test_saas_billing_boundaries(self):
+        from crm import subscription_schedule
+        estimate={'cycle':'MONTHLY','currency':'EUR','recurring':'25.50','one_off':'10.00'}
+        schedule=subscription_schedule('2028-01-31','2028-03-31',estimate)
+        self.assertEqual([p['period_end'] for p in schedule],['2028-02-29','2028-03-31'])
+        self.assertEqual([p['one_off'] for p in schedule],['10.00','0'])
+        self.assertIsNone(subscription_schedule('2028-01-31','2028-03-30',estimate))
+        annual=subscription_schedule('2028-02-29','2030-02-28',estimate|{'cycle':'ANNUAL'})
+        self.assertEqual([p['period_end'] for p in annual],['2029-02-28','2030-02-28'])
+        self.assertIsNone(subscription_schedule('2028-01-01','2040-01-01',estimate))
 
     def test_saas_offer_drafts(self):
         path='/api/admin/crm/saas-offers'

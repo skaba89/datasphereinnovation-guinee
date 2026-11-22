@@ -3,6 +3,7 @@ import json
 import re
 import sqlite3
 import uuid
+import calendar
 import accounts
 from decimal import Decimal, ROUND_HALF_UP
 from datetime import date, timedelta
@@ -129,6 +130,58 @@ def schema(db):
     db.execute('''CREATE TABLE IF NOT EXISTS saas_subscription_renewals (
       predecessor_id TEXT PRIMARY KEY REFERENCES saas_subscriptions(id),
       successor_id TEXT NOT NULL UNIQUE REFERENCES saas_subscriptions(id))''')
+    db.execute('''CREATE TABLE IF NOT EXISTS saas_billing_preparations (
+      subscription_id TEXT NOT NULL REFERENCES saas_subscriptions(id), period_start TEXT NOT NULL,
+      period_end TEXT NOT NULL, currency TEXT NOT NULL, recurring TEXT NOT NULL, one_off TEXT NOT NULL,
+      actor TEXT NOT NULL, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      PRIMARY KEY(subscription_id,period_start))''')
+
+def billing_boundary(anchor,months):
+    year,month=divmod(anchor.year*12+anchor.month-1+months,12)
+    return date(year,month+1,min(anchor.day,calendar.monthrange(year,month+1)[1]))
+
+def subscription_schedule(start,end,estimate):
+    anchor=date.fromisoformat(start);finish=date.fromisoformat(end)
+    step=1 if estimate['cycle']=='MONTHLY' else 12
+    months=(finish.year-anchor.year)*12+finish.month-anchor.month
+    count=(months+step-1)//step
+    if count<1 or count>120 or count*step!=months or billing_boundary(anchor,count*step)!=finish:
+        return None
+    return [{'period_start':billing_boundary(anchor,i*step).isoformat(),
+             'period_end':billing_boundary(anchor,(i+1)*step).isoformat(),
+             'currency':estimate['currency'],'recurring':estimate['recurring'],
+             'one_off':estimate['one_off'] if i==0 else '0'} for i in range(count)]
+
+def saas_billing(h,connect,method,identifier):
+    if method=='POST' and h.role!='ADMIN':return h.json_response(403,{'error':'Préparation réservée à un administrateur.'})
+    try:
+        if method=='GET':
+            page=int(parse_qs(urlsplit(h.path).query).get('page',['1'])[0])
+            if not 1<=page<=12:raise ValueError()
+        else:
+            length=int(h.headers.get('Content-Length','0'))
+            if not 0<length<=1000 or h.headers.get_content_type()!='application/json':raise ValueError()
+            data=json.loads(h.rfile.read(length))
+            if not isinstance(data,dict) or set(data)!={'period_start'} or not isinstance(data['period_start'],str) or date.fromisoformat(data['period_start']).isoformat()!=data['period_start']:raise ValueError()
+    except (ValueError,TypeError,UnicodeError):return h.json_response(400,{'error':'Période ou page invalide.'})
+    with connect() as db:
+        db.execute('BEGIN IMMEDIATE' if method=='POST' else 'BEGIN')
+        row=db.execute('SELECT s.starts_on,s.ends_on,f.estimate FROM saas_subscriptions s JOIN saas_offers f ON f.id=s.offer_id WHERE s.id=?',(identifier,)).fetchone()
+        if not row:return h.json_response(404,{'error':'Abonnement introuvable.'})
+        schedule=subscription_schedule(row[0],row[1],json.loads(row[2]))
+        if schedule is None:return h.json_response(409,{'error':'Durée non alignée sur le cycle ou supérieure à 120 périodes : échéancier à convenir manuellement.'})
+        if method=='GET':
+            prepared={r[0] for r in db.execute('SELECT period_start FROM saas_billing_preparations WHERE subscription_id=?',(identifier,))}
+            for item in schedule:
+                item['prepared']=item['period_start'] in prepared
+                item['total_ht']=str(Decimal(item['recurring'])+Decimal(item['one_off']))
+            return h.json_response(200,{'items':schedule[(page-1)*10:page*10],'total':len(schedule),'page':page,'can_prepare':h.role=='ADMIN','prepared_count':len(prepared)})
+        item=next((p for p in schedule if p['period_start']==data['period_start']),None)
+        if not item:return h.json_response(400,{'error':'Période hors échéancier.'})
+        if db.execute('SELECT 1 FROM saas_billing_preparations WHERE subscription_id=? AND period_start=?',(identifier,item['period_start'])).fetchone():return h.json_response(409,{'error':'Période déjà préparée.'})
+        db.execute('INSERT INTO saas_billing_preparations(subscription_id,period_start,period_end,currency,recurring,one_off,actor) VALUES(?,?,?,?,?,?,?)',(identifier,item['period_start'],item['period_end'],item['currency'],item['recurring'],item['one_off'],h.actor))
+        accounts.event(db,h.actor,'ECHEANCE_SAAS_PREPAREE',identifier)
+    return h.json_response(201,{'subscription_id':identifier,'period_start':item['period_start'],'status':'PREPAREE'})
 
 def subscription_status(start,end,today):
     return 'PLANIFIE' if today<start else 'EXPIRE' if today>=end else 'ACTIF'
@@ -304,6 +357,8 @@ def handle(h,connect,method):
     if (h.headers.get("Origin") and h.headers["Origin"]!=h.expected_origin()) or h.headers.get("Sec-Fetch-Site")=="cross-site":
         return h.json_response(403,{"error":"Origine non autorisée."})
     path=urlsplit(h.path).path
+    billing_route=re.fullmatch(r'/api/admin/crm/saas-subscriptions/([0-9a-f-]{36})/billing',path)
+    if billing_route and method in ('GET','POST'):return saas_billing(h,connect,method,billing_route.group(1))
     transition=re.fullmatch(r'/api/admin/crm/saas-offers/([0-9a-f-]{36})/decision',path)
     if method=='POST' and transition:return saas_transition(h,connect,transition.group(1))
     if path=='/api/admin/crm/saas-offers':
