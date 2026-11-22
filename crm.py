@@ -135,6 +135,70 @@ def schema(db):
       period_end TEXT NOT NULL, currency TEXT NOT NULL, recurring TEXT NOT NULL, one_off TEXT NOT NULL,
       actor TEXT NOT NULL, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
       PRIMARY KEY(subscription_id,period_start))''')
+    db.execute('''CREATE TABLE IF NOT EXISTS saas_invoice_register (
+      id INTEGER PRIMARY KEY AUTOINCREMENT, subscription_id TEXT NOT NULL, period_start TEXT NOT NULL,
+      reference TEXT NOT NULL UNIQUE COLLATE NOCASE, issued_on TEXT NOT NULL, due_on TEXT NOT NULL,
+      tax TEXT NOT NULL, actor TEXT NOT NULL, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE(subscription_id,period_start), FOREIGN KEY(subscription_id,period_start)
+      REFERENCES saas_billing_preparations(subscription_id,period_start))''')
+    db.execute('''CREATE TABLE IF NOT EXISTS saas_receipts (
+      id TEXT PRIMARY KEY, invoice_id INTEGER NOT NULL REFERENCES saas_invoice_register(id),
+      reference TEXT NOT NULL UNIQUE COLLATE NOCASE, amount TEXT NOT NULL, paid_on TEXT NOT NULL,
+      actor TEXT NOT NULL, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)''')
+
+def saas_invoice_details(db,subscription_id,period_start,today):
+    db.row_factory=sqlite3.Row
+    row=db.execute('''SELECT i.*,p.currency,p.recurring,p.one_off FROM saas_invoice_register i
+      JOIN saas_billing_preparations p ON p.subscription_id=i.subscription_id AND p.period_start=i.period_start
+      WHERE i.subscription_id=? AND i.period_start=?''',(subscription_id,period_start)).fetchone()
+    if not row:return None
+    result=dict(row)
+    receipts=[dict(r) for r in db.execute('SELECT reference,amount,paid_on FROM saas_receipts WHERE invoice_id=? ORDER BY paid_on,id',(row['id'],))]
+    total=Decimal(row['recurring'])+Decimal(row['one_off'])+Decimal(row['tax'])
+    paid=sum((Decimal(r['amount']) for r in receipts),Decimal(0))
+    balance=total-paid
+    result.update(total=str(total),paid=str(paid),balance=str(balance),receipts=receipts,
+                  status='REGLEE' if balance==0 else 'EN_RETARD' if row['due_on']<today else 'PARTIELLE' if paid else 'OUVERTE')
+    return result
+
+def saas_money(value,currency):
+    if not isinstance(value,str) or not re.fullmatch(r'\d{1,18}(?:\.\d{1,2})?',value):raise ValueError()
+    amount=Decimal(value)
+    unit=Decimal('1' if currency in ('GNF','XOF') else '0.01')
+    if amount!=amount.quantize(unit):raise ValueError()
+    return amount.quantize(unit)
+
+def saas_register_invoice(h,db,identifier,data):
+    action=data.get('action');period=data.get('period_start')
+    try:
+        if not isinstance(period,str) or date.fromisoformat(period).isoformat()!=period:raise ValueError()
+        keys={'action','period_start','reference','issued_on','due_on','tax'} if action=='invoice' else {'action','period_start','reference','paid_on','amount'} if action=='receipt' else set()
+        if set(data)!=keys:raise ValueError()
+        reference=data['reference']
+        if not isinstance(reference,str) or not reference.strip() or len(reference)>120 or any(ord(c)<32 for c in reference):raise ValueError()
+        reference=reference.strip()
+        fields=('issued_on','due_on') if action=='invoice' else ('paid_on',)
+        if any(not isinstance(data[k],str) or date.fromisoformat(data[k]).isoformat()!=data[k] for k in fields):raise ValueError()
+        today=date.today().isoformat()
+        if action=='invoice' and (data['issued_on']>today or data['due_on']<data['issued_on']):raise ValueError()
+        if action=='receipt' and data['paid_on']>today:raise ValueError()
+    except (ValueError,TypeError):return h.json_response(400,{'error':'Référence ou dates invalides.'})
+    preparation=db.execute('SELECT currency FROM saas_billing_preparations WHERE subscription_id=? AND period_start=?',(identifier,period)).fetchone()
+    if not preparation:return h.json_response(409,{'error':'Échéance non préparée.'})
+    invoice=saas_invoice_details(db,identifier,period,today)
+    try:
+        if action=='invoice':
+            tax=saas_money(data['tax'],preparation[0])
+            if invoice or db.execute('SELECT 1 FROM saas_invoice_register WHERE reference=? COLLATE NOCASE',(reference,)).fetchone():return h.json_response(409,{'error':'Facture ou référence déjà enregistrée.'})
+            db.execute('INSERT INTO saas_invoice_register(subscription_id,period_start,reference,issued_on,due_on,tax,actor) VALUES(?,?,?,?,?,?,?)',(identifier,period,reference,data['issued_on'],data['due_on'],str(tax),h.actor))
+        else:
+            amount=saas_money(data['amount'],preparation[0])
+            if not invoice or data['paid_on']<invoice['issued_on'] or amount<=0 or amount>Decimal(invoice['balance']):return h.json_response(409,{'error':'Facture absente, date ou montant incompatible avec le solde.'})
+            if db.execute('SELECT 1 FROM saas_receipts WHERE reference=? COLLATE NOCASE',(reference,)).fetchone():return h.json_response(409,{'error':'Référence de règlement déjà enregistrée.'})
+            db.execute('INSERT INTO saas_receipts(id,invoice_id,reference,amount,paid_on,actor) VALUES(?,?,?,?,?,?)',(str(uuid.uuid4()),invoice['id'],reference,str(amount),data['paid_on'],h.actor))
+    except ValueError:return h.json_response(400,{'error':'Montant invalide pour cette devise.'})
+    accounts.event(db,h.actor,'FACTURE_SAAS_RAPPROCHEE' if action=='invoice' else 'REGLEMENT_SAAS_ENREGISTRE',identifier)
+    return h.json_response(201,saas_invoice_details(db,identifier,period,today))
 
 def billing_boundary(anchor,months):
     year,month=divmod(anchor.year*12+anchor.month-1+months,12)
@@ -162,12 +226,13 @@ def saas_billing(h,connect,method,identifier):
             length=int(h.headers.get('Content-Length','0'))
             if not 0<length<=1000 or h.headers.get_content_type()!='application/json':raise ValueError()
             data=json.loads(h.rfile.read(length))
-            if not isinstance(data,dict) or set(data)!={'period_start'} or not isinstance(data['period_start'],str) or date.fromisoformat(data['period_start']).isoformat()!=data['period_start']:raise ValueError()
+            if not isinstance(data,dict) or ('action' not in data and (set(data)!={'period_start'} or not isinstance(data['period_start'],str) or date.fromisoformat(data['period_start']).isoformat()!=data['period_start'])):raise ValueError()
     except (ValueError,TypeError,UnicodeError):return h.json_response(400,{'error':'Période ou page invalide.'})
     with connect() as db:
         db.execute('BEGIN IMMEDIATE' if method=='POST' else 'BEGIN')
         row=db.execute('SELECT s.starts_on,s.ends_on,f.estimate FROM saas_subscriptions s JOIN saas_offers f ON f.id=s.offer_id WHERE s.id=?',(identifier,)).fetchone()
         if not row:return h.json_response(404,{'error':'Abonnement introuvable.'})
+        if method=='POST' and 'action' in data:return saas_register_invoice(h,db,identifier,data)
         schedule=subscription_schedule(row[0],row[1],json.loads(row[2]))
         if schedule is None:return h.json_response(409,{'error':'Durée non alignée sur le cycle ou supérieure à 120 périodes : échéancier à convenir manuellement.'})
         if method=='GET':
@@ -175,6 +240,7 @@ def saas_billing(h,connect,method,identifier):
             for item in schedule:
                 item['prepared']=item['period_start'] in prepared
                 item['total_ht']=str(Decimal(item['recurring'])+Decimal(item['one_off']))
+                item['invoice']=saas_invoice_details(db,identifier,item['period_start'],date.today().isoformat())
             return h.json_response(200,{'items':schedule[(page-1)*10:page*10],'total':len(schedule),'page':page,'can_prepare':h.role=='ADMIN','prepared_count':len(prepared)})
         item=next((p for p in schedule if p['period_start']==data['period_start']),None)
         if not item:return h.json_response(400,{'error':'Période hors échéancier.'})
@@ -202,7 +268,17 @@ def subscription_metrics(db,today):
         group['mrr']+=Decimal(estimate['mrr']);group['arr']+=Decimal(estimate['arr'])
     for group in groups.values():
         for field in ('mrr','arr'):group[field]=format(group[field],'.2f')
-    return {'as_of':today,'counts':counts,'groups':[groups[k] for k in sorted(groups)]}
+    invoiced={}
+    for sid,period,raw in db.execute('''SELECT i.subscription_id,i.period_start,f.estimate FROM saas_invoice_register i
+      JOIN saas_subscriptions s ON s.id=i.subscription_id JOIN saas_offers f ON f.id=s.offer_id''').fetchall():
+        invoice=saas_invoice_details(db,sid,period,today)
+        estimate=json.loads(raw);key=(estimate['product_id'],invoice['currency'])
+        group=invoiced.setdefault(key,{'product_name':estimate['product_name'],'currency':key[1],'invoiced':Decimal(0),'received':Decimal(0),'outstanding':Decimal(0),'overdue':Decimal(0)})
+        for field,source in (('invoiced','total'),('received','paid'),('outstanding','balance')):group[field]+=Decimal(invoice[source])
+        if invoice['status']=='EN_RETARD':group['overdue']+=Decimal(invoice['balance'])
+    for group in invoiced.values():
+        for key in ('invoiced','received','outstanding','overdue'):group[key]=str(group[key])
+    return {'as_of':today,'counts':counts,'groups':[groups[k] for k in sorted(groups)],'billing_groups':[invoiced[k] for k in sorted(invoiced)]}
 
 def saas_subscriptions(h,connect,method):
     if method=='GET':
