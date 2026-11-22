@@ -214,7 +214,7 @@ class Handler(SimpleHTTPRequestHandler):
         if urlsplit(self.path).path=='/api/auth/me':return authentication.me(self,connect)
         if urlsplit(self.path).path=='/api/admin/my-activity':return own_activity.handle(self,connect,'GET')
         if urlsplit(self.path).path in ('/api/admin/accounts','/api/admin/audit'):return accounts.handle(self,connect,'GET')
-        if re.fullmatch(r'/api/admin/billing(?:/milestones|/contracts|/schedule|/receivables|/forecast|/planned-expenses|/saas-receivables|/saas-profitability)?',urlsplit(self.path).path): return billing.handle(self,connect,'GET')
+        if re.fullmatch(r'/api/admin/billing(?:/milestones|/contracts|/schedule|/receivables|/forecast|/planned-expenses|/saas-receivables|/saas-profitability|/saas-monthly)?',urlsplit(self.path).path): return billing.handle(self,connect,'GET')
         if re.fullmatch(r'/api/admin/missions(?:/eligible|/[0-9a-f-]{36}/activity)?',urlsplit(self.path).path):
             return missions.handle(self,connect,'GET')
         if urlsplit(self.path).path == "/api/admin/direction":

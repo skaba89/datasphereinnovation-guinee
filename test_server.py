@@ -1415,6 +1415,27 @@ class IntakeTests(unittest.TestCase):
         self.assertEqual(result['groups'][0]['SUPPORT'],'20.00')
         self.assertEqual(json.loads(self.request('GET','/api/admin/direction',headers=auth)[1])['saas_profitability'],result['groups'])
         self.assertEqual(result['total'],2)
+        monthly='/api/admin/billing/saas-monthly'
+        month=day[:7]
+        query='?start='+month+'&end='+month+'&product='+inputs['product_id']+'&currency=EUR'
+        report=json.loads(self.request('GET',monthly+query,headers=finance)[1])
+        self.assertEqual(len(report['items']),1)
+        self.assertEqual(report['items'][0]['cash_contribution'],'180.00')
+        self.assertEqual(report['items'][0]['invoiced_ht'],'250.00')
+        self.assertEqual(report['items'][0]['allocated'],'80.00')
+        self.assertEqual(self.request('GET',monthly+query,headers=commercial)[0],403)
+        self.assertEqual(self.request('GET',monthly+'?start=2000-01&end=2003-01',headers=finance)[0],400)
+        self.assertEqual(self.request('GET',monthly+'?start=2026-13',headers=finance)[0],400)
+        self.assertEqual(json.loads(self.request('GET',monthly+query.replace('currency=EUR','currency=USD'),headers=finance)[1])['items'],[])
+        # A receipt is attributed to its payment month, not the invoice month.
+        with server.connect() as db:
+            db.execute("UPDATE saas_receipts SET paid_on='2000-01-01' WHERE reference='VIR-TEST-135'")
+        historic=json.loads(self.request('GET',monthly+'?start=2000-01&end=2000-01',headers=finance)[1])['items']
+        self.assertEqual(len(historic),1)
+        self.assertEqual(historic[0]['received_ttc'],'160.00')
+        self.assertEqual(historic[0]['invoiced_ht'],'0')
+        with server.connect() as db:
+            db.execute("UPDATE saas_receipts SET paid_on=? WHERE reference='VIR-TEST-135'",(day,))
         self.assertEqual(self.request('GET',cost,headers=commercial)[0],403)
         self.assertEqual(json.loads(self.request('GET',cost+'?q=absent',headers=finance)[1])['total'],0)
         self.assertEqual(self.request('POST',collection_path+'/reminder',{'channel':'EMAIL','note':'Relance fictive'},finance)[0],409)
