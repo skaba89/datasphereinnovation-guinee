@@ -122,6 +122,51 @@ def schema(db):
       offer_id TEXT NOT NULL REFERENCES saas_offers(id), version INTEGER NOT NULL,
       status TEXT NOT NULL, actor TEXT NOT NULL, evidence TEXT NOT NULL,
       created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, PRIMARY KEY(offer_id,version))''')
+    db.execute('''CREATE TABLE IF NOT EXISTS saas_subscriptions (
+      id TEXT PRIMARY KEY, offer_id TEXT NOT NULL UNIQUE REFERENCES saas_offers(id),
+      starts_on TEXT NOT NULL, ends_on TEXT NOT NULL, reference TEXT NOT NULL,
+      actor TEXT NOT NULL, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)''')
+
+def saas_subscriptions(h,connect,method):
+    if method=='GET':
+        query=parse_qs(urlsplit(h.path).query)
+        try:
+            page=int(query.get('page',['1'])[0]);q=query.get('q',[''])[0][:120]
+            if not 1<=page<=10000:raise ValueError()
+        except ValueError:return h.json_response(400,{'error':'Page invalide.'})
+        with connect() as db:
+            db.row_factory=sqlite3.Row
+            source=''' FROM saas_subscriptions s JOIN saas_offers f ON f.id=s.offer_id
+                JOIN opportunities o ON o.id=f.opportunity_id
+                WHERE instr(lower(f.title||' '||o.company||' '||s.reference),lower(?))>0 OR ?='' '''
+            total=db.execute('SELECT count(*)'+source,(q,q)).fetchone()[0]
+            rows=[dict(r) for r in db.execute('SELECT s.*,f.title,f.estimate,o.company'+source+' ORDER BY s.starts_on DESC,s.id LIMIT 10 OFFSET ?',(q,q,(page-1)*10))]
+            today=date.today().isoformat()
+            for row in rows:
+                row['estimate']=json.loads(row['estimate'])
+                row['status']='PLANIFIE' if today<row['starts_on'] else 'EXPIRE' if today>=row['ends_on'] else 'ACTIF'
+        return h.json_response(200,{'items':rows,'total':total,'page':page})
+    if h.role!='ADMIN':return h.json_response(403,{'error':'Enregistrement réservé à un administrateur.'})
+    try:
+        length=int(h.headers.get('Content-Length','0'))
+        if not 0<length<=4000 or h.headers.get_content_type()!='application/json':raise ValueError()
+        data=json.loads(h.rfile.read(length))
+        if not isinstance(data,dict) or set(data)!={'offer_id','starts_on','ends_on','reference'}:raise ValueError()
+        oid,start,end,reference=(data[k] for k in ('offer_id','starts_on','ends_on','reference'))
+        if not all(isinstance(v,str) for v in (oid,start,end,reference)) or str(uuid.UUID(oid))!=oid:raise ValueError()
+        if any(date.fromisoformat(d).isoformat()!=d for d in (start,end)) or start>=end:raise ValueError()
+        if not reference.strip() or len(reference)>500 or '\x00' in reference:raise ValueError()
+    except (ValueError,TypeError,UnicodeError):return h.json_response(400,{'error':'Dates ou référence contractuelle invalides.'})
+    with connect() as db:
+        db.execute('BEGIN IMMEDIATE')
+        if not db.execute('SELECT 1 FROM saas_offers WHERE id=?',(oid,)).fetchone():return h.json_response(404,{'error':'Offre introuvable.'})
+        event=db.execute('SELECT status,created_at FROM saas_offer_events WHERE offer_id=? ORDER BY version DESC LIMIT 1',(oid,)).fetchone()
+        if not event or event[0]!='ACCEPTEE' or start<event[1][:10]:return h.json_response(409,{'error':'Offre non acceptée ou début antérieur à son acceptation.'})
+        if db.execute('SELECT 1 FROM saas_subscriptions WHERE offer_id=?',(oid,)).fetchone():return h.json_response(409,{'error':'Abonnement déjà enregistré.'})
+        identifier=str(uuid.uuid4())
+        db.execute('INSERT INTO saas_subscriptions(id,offer_id,starts_on,ends_on,reference,actor) VALUES(?,?,?,?,?,?)',(identifier,oid,start,end,reference.strip(),h.actor))
+        accounts.event(db,h.actor,'ABONNEMENT_SAAS_ENREGISTRE',identifier)
+    return h.json_response(201,{'id':identifier,'offer_id':oid})
 
 SAAS_TRANSITIONS={'BROUILLON':('VALIDEE','ANNULEE'),'VALIDEE':('TRANSMISE','ANNULEE'),
                   'TRANSMISE':('ACCEPTEE','REFUSEE','ANNULEE')}
@@ -170,6 +215,9 @@ def saas_offers(h,connect,method):
                 history=[dict(e) for e in db.execute('SELECT version,status,actor,evidence,created_at FROM saas_offer_events WHERE offer_id=? ORDER BY version',(row['id'],))]
                 row['history']=history;row['status']=history[-1]['status'] if history else 'BROUILLON';row['version']=history[-1]['version'] if history else 1
                 row['actions']=saas_actions(row['status'],row['valid_until'],h.role)
+                subscription=db.execute('SELECT id FROM saas_subscriptions WHERE offer_id=?',(row['id'],)).fetchone()
+                row['subscription_id']=subscription[0] if subscription else None
+                row['can_register_subscription']=h.role=='ADMIN' and row['status']=='ACCEPTEE' and not subscription
         return h.json_response(200,{'items':rows,'total':total,'page':page})
     try:
         length=int(h.headers.get('Content-Length','0'))
@@ -214,6 +262,8 @@ def handle(h,connect,method):
     if method=='POST' and transition:return saas_transition(h,connect,transition.group(1))
     if path=='/api/admin/crm/saas-offers':
         return saas_offers(h,connect,method)
+    if path=='/api/admin/crm/saas-subscriptions':
+        return saas_subscriptions(h,connect,method)
     if method=="GET" and path=="/api/admin/crm/catalogue":
         return h.json_response(200,{"items":CATALOGUE})
     if method=='POST' and path=='/api/admin/crm/saas-simulation':
