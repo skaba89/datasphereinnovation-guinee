@@ -1088,8 +1088,27 @@ class IntakeTests(unittest.TestCase):
         v=dict(opportunity_id=json.loads(body)['id'],title='Analytics',scope='Audit',mode='REGIE',currency='EUR',days='10',rate='600',daily_cost='400',expenses='50',fixed_price='0',status='ACCEPTE')
         self.assertEqual(self.request('POST','/api/admin/quotes',v,auth)[0],201)
         d=json.loads(self.request('GET',path,headers=auth)[1]); self.assertEqual(d['overdue'],1); self.assertEqual(d['financial'][0]['margin'],'1950.00')
+        self.assertEqual(d['strategic']['pipeline_open'],1)
+        self.assertEqual(d['strategic']['urgent_by_kind']['RELANCE'],1)
+        self.assertIsNone(d['strategic']['win_rate'])
+        self.assertIsNone(d['strategic']['last_notification_run'])
+        self.assertEqual(d['strategic']['cash'],[])
         self.assertEqual(self.request('POST','/api/admin/quotes',v|{'currency':'GNF'},auth)[0],201)
         d=json.loads(self.request('GET',path,headers=auth)[1]); self.assertEqual(d['ambiguous_opportunities'],1); self.assertEqual(d['financial'],[])
+        from datetime import date
+        import notifications
+        today=date.today().isoformat()
+        with server.connect() as db:
+            db.execute("UPDATE opportunities SET status='GAGNE'")
+            for currency in ('EUR','GNF'):
+                db.execute("INSERT INTO expenses(id,reference,currency,amount,paid_date,category,description,mission_id,actor) VALUES(?,?,?,?,?,'OTHER','','','test')",(currency,currency,currency,'100',today))
+            db.commit()
+            notifications.run(db,date.today())
+        strategic=json.loads(self.request('GET',path,headers=auth)[1])['strategic']
+        self.assertEqual(strategic['win_rate'],'100.0')
+        self.assertEqual(strategic['last_notification_run']['status'],'PASS')
+        self.assertEqual({r['currency']:r['net_flow'] for r in strategic['cash']},{'EUR':'-100','GNF':'-100'})
+        with server.connect() as db:self.assertEqual(db.execute('SELECT count(*) FROM notification_runs').fetchone()[0],1)
         target=Path(self.tmp.name)/'backup.sqlite3';server.backup_database(target)
         with server.sqlite3.connect(target) as db:self.assertEqual(db.execute('SELECT count(*) FROM quotes').fetchone()[0],2)
         with self.assertRaises(FileExistsError):server.backup_database(target)
