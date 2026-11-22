@@ -20,7 +20,7 @@ export async function checkPublic(fetcher=fetch){
   const r=await get(origin+'/sitemap.xml'),xml=await r.text();
   if(r.status!==200||!/<urlset\b/.test(xml))return false;
   const locations=[...xml.matchAll(/<loc>([^<]+)<\/loc>/g)].map(m=>m[1]);
-  if(locations.length<84||locations.length>500||new Set(locations).size!==locations.length||!locations.includes(origin+'/')||!locations.includes(origin+'/en.html')||locations.some(u=>!/^https:\/\/dsig-consulting\.com\/(?:[a-z0-9-]+\.html)?$/.test(u)))return false;
+  if(locations.length<96||locations.length>500||new Set(locations).size!==locations.length||!locations.includes(origin+'/')||!locations.includes(origin+'/en.html')||!locations.includes(origin+'/offres.html')||!locations.includes(origin+'/offers.html')||locations.some(u=>!/^https:\/\/dsig-consulting\.com\/(?:[a-z0-9-]+\.html)?$/.test(u)))return false;
   urls=locations;return true;
  });
  for(const url of urls){

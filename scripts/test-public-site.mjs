@@ -7,6 +7,7 @@ import {createHash} from 'node:crypto';
 import {build} from './build-public-site.mjs';
 import {posts} from './blog-content.mjs';
 import {sectors} from './sector-content.mjs';
+import {offers} from './offer-content.mjs';
 
 const tmp=fs.mkdtempSync(path.join(os.tmpdir(),'dsig-public-test-'));
 const out=path.join(tmp,'site');
@@ -104,6 +105,19 @@ try{
   const index=read(lang==='en'?'blog-en.html':'blog.html');
   assert(index.includes('href="/blog'+(lang==='en'?'-en':'')+'-'+post.slug+'.html"'));
  }
+ assert.equal(urls.filter(u=>/^\/(offres|offers)[.-]/.test(u)).length,2+offers.length*2);
+ for(const lang of ['fr','en']){
+  const prefix=lang==='fr'?'offres':'offers',other=lang==='fr'?'offers':'offres';
+  assert(read(lang==='fr'?'index.html':'en.html').includes('href="/'+prefix+'.html"'));
+  for(const offer of offers){
+   const url='/'+prefix+'-'+offer.slug+'.html',html=read(url.slice(1));
+   assert(urls.includes(url));assert(read(prefix+'.html').includes('href="'+url+'"'));
+   assert(html.includes('href="/'+other+'-'+offer.slug+'.html" hreflang='));
+   assert(html.includes('mailto:test@dsig-consulting.com?subject='));
+   if(offer.slug==='saas')assert.equal([...html.matchAll(/mailto:test@dsig-consulting.com\?subject=/g)].length,2);
+  }
+ }
+ for(const name of files.filter(n=>n.endsWith('.html')))assert(!/MineFleet360|MakitiPlus|Gestion Scolaire Pro|Kora Finance|Guinée Logistique/.test(read(name)),name+' exposes internal catalogue');
  assert(fs.readFileSync(new URL('../dist/robots.txt',import.meta.url),'utf8').includes('Disallow: /'));
  assert(fs.readFileSync(new URL('../dist/index.html',import.meta.url),'utf8').includes('noindex,nofollow'));
  console.log('PASS: public SEO export, '+count+' indexable pages, REC unchanged');
