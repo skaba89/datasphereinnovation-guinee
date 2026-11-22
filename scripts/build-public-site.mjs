@@ -31,6 +31,28 @@ function metadata(html,title,description,fr,en,lang){
 function put(out,name,content){fs.writeFileSync(path.join(out,name),content);}
 function publicPath(lang,slug){return '/expertise-'+(lang==='en'?'en-':'')+slug+'.html'}
 function home(lang){return lang==='fr'?'/':'/en.html'}
+const orgId=origin+'/#organization',siteId=origin+'/#website';
+function structuredData(html,lang,url,title,description,contact,service=null){
+ const en=lang==='en',canonical=origin+url;
+ const areaServed=[{'@type':'City',name:'Conakry',containedInPlace:{'@type':'Country',name:en?'Guinea':'Guinée'}},
+  {'@type':'Country',name:en?'Guinea':'Guinée'},{'@type':'Country',name:'France'}];
+ const organization={'@type':'Organization','@id':orgId,name:'DataSphere Innovation Guinée',alternateName:'DSIG',url:origin+'/',logo:origin+'/dsig-mark.svg',email:contact,areaServed};
+ const website={'@type':'WebSite','@id':siteId,name:'DataSphere Innovation Guinée',alternateName:'DSIG',url:origin+'/',publisher:{'@id':orgId},inLanguage:['fr','en']};
+ const page={'@type':'WebPage','@id':canonical+'#webpage',url:canonical,name:title,description,inLanguage:lang,isPartOf:{'@id':siteId},about:{'@id':orgId}};
+ const graph=[organization,website,page];
+ if(service){
+  const serviceId=canonical+'#service',breadcrumbId=canonical+'#breadcrumb';
+  page.mainEntity={'@id':serviceId};page.breadcrumb={'@id':breadcrumbId};
+  graph.push({'@type':'Service','@id':serviceId,name:service,serviceType:service,description,url:canonical,provider:{'@id':orgId},areaServed});
+  graph.push({'@type':'BreadcrumbList','@id':breadcrumbId,itemListElement:[
+   {'@type':'ListItem',position:1,name:en?'Home':'Accueil',item:origin+home(lang)},
+   {'@type':'ListItem',position:2,name:service,item:canonical}
+  ]});
+ }
+ // Escape markup-breaking characters so JSON can never terminate its script tag.
+ const json=JSON.stringify({'@context':'https://schema.org','@graph':graph}).replaceAll('<','\\u003c');
+ return html.replace('</head>','<script type="application/ld+json">'+json+'</script>\n</head>');
+}
 
 export function build(out,contact){
  if(!/^[a-zA-Z0-9._+-]+@dsig-consulting\.com$/.test(contact))throw Error('Provide an approved DSIG business email.');
@@ -61,8 +83,13 @@ export function build(out,contact){
     html=html.replace('id="expertise-mark"','id="expertise-mark" data-icon="'+esc(icon)+'"')
      .replace('<script src="expertise.js"></script>','')
      .replace('</header>','<a href="'+(english?fr:en)+'" hreflang="'+(english?'fr':'en')+'">'+(english?'Français':'English')+'</a></header>');
-    html=metadata(html,title+' | DSIG Guinée',desc,fr,en,lang)
+    const seoTitle=title+' | DSIG Guinée';
+    html=metadata(html,seoTitle,desc,fr,en,lang)
      .replaceAll('href="index.html','href="/');
+    html=html.replace(/<main id="expertise-detail"[^>]*>/,match=>match+
+     '<nav aria-label="'+(english?'Breadcrumb':'Fil d’Ariane')+'"><a href="'+home(lang)+'">'+(english?'Home':'Accueil')+'</a> / <span aria-current="page">'+esc(title)+'</span></nav>')
+     .replace('</main>','<p class="career-note">'+(english?'Service area: Conakry, Guinea and France, depending on the project.':'Zone d’intervention : Conakry, Guinée et France, selon le projet.')+'</p><p><a href="mailto:'+esc(contact)+'">'+esc(contact)+'</a></p></main>');
+    html=structuredData(html,lang,url,seoTitle,desc,contact,title);
     put(out,url.slice(1),html);pages.push(url);
     cards[lang].push('<article><div class="expertise-icon" data-icon="'+esc(icon)+'"></div><h4>'+esc(title)+'</h4><p>'+esc(desc)+'</p><a class="service-link" href="'+url+'">'+(english?'Explore this expertise':'Découvrir cette expertise')+'</a></article>');
    }
@@ -84,8 +111,10 @@ export function build(out,contact){
    .replace('<script src="expertise.js"></script>','').replace('<script src="app.js"></script>','<script src="public-menu.js"></script>')
    .replace('</nav>','<a href="'+home(english?'fr':'en')+'" hreflang="'+(english?'fr':'en')+'">'+(english?'Français':'English')+'</a></nav>')
    .replaceAll('href="index.html','href="/');
-  html=metadata(html,english?'DataSphere Innovation Guinea | Data, AI & digital consulting':'DataSphere Innovation Guinée | Conseil Data, IA et transformation digitale',
-   english?'Digital consulting, Data Engineering, AI, BI, cybersecurity, SaaS and logistics expertise for organisations in Guinea and Africa.':'Cabinet de conseil numérique en Guinée : Data Engineering, IA, BI, cybersécurité, SaaS, logistique et transformation digitale pour les organisations.', '/', '/en.html',lang);
+  const title=english?'DataSphere Innovation Guinea | Data, AI & digital consulting':'DataSphere Innovation Guinée | Conseil Data, IA et transformation digitale';
+  const description=english?'Digital consulting, Data Engineering, AI, BI, cybersecurity, SaaS and logistics expertise for organisations in Guinea and Africa.':'Cabinet de conseil numérique en Guinée : Data Engineering, IA, BI, cybersécurité, SaaS, logistique et transformation digitale pour les organisations.';
+  html=metadata(html,title,description,'/', '/en.html',lang);
+  html=structuredData(html,lang,home(lang),title,description,contact);
   // Keep the public presentation separate from the REC contact collection.
   put(out,filename,html);pages.push(home(lang));
   const privacy=read(english?'privacy-en.html':'confidentialite.html').replace(/<main[\s\S]*?<\/main>/,

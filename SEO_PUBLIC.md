@@ -40,3 +40,14 @@ transformation digitale, cybersécurité, BI, architecture SI, logistique et Saa
 Publier des cas réels autorisés et des contenus utiles, sans références,
 certifications, coordonnées ou avis inventés. Ajouter ultérieurement un formulaire
 public uniquement après validation du traitement des données et de la sécurité.
+
+## V116 — Identité et zones d'intervention
+
+Les pages publiques incluent des données JSON-LD Organization, WebSite, WebPage
+et, pour les expertises, Service et BreadcrumbList. Conakry, Guinée et France
+sont des zones d'intervention, pas des adresses de bureaux. Le générateur reprend
+l'adresse e-mail approuvée. Ne pas ajouter LocalBusiness, adresse postale,
+coordonnées GPS, horaires, téléphone, avis ou certifications sans confirmation.
+Après publication, contrôler les pages avec le validateur Schema.org et le test
+des résultats enrichis Google. Créer une fiche Google Business Profile uniquement
+si l'activité remplit les conditions d'éligibilité et avec les informations réelles.

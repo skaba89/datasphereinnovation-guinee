@@ -25,6 +25,26 @@ try{
   assert.match(html,/<h1[^>]*>[^<]+/);
   assert(!html.includes('/api/requests'));
   assert(!html.includes('<form'));
+  const match=html.match(/<script type="application\/ld\+json">([^<]+)<\/script>/);
+  assert(match,'Missing structured data '+url);
+  const schema=JSON.parse(match[1]),graph=schema['@graph'];
+  assert.equal(schema['@context'],'https://schema.org');
+  const org=graph.find(n=>n['@type']==='Organization');
+  assert.equal(org['@id'],'https://dsig-consulting.com/#organization');
+  assert.equal(org.email,'test@dsig-consulting.com');
+  assert(org.areaServed.some(a=>a.name==='Conakry'));
+  assert(!org.address&&!org.telephone&&!org.aggregateRating);
+  assert(!graph.some(n=>n['@type']==='LocalBusiness'));
+  const page=graph.find(n=>n['@type']==='WebPage');
+  assert.equal(page.url,'https://dsig-consulting.com'+url);
+  if(url.startsWith('/expertise-')){
+   const service=graph.find(n=>n['@type']==='Service');
+   assert.equal(service.provider['@id'],org['@id']);
+   assert.equal(page.mainEntity['@id'],service['@id']);
+   const breadcrumb=graph.find(n=>n['@type']==='BreadcrumbList');
+   assert.equal(breadcrumb.itemListElement[1].item,page.url);
+   assert(html.includes('aria-current="page"'));
+  }
  }
  for(const name of ['index.html','en.html']){
   const html=read(name);
