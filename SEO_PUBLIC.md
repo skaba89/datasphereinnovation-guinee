@@ -76,3 +76,18 @@ liens vers deux expertises DSIG. Les pages sont incluses dans le sitemap, avec
 canonical, hreflang et JSON-LD WebPage. Le catalogue est maintenu dans
 `scripts/sector-content.mjs`. Aucun témoignage ni résultat client fictif.
 L'export contient désormais 84 pages indexables ; REC reste privée et noindex.
+
+## V119 — Performance mobile
+
+L'export assemble les feuilles CSS dans leur ordre initial en un seul fichier
+par famille de pages, nommé avec une empreinte SHA-256. Les polices locales
+restent en `font-display: swap`. Les scripts publics sont différés, la maquette
+SVG principale a des dimensions explicites et une priorité haute, le logo de
+pied de page est chargé paresseusement. Aucun changement du bundle REC.
+
+Le test CI impose un seul téléchargement CSS par page, au plus 14 Kio de CSS
+et 12 Kio de HTML après gzip, 4 Kio de JavaScript public gzip et 8 Kio pour la
+maquette SVG. Ces budgets sont des tailles locales, pas des mesures réseau.
+Après publication, activer la compression sur le vhost public uniquement et
+mesurer les Core Web Vitals (LCP, INP, CLS) sur mobile avec PageSpeed Insights
+et Search Console. Ne pas déclarer de score réel avant la mesure publique.

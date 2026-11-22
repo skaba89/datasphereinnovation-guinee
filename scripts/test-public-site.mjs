@@ -2,6 +2,8 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import {gzipSync} from 'node:zlib';
+import {createHash} from 'node:crypto';
 import {build} from './build-public-site.mjs';
 import {posts} from './blog-content.mjs';
 import {sectors} from './sector-content.mjs';
@@ -13,6 +15,23 @@ try{
  const count=build(out,'test@dsig-consulting.com');
  const files=fs.readdirSync(out);
  const read=name=>fs.readFileSync(path.join(out,name),'utf8');
+ for(const name of files.filter(n=>n.endsWith('.html'))){
+  const html=read(name),styles=[...html.matchAll(/<link rel="stylesheet" href="\/([^"/]+)">/g)];
+  assert.equal(styles.length,1,name+' must request one stylesheet');
+  const css=read(styles[0][1]);
+  assert.equal(styles[0][1],'public-'+createHash('sha256').update(css).digest('hex').slice(0,16)+'.css');
+  assert(gzipSync(css).length<=14*1024,name+' CSS gzip budget');
+  assert(gzipSync(html).length<=12*1024,name+' HTML gzip budget');
+  assert(!/<script src=/.test(html),name+' has blocking JavaScript');
+  for(const match of css.matchAll(/url\(['"]?([^'"\)]+)['"]?\)/g))assert(fs.existsSync(path.join(out,match[1])),name+' missing CSS asset');
+ }
+ for(const name of ['index.html','en.html']){
+  assert(read(name).includes('width="720" height="560" fetchpriority="high"'));
+  assert(read(name).includes('loading="lazy" decoding="async"'));
+ }
+ assert(fs.statSync(path.join(out,'digital-mockup.svg')).size<=8*1024);
+ assert(fs.statSync(path.join(out,'hero-image.webp')).size<=180*1024);
+ assert(gzipSync(read('icons.js')).length+gzipSync(read('public-menu.js')).length<=4*1024);
  assert.throws(()=>build(out,'test@dsig-consulting.com'));
  for(const privateFile of ['accounts.html','accounts.js','admin.html','connexion.html','billing.html','app.js','server.py','expertise.js'])assert(!files.includes(privateFile));
  assert(!read('robots.txt').includes('Disallow: /'));

@@ -2,6 +2,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import vm from 'node:vm';
+import {createHash} from 'node:crypto';
 import {fileURLToPath} from 'node:url';
 import {posts} from './blog-content.mjs';
 import {sectors} from './sector-content.mjs';
@@ -31,6 +32,26 @@ function metadata(html,title,description,fr,en,lang){
   .replace('</head>',tags+'\n</head>');
 }
 function put(out,name,content){fs.writeFileSync(path.join(out,name),content);}
+// Bundle in original cascade order, at the same directory depth as the source CSS.
+function optimizePublicPages(out){
+ for(const name of fs.readdirSync(out).filter(n=>n.endsWith('.html'))){
+  const file=path.join(out,name);let html=fs.readFileSync(file,'utf8');
+  const styles=[...html.matchAll(/<link rel="stylesheet" href="\/?([a-z-]+\.css)">/g)];
+  if(!styles.length)throw Error('Missing public styles: '+name);
+  const css=styles.map(m=>read(m[1])).join('\n');
+  const hash=createHash('sha256').update(css).digest('hex').slice(0,16);
+  const bundle='public-'+hash+'.css';
+  put(out,bundle,css);
+  let first=true;
+  html=html.replace(/<link rel="stylesheet" href="\/?[a-z-]+\.css">/g,()=>{
+   if(!first)return '';first=false;return '<link rel="stylesheet" href="/'+bundle+'">';
+  });
+  html=html.replace(/<script src="(icons|public-menu)\.js">/g,'<script defer src="$1.js">');
+  html=html.replace('<img src="digital-mockup.svg" alt="">','<img src="digital-mockup.svg" alt="" width="720" height="560" fetchpriority="high">');
+  html=html.replace('<img src="dsig-mark.svg" alt="DSIG" width="124" height="45">','<img src="dsig-mark.svg" alt="DSIG" width="124" height="45" loading="lazy" decoding="async">');
+  put(out,name,html);
+ }
+}
 function publicPath(lang,slug){return '/expertise-'+(lang==='en'?'en-':'')+slug+'.html'}
 function home(lang){return lang==='fr'?'/':'/en.html'}
 const orgId=origin+'/#organization',siteId=origin+'/#website';
@@ -195,6 +216,7 @@ export function build(out,contact){
  }
  buildBlog(out,contact);
  buildSectors(out,contact);
+ optimizePublicPages(out);
  put(out,'public-menu.js',`const menu=document.querySelector('#menu'),nav=document.querySelector('#links');function closeMenu(){nav.classList.remove('open');menu.setAttribute('aria-expanded','false')}menu.onclick=()=>menu.setAttribute('aria-expanded',String(nav.classList.toggle('open')));nav.addEventListener('click',e=>{if(e.target.closest('a'))closeMenu()});document.addEventListener('keydown',e=>{if(e.key==='Escape'){closeMenu();menu.focus()}});`);
  put(out,'robots.txt','User-agent: *\nAllow: /\nSitemap: '+origin+'/sitemap.xml\n');
  put(out,'sitemap.xml','<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n'+pages.sort().map(u=>'<url><loc>'+origin+u+'</loc></url>').join('\n')+'\n</urlset>\n');

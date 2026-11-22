@@ -4,12 +4,52 @@ import tempfile
 import threading
 import time
 import unittest
+import subprocess
+from functools import partial
+from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from unittest.mock import patch
 
 from cryptography.fernet import Fernet
 from playwright.sync_api import sync_playwright, expect
 import server
+
+
+class PublicExportBrowserTests(unittest.TestCase):
+    def test_export_styles_and_deferred_menu(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            site = Path(tmp) / 'public'
+            subprocess.run(['node', 'scripts/build-public-site.mjs', str(site),
+                            'test@dsig-consulting.com'], check=True,
+                           cwd=Path(__file__).resolve().parent)
+            http = ThreadingHTTPServer(('127.0.0.1', 0), partial(SimpleHTTPRequestHandler, directory=site))
+            thread = threading.Thread(target=http.serve_forever, daemon=True)
+            thread.start()
+            try:
+                with sync_playwright() as pw:
+                    browser = pw.chromium.launch()
+                    page = browser.new_page(viewport={'width':390,'height':844})
+                    errors = []
+                    page.on('pageerror', lambda error: errors.append(str(error)))
+                    for route in ('/', '/en.html', '/secteurs-mines.html', '/blog.html', '/expertise-data-engineering.html'):
+                        with self.subTest(route=route):
+                            response = page.goto(f'http://127.0.0.1:{http.server_port}{route}')
+                            self.assertEqual(response.status, 200)
+                            expect(page.locator('h1')).to_be_visible()
+                            self.assertEqual(page.evaluate('document.styleSheets.length'), 1)
+                            self.assertGreater(page.evaluate('document.styleSheets[0].cssRules.length'), 0)
+                            if route in ('/', '/en.html'):
+                                expect(page.locator('[data-icon] svg').first).to_be_attached()
+                                page.locator('#menu').click()
+                                expect(page.locator('#menu')).to_have_attribute('aria-expanded', 'true')
+                                page.keyboard.press('Escape')
+                                expect(page.locator('#menu')).to_have_attribute('aria-expanded', 'false')
+                    self.assertEqual(errors, [])
+                    browser.close()
+            finally:
+                http.shutdown()
+                thread.join()
+                http.server_close()
 
 
 class BrowserTests(unittest.TestCase):
