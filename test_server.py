@@ -1353,6 +1353,23 @@ class IntakeTests(unittest.TestCase):
         self.assertEqual(self.request('POST',billing_path,period,auth)[0],201)
         self.assertEqual(self.request('POST',billing_path,period,auth)[0],409)
         self.assertTrue(json.loads(self.request('GET',billing_path,headers=auth)[1])['items'][0]['prepared'])
+        from datetime import date as current_date
+        day=current_date.today().isoformat()
+        invoice=period|{'action':'invoice','reference':'FAC-TEST-134','issued_on':day,'due_on':day,'tax':'10.00'}
+        self.assertEqual(self.request('POST',billing_path,invoice,commercial)[0],403)
+        self.assertEqual(self.request('POST',billing_path,invoice,auth)[0],201)
+        self.assertEqual(self.request('POST',billing_path,invoice,auth)[0],409)
+        receipt=period|{'action':'receipt','reference':'VIR-TEST-134','paid_on':day,'amount':'100.00'}
+        self.assertEqual(self.request('POST',billing_path,receipt|{'amount':'261.00'},auth)[0],409)
+        status,body,_=self.request('POST',billing_path,receipt,auth)
+        self.assertEqual(status,201)
+        self.assertEqual(json.loads(body)['balance'],'160.00')
+        self.assertEqual(self.request('POST',billing_path,receipt,auth)[0],409)
+        status,body,_=self.request('POST',billing_path,receipt|{'reference':'VIR-TEST-135','amount':'160.00'},auth)
+        self.assertEqual(status,201)
+        self.assertEqual(json.loads(body)['status'],'REGLEE')
+        billing_metrics=json.loads(self.request('GET',subscriptions,headers=auth)[1])['metrics']['billing_groups'][0]
+        self.assertEqual((billing_metrics['invoiced'],billing_metrics['received'],billing_metrics['outstanding']),('260.00','260.00','0.00'))
         with server.connect() as db:
             self.assertEqual(db.execute('SELECT count(*) FROM invoices').fetchone()[0],0)
         with server.connect() as db:
