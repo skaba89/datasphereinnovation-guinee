@@ -761,6 +761,22 @@ class BrowserTests(unittest.TestCase):
             expect(self.page.locator('#request [name=message]')).to_have_value(('Domaine : ' if path=='/' else 'Expertise: ')+label+' — ')
         self.assertEqual(self.errors, [])
 
+    def test_crm_prospect_conversion(self):
+        org = self.seed('/api/admin/crm/organizations', {'name':'Prospect V126 fictif','kind':'PROSPECT','country':'Guinée','notes':'Historique'})
+        opportunity = {'company':'Prospect V126 fictif','contact':'','email':'','title':'Mission V126','mode':'CONSEIL','skills':'','consultant_id':'','next_action':'','followup':'','notes':'','status':'GAGNE','organization_id':org['id']}
+        self.seed('/api/admin/crm', opportunity)
+        self.page.goto('/crm.html')
+        self.page.locator('#token').fill(server.ADMIN_TOKEN)
+        self.page.locator('#login-form button').click()
+        row = self.page.locator('#org-rows tr').filter(has_text='Prospect V126 fictif')
+        expect(row).to_contain_text('1 gagnée(s)')
+        self.page.once('dialog', lambda dialog: dialog.accept())
+        row.get_by_role('button', name='Convertir en client').click()
+        expect(row).to_contain_text('CLIENT')
+        expect(row.get_by_role('button', name='Convertir en client')).to_have_count(0)
+        expect(self.page.locator('#org-notice')).to_contain_text('Historique conservé')
+        self.assertEqual(self.errors, [])
+
     def test_crm_qualification_editor(self):
         self.page.goto('/crm.html')
         self.page.locator('#token').fill(server.ADMIN_TOKEN)
