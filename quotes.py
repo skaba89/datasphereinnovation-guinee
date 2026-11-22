@@ -11,6 +11,9 @@ from urllib.parse import urlsplit, parse_qs
 FIELDS = ('opportunity_id','title','scope','mode','currency','days','rate','daily_cost','expenses','fixed_price','status')
 STATUSES = ('BROUILLON','PROPOSE','ACCEPTE','REFUSE')
 
+def incomplete_template(*values):
+    return any('[à préciser]' in (value or '').casefold() for value in values)
+
 def schema(db):
     db.execute('''CREATE TABLE IF NOT EXISTS quotes(id TEXT PRIMARY KEY,
         opportunity_id TEXT NOT NULL, title TEXT NOT NULL, scope TEXT NOT NULL,
@@ -124,6 +127,8 @@ def handle(h,connect,method):
                 raise ValueError()
             metadata=(until,terms.strip())
         v=validate(data)
+        if v['status'] != 'BROUILLON' and incomplete_template(v['title'],v['scope'],metadata[1] if metadata else ''):
+            return h.json_response(400,{'error':'Complétez les éléments [à préciser] du modèle avant de proposer le devis.'})
         if method=='PATCH' and (type(version) is not int or version<1): raise ValueError()
         if method=='POST' and version is not None: raise ValueError()
     except (ValueError,TypeError,UnicodeError): return h.json_response(400,{'error':'Champs invalides.'})
@@ -140,6 +145,9 @@ def handle(h,connect,method):
             if row[0]!=version: return h.json_response(409,{'error':'Devis modifié. Actualisez.'})
             if row[1] in ('ACCEPTE','REFUSE'): return h.json_response(409,{'error':'Devis clôturé. Créez une nouvelle proposition.'})
             if db.execute('SELECT 1 FROM quote_transmissions WHERE quote_id=? AND version=?',(oid,version)).fetchone(): return h.json_response(409,{'error':'Proposition transmise : utilisez le suivi de décision.'})
+            if metadata is None and v['status'] != 'BROUILLON':
+                previous=db.execute('SELECT terms FROM quote_proposal_terms WHERE quote_id=?',(oid,)).fetchone()
+                if previous and incomplete_template(previous[0]):return h.json_response(400,{'error':'Complétez les conditions [à préciser] du modèle.'})
             version+=1
             db.execute('UPDATE quotes SET '+','.join(k+'=?' for k in FIELDS)+',version=? WHERE id=?',(*(v[k] for k in FIELDS),version,oid))
         if metadata is not None:
@@ -169,6 +177,7 @@ def record_transmission(h,connect,oid):
         if row['version']!=v['version'] or row['status']!='PROPOSE':return h.json_response(409,{'error':'Version ou statut incompatible.'})
         sent=db.execute('SELECT 1 FROM quote_transmissions WHERE quote_id=? AND version=?',(oid,v['version'])).fetchone()
         if v['action']=='TRANSMIS':
+            if incomplete_template(row['title'],row['scope'],row['terms']):return h.json_response(409,{'error':'Modèle incomplet : complétez les éléments [à préciser].'})
             if sent or not row['valid_until'] or row['valid_until']<date.today().isoformat():return h.json_response(409,{'error':'Déjà transmis ou validité absente/expirée.'})
             db.execute('INSERT INTO quote_transmissions(quote_id,version,actor,evidence) VALUES (?,?,?,?)',(oid,v['version'],h.actor,v['evidence'].strip()))
         else:

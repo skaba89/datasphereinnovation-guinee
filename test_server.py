@@ -1123,6 +1123,25 @@ class IntakeTests(unittest.TestCase):
         with patch.dict(os.environ,{'DSIG_BACKUP_KEY':''}):
             with self.assertRaises(ValueError):operations.encrypted_backup(server.DB,root/'no-key.dsigbak',server.ROOT/'dist')
 
+    def test_quote_template_placeholders(self):
+        auth={'Authorization':'Bearer '+server.ADMIN_TOKEN,'Content-Type':'application/json'}
+        path='/api/admin/quotes'
+        opp={'company':'Test','contact':'','email':'','title':'Modèle','mode':'REGIE','skills':'','consultant_id':'','next_action':'','followup':'','notes':'','status':'PROSPECT'}
+        status,body,_=self.request('POST','/api/admin/crm',opp,auth)
+        self.assertEqual(status,201)
+        data=dict(opportunity_id=json.loads(body)['id'],title='Mission',scope='Objectifs : [à préciser]',mode='REGIE',currency='EUR',days='5',rate='600',daily_cost='400',expenses='0',fixed_price='0',status='BROUILLON')
+        self.assertEqual(self.request('POST',path,data|{'status':'PROPOSE'},auth)[0],400)
+        status,body,_=self.request('POST',path,data|{'terms':'Modalités [À PRÉCISER]','valid_until':'2099-01-01'},auth)
+        self.assertEqual(status,201)
+        oid=json.loads(body)['id']
+        target=path+'/'+oid
+        completed=data|{'scope':'Audit fictif','status':'PROPOSE','version':1}
+        self.assertEqual(self.request('PATCH',target,completed,auth)[0],400)
+        self.assertEqual(self.request('PATCH',target,completed|{'terms':'Conditions fictives','valid_until':'2099-01-01'},auth)[0],200)
+        with server.connect() as db:
+            db.execute('UPDATE quotes SET scope=? WHERE id=?',('[à préciser]',oid))
+        self.assertEqual(self.request('POST',target+'/transmission',{'version':2,'action':'TRANSMIS','evidence':'Test'},auth)[0],409)
+
     def test_quote_lifecycle(self):
         auth={"Authorization":"Bearer "+server.ADMIN_TOKEN,"Content-Type":"application/json"}
         path='/api/admin/quotes'
