@@ -165,6 +165,12 @@ def schema(db):
       agreement_id TEXT NOT NULL REFERENCES partner_agreements(id),
       currency TEXT NOT NULL, basis TEXT NOT NULL, commission TEXT NOT NULL,
       actor TEXT NOT NULL, created_on TEXT NOT NULL)''')
+    db.execute('''CREATE TABLE IF NOT EXISTS partner_commission_approvals (
+      opportunity_id TEXT PRIMARY KEY REFERENCES partner_referrals(opportunity_id),
+      amount TEXT NOT NULL, reference TEXT NOT NULL, approved_on TEXT NOT NULL, actor TEXT NOT NULL)''')
+    db.execute('''CREATE TABLE IF NOT EXISTS partner_commission_payments (
+      id TEXT PRIMARY KEY, opportunity_id TEXT NOT NULL REFERENCES partner_commission_approvals(opportunity_id),
+      reference TEXT NOT NULL UNIQUE COLLATE NOCASE, amount TEXT NOT NULL, paid_on TEXT NOT NULL, actor TEXT NOT NULL)''')
     db.execute('''CREATE TABLE IF NOT EXISTS saas_billing_preparations (
       subscription_id TEXT NOT NULL REFERENCES saas_subscriptions(id), period_start TEXT NOT NULL,
       period_end TEXT NOT NULL, currency TEXT NOT NULL, recurring TEXT NOT NULL, one_off TEXT NOT NULL,
@@ -378,6 +384,68 @@ def saas_commercial(h,connect):
     with connect() as db:
         db.execute('BEGIN')
         return h.json_response(200,saas_commercial_report(db,date.today().isoformat()))
+
+def partner_finance(h,connect,method):
+    today=date.today().isoformat()
+    if method=='GET':
+        try:
+            query=parse_qs(urlsplit(h.path).query);page=int(query.get('page',['1'])[0]);q=query.get('q',[''])[0][:120].casefold()
+            if not 1<=page<=10000:raise ValueError()
+        except ValueError:return h.json_response(400,{'error':'Page invalide.'})
+        with connect() as db:
+            db.row_factory=sqlite3.Row;db.execute('BEGIN')
+            rows=[dict(r) for r in db.execute('''SELECT r.opportunity_id,r.currency,r.commission,r.basis,p.status,p.title,o.id AS partner_id,o.name AS partner,
+                a.amount AS approved,a.reference AS approval_reference,a.approved_on FROM partner_referrals r
+                JOIN opportunities p ON p.id=r.opportunity_id JOIN partner_agreements g ON g.id=r.agreement_id
+                JOIN organizations o ON o.id=g.partner_id LEFT JOIN partner_commission_approvals a ON a.opportunity_id=r.opportunity_id
+                WHERE a.opportunity_id IS NOT NULL OR p.status IN ('GAGNE','EN_MISSION','TERMINE') ORDER BY o.name_key,p.title,r.opportunity_id''')]
+            groups={}
+            for r in rows:
+                payments=[dict(p) for p in db.execute('SELECT reference,amount,paid_on FROM partner_commission_payments WHERE opportunity_id=? ORDER BY paid_on,id',(r['opportunity_id'],))]
+                paid=sum((Decimal(p['amount']) for p in payments),Decimal(0));approved=Decimal(r['approved'] or '0');balance=approved-paid
+                r.update(payments=payments,paid=str(paid),balance=str(balance),state='A_VALIDER' if r['approved'] is None else 'REGLEE' if balance==0 else 'PARTIELLE' if paid else 'DUE')
+                g=groups.setdefault((r['partner_id'],r['currency']),{'partner':r['partner'],'currency':r['currency'],'approved':Decimal(0),'paid':Decimal(0),'balance':Decimal(0),'pending':0})
+                g['approved']+=approved;g['paid']+=paid;g['balance']+=balance;g['pending']+=r['approved'] is None
+        totals=[{k:str(v) if isinstance(v,Decimal) else v for k,v in g.items()} for g in groups.values()]
+        if urlsplit(h.path).path.startswith('/api/admin/direction/'):return h.json_response(200,{'items':totals,'as_of':today})
+        rows=[r for r in rows if q in (r['partner']+' '+r['title']+' '+r['state']+' '+(r['approval_reference'] or '')+' '+' '.join(p['reference'] for p in r['payments'])).casefold()]
+        return h.json_response(200,{'items':rows[(page-1)*10:page*10],'total':len(rows),'page':page,'can_write':h.role in ('ADMIN','COMPTABLE')})
+    if h.role not in ('ADMIN','COMPTABLE'):return h.json_response(403,{'error':'Action réservée à la comptabilité.'})
+    try:
+        size=int(h.headers.get('Content-Length','0'))
+        if not 0<size<=8000 or h.headers.get_content_type()!='application/json':raise ValueError()
+        data=json.loads(h.rfile.read(size))
+        if not isinstance(data,dict):raise ValueError()
+        action=data['action'];oid=data['opportunity_id'];reference=data['reference']
+        if not isinstance(oid,str) or str(uuid.UUID(oid))!=oid or not isinstance(reference,str) or not reference.strip() or len(reference)>120 or any(ord(c)<32 for c in reference):raise ValueError()
+        reference=reference.strip()
+        if action=='approve':
+            if set(data)!={'action','opportunity_id','reference'}:raise ValueError()
+        elif action=='payment':
+            if set(data)!={'action','opportunity_id','reference','amount','paid_on'}:raise ValueError()
+            paid_on=data['paid_on']
+            if not isinstance(paid_on,str) or date.fromisoformat(paid_on).isoformat()!=paid_on or paid_on>today:raise ValueError()
+        else:raise ValueError()
+    except (ValueError,TypeError,KeyError,UnicodeError):return h.json_response(400,{'error':'Champs invalides.'})
+    with connect() as db:
+        db.execute('BEGIN IMMEDIATE')
+        row=db.execute('SELECT r.currency,r.commission,p.status FROM partner_referrals r JOIN opportunities p ON p.id=r.opportunity_id WHERE r.opportunity_id=?',(oid,)).fetchone()
+        if not row:return h.json_response(404,{'error':'Apport introuvable.'})
+        approval=db.execute('SELECT amount,approved_on FROM partner_commission_approvals WHERE opportunity_id=?',(oid,)).fetchone()
+        if action=='approve':
+            if approval or row[2] not in ('GAGNE','EN_MISSION','TERMINE'):return h.json_response(409,{'error':'Apport non gagné ou déjà validé.'})
+            db.execute('INSERT INTO partner_commission_approvals VALUES(?,?,?,?,?)',(oid,row[1],reference,today,h.actor));event='COMMISSION_PARTENAIRE_VALIDEE'
+        else:
+            if not approval or paid_on<approval[1]:return h.json_response(409,{'error':'Validation préalable requise.'})
+            try:
+                amount=saas_money(data['amount'],row[0])
+                if amount<=0:raise ValueError()
+            except ValueError:return h.json_response(400,{'error':'Montant invalide.'})
+            paid=sum((Decimal(p[0]) for p in db.execute('SELECT amount FROM partner_commission_payments WHERE opportunity_id=?',(oid,))),Decimal(0))
+            if paid+amount>Decimal(approval[0]) or db.execute('SELECT 1 FROM partner_commission_payments WHERE reference=?',(reference,)).fetchone():return h.json_response(409,{'error':'Surpaiement ou référence déjà utilisée.'})
+            db.execute('INSERT INTO partner_commission_payments VALUES(?,?,?,?,?,?)',(str(uuid.uuid4()),oid,reference,str(amount),paid_on,h.actor));event='COMMISSION_PARTENAIRE_REGLEE'
+        accounts.event(db,h.actor,event,oid)
+    return h.json_response(201,{'id':oid})
 
 def partners(h,connect,method):
     today=date.today().isoformat()
@@ -856,6 +924,8 @@ def handle(h,connect,method):
     if (h.headers.get("Origin") and h.headers["Origin"]!=h.expected_origin()) or h.headers.get("Sec-Fetch-Site")=="cross-site":
         return h.json_response(403,{"error":"Origine non autorisée."})
     path=urlsplit(h.path).path
+    if path in ('/api/admin/billing/partner-commissions','/api/admin/direction/partner-commissions'):
+        return partner_finance(h,connect,method)
     if path in ('/api/admin/crm/partners','/api/admin/direction/partners'):
         return partners(h,connect,method)
     if method=='GET' and path in ('/api/admin/crm/saas-commercial','/api/admin/direction/saas-commercial'):
