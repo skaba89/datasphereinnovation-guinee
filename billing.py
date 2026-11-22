@@ -97,6 +97,8 @@ def saas_profitability(db,search='',page=1,page_size=10):
         JOIN expenses e ON e.id=a.expense_id'''):
         n=Decimal(r[2]);g=group(r[0],r[3]);g['allocated']+=n;g[r[1]]+=n
         residual[r[3]]-=n
+    for amount,currency in db.execute('SELECT a.amount,e.currency FROM partner_expense_allocations a JOIN expenses e ON e.id=a.expense_id'):
+        residual[currency]-=Decimal(amount)
     rows,count=searched_page(db,'''SELECT a.*,e.reference,e.currency,e.paid_date FROM saas_expense_allocations a
         JOIN expenses e ON e.id=a.expense_id''',('reference','product_id','category','currency'),'created_at DESC,id',search,page,page_size)
     return {'products':products,'categories':SAAS_COST_CATEGORIES,'groups':[
@@ -117,9 +119,10 @@ def allocate_saas_cost(h,connect):
             e=db.execute('SELECT id,currency,amount,mission_id FROM expenses WHERE reference=? COLLATE NOCASE',(v['reference'].strip(),)).fetchone()
             if not e:return h.json_response(404,{'error':'Décaissement introuvable.'})
             if e[3]:return h.json_response(409,{'error':'Décaissement déjà affecté à une mission.'})
+            if db.execute('SELECT 1 FROM partner_commission_payments WHERE reference=? COLLATE NOCASE',(v['reference'].strip(),)).fetchone():return h.json_response(409,{'error':'Décaissement lié à une commission.'})
             a=crm.saas_money(v['amount'],e[1])
             if a<=0:raise ValueError()
-            used=sum((Decimal(r[0]) for r in db.execute('SELECT amount FROM saas_expense_allocations WHERE expense_id=?',(e[0],))),Decimal(0))
+            used=crm.expense_allocated(db,e[0])
             if used+a>Decimal(e[2]):return h.json_response(409,{'error':'Montant supérieur au solde disponible.'})
             identifier=str(uuid.uuid4())
             db.execute('INSERT INTO saas_expense_allocations(id,expense_id,product_id,category,amount,actor) VALUES(?,?,?,?,?,?)',(identifier,e[0],v['product_id'],v['category'],str(a),h.actor))

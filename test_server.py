@@ -1354,6 +1354,24 @@ class IntakeTests(unittest.TestCase):
         with server.connect() as db:self.assertEqual(db.execute('SELECT COUNT(*) FROM partner_targets').fetchone()[0],2)
         data=json.loads(self.request('GET','/api/admin/direction/partner-targets?year='+today[:4],headers=auth)[1])
         self.assertFalse(data['can_write'])
+        costs='/api/admin/billing/partner-costs'
+        with server.connect() as db:
+            db.execute("UPDATE expenses SET amount='5.00' WHERE id='pe'")
+            db.execute("INSERT INTO expenses(id,reference,currency,amount,paid_date,category,description,mission_id,actor) VALUES('shared','SHARED-1','EUR','30.00',?,'AUTRE','','','test')",(today,))
+        allocation={'reference':'SHARED-1','partner_id':partner,'amount':'20','reason':'Infrastructure partenaire'}
+        self.assertEqual(self.request('GET',costs)[0],401)
+        self.assertEqual(self.request('POST',costs,allocation|{'reference':'VIR-1'},auth)[0],409)
+        self.assertEqual(self.request('POST',costs,allocation,auth)[0],201)
+        self.assertEqual(self.request('POST',costs,allocation,auth)[0],409)
+        choice=json.loads(self.request('GET',costs,headers=auth)[1])['available'][0]
+        self.assertEqual(choice['remaining'],'10.00')
+        import crm
+        saas={'reference':'SHARED-1','product_id':crm.CATALOGUE[0]['id'],'category':'INFRASTRUCTURE','amount':'11'}
+        self.assertEqual(self.request('POST','/api/admin/billing/saas-profitability',saas,auth)[0],409)
+        self.assertEqual(self.request('POST','/api/admin/billing/saas-profitability',saas|{'amount':'10'},auth)[0],201)
+        self.assertEqual(self.request('POST',costs,allocation|{'amount':'1'},auth)[0],409)
+        r=json.loads(self.request('GET',profit,headers=auth)[1])['items'][0]
+        self.assertEqual((r['allocated_costs'],r['contribution']),('20.00','47.49'))
 
     def test_customer_growth(self):
         from datetime import date,timedelta
