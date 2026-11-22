@@ -148,7 +148,8 @@ SHA=$(git rev-parse HEAD)
 read -r -p 'Adresse commerciale DSIG : ' DSIG_PUBLIC_EMAIL
 test -z "$(git status --porcelain --untracked-files=no)"
 docker build -f Dockerfile.public --build-arg DSIG_PUBLIC_EMAIL="$DSIG_PUBLIC_EMAIL" --label "org.opencontainers.image.revision=$SHA" -t "dsig-public:$SHA" .
-bash scripts/deploy-public.sh "$SHA" --activate-public
+# V122 : fournir le registre privé validé décrit ci-dessous.
+bash scripts/deploy-public.sh "$SHA" --activate-public /home/ubuntu/dsig-public-release.json
 ```
 
 Avant activation, vérifier que le projet `dsig-public` et l'alias réseau
@@ -162,6 +163,30 @@ avec `node scripts/check-public-indexing.mjs`.
 
 Le script tente le retour à l'image précédente si le nouveau service ne devient
 pas sain. Pour un retour volontaire, conserver le SHA de la version précédente
-et relancer `bash scripts/deploy-public.sh SHA_PRECEDENT --activate-public`.
+et relancer `bash scripts/deploy-public.sh SHA_PRECEDENT --activate-public REGISTRE_PRIVE_PRECEDENT`.
 Lors du premier lancement sans image précédente, maintenir le vhost non activé
 si le contrôle échoue. Aucun nettoyage Docker global ni suppression de volumes.
+
+## V122 — Autorisation de publication
+
+Avant toute activation, copier le modèle de registre hors du dépôt :
+
+```bash
+umask 077
+cp -n deploy/public/release-gate.example.json /home/ubuntu/dsig-public-release.json
+chmod 600 /home/ubuntu/dsig-public-release.json
+node scripts/public-release-gate.mjs "$(git rev-parse HEAD)" /home/ubuntu/dsig-public-release.json
+```
+
+Le modèle échoue volontairement tant que les sept contrôles humains ne sont
+pas renseignés. Pour chaque contrôle, noter le responsable et une référence
+de preuve réelle, sans secret. Le SHA et l'adresse commerciale doivent être
+ceux de l'image candidate. Le script d'activation refuse une approbation
+manquante, une révision différente ou une adresse incohérente avec l'image.
+Le contrôle valide la structure du registre, pas la véracité des preuves.
+
+Informations à confirmer avec le responsable : dénomination juridique exacte,
+immatriculation et siège, responsable de publication, hébergeur, coordonnées
+commerciales, notice de confidentialité et textes applicables. Ne rien inventer.
+Le contrôle `legal_privacy_review` reste PENDING jusqu'à revue du contenu
+effectivement publié. Aucun déploiement ni modification du DNS automatique.

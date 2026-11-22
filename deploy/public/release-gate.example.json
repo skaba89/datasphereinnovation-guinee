@@ -1,0 +1,14 @@
+{
+  "sha": "",
+  "domain": "dsig-consulting.com",
+  "email": "",
+  "gates": {
+    "ci_exact_sha": {"status":"PENDING","reviewer":"","evidence":""},
+    "commercial_contact": {"status":"PENDING","reviewer":"","evidence":""},
+    "legal_privacy_review": {"status":"PENDING","reviewer":"","evidence":""},
+    "dns_proxy_review": {"status":"PENDING","reviewer":"","evidence":""},
+    "rec_isolation": {"status":"PENDING","reviewer":"","evidence":""},
+    "rollback_plan": {"status":"PENDING","reviewer":"","evidence":""},
+    "owner_approval": {"status":"PENDING","reviewer":"","evidence":""}
+  }
+}
