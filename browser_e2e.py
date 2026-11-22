@@ -1075,6 +1075,30 @@ class BrowserTests(unittest.TestCase):
         logout()
         self.assertEqual(self.errors, [])
 
+    def test_consultant_live_search_and_server_pagination(self):
+        for i in range(12):
+            self.seed('/api/admin/consultants', {
+                'name':f'V109 Profil {i:02d}','email':f'v109-{i}@example.invalid',
+                'role':'Data Engineer','skills':'Python','location':'Conakry',
+                'experience':'5','availability':'','notes':'','status':'DISPONIBLE'})
+        self.page.goto('/consultants.html')
+        self.page.locator('#token').fill(server.ADMIN_TOKEN)
+        self.page.locator('#login-form button').click()
+        expect(self.page.locator('#workspace')).to_be_visible()
+        rows = self.page.locator('#rows tr')
+        expect(rows).to_have_count(10)
+        self.page.locator('#next').click()
+        expect(rows).to_have_count(2)
+        self.page.locator('#search').fill('11')
+        expect(rows).to_have_count(1)
+        expect(rows).to_contain_text('V109 Profil 11')
+        expect(self.page.locator('#prev')).to_be_disabled()
+        self.page.locator('#search').clear()
+        self.page.locator('#page-size').select_option('25')
+        expect(rows).to_have_count(12)
+        self.assert_responsive('consultants')
+        self.assertEqual(self.errors, [])
+
     def test_consultant_account_picker_and_pagination(self):
         profile = self.seed('/api/admin/consultants', {
             'name':'REC V89 Consultant','email':'v89@example.invalid','role':'Data Engineer',

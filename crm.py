@@ -92,6 +92,8 @@ def handle(h,connect,method):
         q=query.get("q",[""])[0][:120]
         try:
             page=max(1,min(10000,int(query.get("page",["1"])[0])))
+            page_size = int(query.get("page_size", ["25"])[0])
+            if page_size not in (10, 25, 50): raise ValueError()
             if status and status not in STATUSES: raise ValueError()
         except ValueError: return h.json_response(400,{"error":"Filtre invalide."})
         where=" WHERE (?='' OR o.status=?) AND (instr(lower(o.company),lower(?))>0 OR instr(lower(o.title),lower(?))>0 OR instr(lower(o.skills),lower(?))>0)"
@@ -99,7 +101,7 @@ def handle(h,connect,method):
         with connect() as db:
             db.row_factory=sqlite3.Row
             total=db.execute("SELECT count(*) FROM opportunities o"+where,args).fetchone()[0]
-            rows=[dict(r) for r in db.execute("SELECT o.*, c.name consultant_name,c.status consultant_status, coalesce(l.organization_id,'') organization_id, g.name organization_name FROM opportunities o LEFT JOIN consultants c ON c.id=o.consultant_id LEFT JOIN organization_links l ON l.opportunity_id=o.id LEFT JOIN organizations g ON g.id=l.organization_id"+where+" ORDER BY (o.followup=''),o.followup,o.id LIMIT 25 OFFSET ?",(*args,(page-1)*25))]
+            rows=[dict(r) for r in db.execute("SELECT o.*, c.name consultant_name,c.status consultant_status, coalesce(l.organization_id,'') organization_id, g.name organization_name FROM opportunities o LEFT JOIN consultants c ON c.id=o.consultant_id LEFT JOIN organization_links l ON l.opportunity_id=o.id LEFT JOIN organizations g ON g.id=l.organization_id"+where+" ORDER BY (o.followup=''),o.followup,o.id LIMIT ? OFFSET ?",(*args,page_size, (page-1)*page_size))]
             counts=dict(db.execute("SELECT status,count(*) FROM opportunities GROUP BY status").fetchall())
         return h.json_response(200,{"items":rows,"counts":counts,"total":total})
     try:

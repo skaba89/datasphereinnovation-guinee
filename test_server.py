@@ -47,6 +47,14 @@ class IntakeTests(unittest.TestCase):
         conn.close()
         return result
 
+    def test_list_page_size_validation(self):
+        headers={'Authorization':'Bearer '+server.ADMIN_TOKEN}
+        for resource in ('requests','consultants','crm','tenders'):
+            for size in ('0','11','1000','invalid','10','25','50'):
+                with self.subTest(resource=resource,size=size):
+                    code,body,_=self.request('GET',f'/api/admin/{resource}?page_size={size}',headers=headers)
+                    self.assertEqual(code,200 if size in ('10','25','50') else 400,body)
+
     def test_end_to_end_prospect_to_paid_contract(self):
         admin={'Authorization':'Bearer '+server.ADMIN_TOKEN,'Content-Type':'application/json'}
         def call(method,path,payload=None,headers=None,status=200):

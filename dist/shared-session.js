@@ -32,7 +32,7 @@ document.addEventListener('DOMContentLoaded',()=>{
   const prev=document.createElement('button'),next=document.createElement('button'),status=document.createElement('span'),size=document.createElement('select'),search=document.createElement('input');
   search.type='search';search.className='dsig-list-search';search.placeholder='Rechercher dans cette liste';search.setAttribute('aria-label','Rechercher dans '+id);search.autocomplete='off';
   prev.type=next.type='button';prev.textContent='Précédent';next.textContent='Suivant';status.setAttribute('role','status');
-  size.setAttribute('aria-label','Éléments par page');for(const n of [10,25,50])size.append(new Option(n+' par page',n));size.value=['accounts.html','audit.html'].includes(page)?'10':'25';
+  size.setAttribute('aria-label','Éléments par page');for(const n of [10,25,50])size.append(new Option(n+' par page',n));size.value='10';
   controls.append(search,prev,status,next,size);
   const anchor=root.closest('.table-wrap')||root;if(page==='accounts.html'&&id==='rows'){search.placeholder='Rechercher un compte…';anchor.before(controls)}else anchor.after(controls);
   let current=1;
