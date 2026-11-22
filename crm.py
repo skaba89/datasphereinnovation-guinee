@@ -118,6 +118,41 @@ def schema(db):
       title TEXT NOT NULL, valid_until TEXT NOT NULL, inputs TEXT NOT NULL,
       estimate TEXT NOT NULL, actor TEXT NOT NULL, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)""")
     db.execute('CREATE INDEX IF NOT EXISTS saas_offers_opportunity ON saas_offers(opportunity_id)')
+    db.execute('''CREATE TABLE IF NOT EXISTS saas_offer_events (
+      offer_id TEXT NOT NULL REFERENCES saas_offers(id), version INTEGER NOT NULL,
+      status TEXT NOT NULL, actor TEXT NOT NULL, evidence TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, PRIMARY KEY(offer_id,version))''')
+
+SAAS_TRANSITIONS={'BROUILLON':('VALIDEE','ANNULEE'),'VALIDEE':('TRANSMISE','ANNULEE'),
+                  'TRANSMISE':('ACCEPTEE','REFUSEE','ANNULEE')}
+
+def saas_actions(status,until,role):
+    if role not in ('ADMIN','COMMERCIAL'):return []
+    return [action for action in SAAS_TRANSITIONS.get(status,())
+            if (action!='VALIDEE' or role=='ADMIN') and
+               (action not in ('VALIDEE','TRANSMISE','ACCEPTEE') or until>=date.today().isoformat())]
+
+def saas_transition(h,connect,identifier):
+    try:
+        length=int(h.headers.get('Content-Length','0'))
+        if not 0<length<=4000 or h.headers.get_content_type()!='application/json':raise ValueError()
+        data=json.loads(h.rfile.read(length))
+        if not isinstance(data,dict) or set(data)!={'version','action','evidence'}:raise ValueError()
+        version,action,evidence=data['version'],data['action'],data['evidence']
+        if type(version) is not int or version<1 or not isinstance(action,str) or action not in ('VALIDEE','TRANSMISE','ACCEPTEE','REFUSEE','ANNULEE'):raise ValueError()
+        if not isinstance(evidence,str) or not evidence.strip() or len(evidence)>1000 or '\x00' in evidence:raise ValueError()
+    except (ValueError,TypeError,UnicodeError):return h.json_response(400,{'error':'Décision ou preuve invalide.'})
+    if action=='VALIDEE' and h.role!='ADMIN':return h.json_response(403,{'error':'Validation réservée à un administrateur.'})
+    with connect() as db:
+        db.execute('BEGIN IMMEDIATE')
+        offer=db.execute('SELECT valid_until FROM saas_offers WHERE id=?',(identifier,)).fetchone()
+        if not offer:return h.json_response(404,{'error':'Offre introuvable.'})
+        event=db.execute('SELECT version,status FROM saas_offer_events WHERE offer_id=? ORDER BY version DESC LIMIT 1',(identifier,)).fetchone()
+        current,status=event if event else (1,'BROUILLON')
+        if current!=version or action not in saas_actions(status,offer[0],h.role):return h.json_response(409,{'error':'Version, état ou validité incompatible.'})
+        db.execute('INSERT INTO saas_offer_events(offer_id,version,status,actor,evidence) VALUES(?,?,?,?,?)',(identifier,version+1,action,h.actor,evidence.strip()))
+        accounts.event(db,h.actor,'OFFRE_SAAS_'+action,identifier)
+    return h.json_response(200,{'id':identifier,'status':action,'version':version+1})
 
 def saas_offers(h,connect,method):
     if method=='GET':
@@ -130,8 +165,11 @@ def saas_offers(h,connect,method):
             total=db.execute('SELECT count(*) FROM saas_offers').fetchone()[0]
             rows=[dict(r) for r in db.execute('''SELECT s.*,o.company,o.title opportunity_title FROM saas_offers s
                 JOIN opportunities o ON o.id=s.opportunity_id ORDER BY s.created_at DESC,s.id DESC LIMIT 10 OFFSET ?''',((page-1)*10,))]
-        for row in rows:
-            row['inputs']=json.loads(row['inputs']);row['estimate']=json.loads(row['estimate']);row['status']='BROUILLON'
+            for row in rows:
+                row['inputs']=json.loads(row['inputs']);row['estimate']=json.loads(row['estimate'])
+                history=[dict(e) for e in db.execute('SELECT version,status,actor,evidence,created_at FROM saas_offer_events WHERE offer_id=? ORDER BY version',(row['id'],))]
+                row['history']=history;row['status']=history[-1]['status'] if history else 'BROUILLON';row['version']=history[-1]['version'] if history else 1
+                row['actions']=saas_actions(row['status'],row['valid_until'],h.role)
         return h.json_response(200,{'items':rows,'total':total,'page':page})
     try:
         length=int(h.headers.get('Content-Length','0'))
@@ -172,6 +210,8 @@ def handle(h,connect,method):
     if (h.headers.get("Origin") and h.headers["Origin"]!=h.expected_origin()) or h.headers.get("Sec-Fetch-Site")=="cross-site":
         return h.json_response(403,{"error":"Origine non autorisée."})
     path=urlsplit(h.path).path
+    transition=re.fullmatch(r'/api/admin/crm/saas-offers/([0-9a-f-]{36})/decision',path)
+    if method=='POST' and transition:return saas_transition(h,connect,transition.group(1))
     if path=='/api/admin/crm/saas-offers':
         return saas_offers(h,connect,method)
     if method=="GET" and path=="/api/admin/crm/catalogue":
