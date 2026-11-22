@@ -1115,6 +1115,30 @@ class BrowserTests(unittest.TestCase):
             self.assertTrue(self.page.evaluate('document.documentElement.scrollWidth <= innerWidth + 1'))
         self.assertEqual(self.errors, [])
 
+    def test_account_lifecycle_archive_and_delete(self):
+        self.seed('/api/admin/accounts', {'username':'unused.v103','role':'RH','consultant_id':''})
+        used = self.seed('/api/admin/accounts', {'username':'used.v103','role':'RH','consultant_id':''})
+        response=self.context.request.post('/api/auth/activate',data={'username':'used.v103','key':used['key'],'password':self.password})
+        self.assertEqual(response.status,200)
+        self.page.goto('/accounts.html')
+        self.page.locator('#token').fill(server.ADMIN_TOKEN)
+        self.page.locator('#login-form button').click()
+        expect(self.page.locator('#workspace')).to_be_visible()
+        fresh=self.page.locator('#rows tr').filter(has_text='unused.v103')
+        historical=self.page.locator('#rows tr').filter(has_text='used.v103').filter(has_not_text='unused.v103')
+        expect(historical.get_by_role('button',name='Supprimer')).to_be_disabled()
+        self.page.once('dialog',lambda dialog:dialog.accept())
+        fresh.get_by_role('button',name='Supprimer').click()
+        expect(self.page.locator('#notice')).to_have_text('Compte supprimé.')
+        expect(fresh).to_have_count(0)
+        self.page.once('dialog',lambda dialog:dialog.accept())
+        historical.get_by_role('button',name='Archiver').click()
+        expect(self.page.locator('#notice')).to_have_text('Compte archivé. Historique conservé.')
+        expect(historical).to_contain_text('Archivé')
+        expect(historical.get_by_role('button')).to_have_count(0)
+        self.assert_responsive('accounts.html')
+        self.assertEqual(self.errors,[])
+
 
 if __name__ == '__main__':
     unittest.main()

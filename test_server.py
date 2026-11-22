@@ -564,7 +564,7 @@ class IntakeTests(unittest.TestCase):
                 s,b,h=self.request('POST','/api/auth/login',credentials|{'otp':server.authentication.totp(secret,step+1)},login);self.assertEqual(s,200)
                 session['Cookie']=h['Set-Cookie'].split(';')[0]
                 self.assertEqual(self.request('GET','/api/admin/accounts',headers=session)[0],200)
-                for action in ('DISABLE','ROTATE'):
+                for action in ('DISABLE','ROTATE','ARCHIVE','DELETE'):
                     self.assertEqual(self.request('PATCH','/api/admin/accounts/'+account['id'],{'action':action},session)[0],409)
                 self.assertEqual(self.request('GET','/api/admin/accounts',headers=session)[0],200)
 
@@ -583,6 +583,45 @@ class IntakeTests(unittest.TestCase):
         s,body,_=self.request('PATCH',path+'/'+a['id'],{'action':'ROTATE'},auth);self.assertEqual(s,200)
         self.assertEqual(self.request('GET','/api/admin/direction',headers=user)[0],401)
         self.assertEqual(self.request('GET','/api/admin/direction',headers={'Authorization':'Bearer '+json.loads(body)['key']})[0],200)
+
+    def test_account_deletion_and_archive(self):
+        auth={'Authorization':'Bearer '+server.ADMIN_TOKEN,'Content-Type':'application/json'}
+        path='/api/admin/accounts'
+        def create(name,role='RH'):
+            code,body,_=self.request('POST',path,{'username':name,'role':role,'consultant_id':''},auth)
+            self.assertEqual(code,201);return json.loads(body)
+        def action(account,verb,headers=auth):
+            return self.request('PATCH',path+'/'+account['id'],{'action':verb},headers)[0]
+        admin=create('last.admin','ADMIN')
+        for verb in ('DISABLE','ROTATE','ARCHIVE','DELETE'):self.assertEqual(action(admin,verb),409)
+        fresh=create('unused.rec')
+        self.assertEqual(action(fresh,'DELETE',{'Authorization':'Bearer '+fresh['key'],'Content-Type':'application/json'}),403)
+        # The refused access itself is audited, so use a separate unused account.
+        fresh=create('unused.second')
+        self.assertEqual(action(fresh,'DELETE'),200)
+        self.assertEqual(action(fresh,'DELETE'),404)
+        self.assertEqual(self.request('POST',path,{'username':'UNUSED.SECOND','role':'RH','consultant_id':''},auth)[0],409)
+        used=create('used.rec')
+        credentials={'username':'used.rec','password':'fictitious-password-123'}
+        self.assertEqual(self.request('POST','/api/auth/activate',credentials|{'key':used['key']})[0],200)
+        code,body,_=self.request('POST','/api/auth/login',credentials)
+        self.assertEqual(code,200)
+        session={'Authorization':'Bearer '+json.loads(body)['token'],'Content-Type':'application/json'}
+        self.assertEqual(self.request('GET','/api/admin/consultants',headers=session)[0],200)
+        self.assertEqual(action(used,'DELETE'),409)
+        self.assertEqual(action(used,'ARCHIVE'),200)
+        self.assertEqual(action(used,'ROTATE'),409)
+        self.assertEqual(action(used,'DELETE'),409)
+        self.assertEqual(self.request('POST','/api/auth/login',credentials)[0],401)
+        self.assertEqual(self.request('GET','/api/admin/consultants',headers=session)[0],401)
+        items=json.loads(self.request('GET',path,headers=auth)[1])['items']
+        archived=next(a for a in items if a['id']==used['id'])
+        self.assertTrue(archived['archived']);self.assertFalse(archived['enabled']);self.assertFalse(archived['deletable'])
+        with server.connect() as db:
+            self.assertFalse(db.execute('SELECT 1 FROM credentials WHERE account_id=?',(used['id'],)).fetchone())
+            self.assertTrue(db.execute("SELECT 1 FROM access_events WHERE action='COMPTE_ARCHIVE' AND resource='used.rec'").fetchone())
+            self.assertTrue(db.execute("SELECT 1 FROM access_events WHERE action='COMPTE_SUPPRIME' AND resource='unused.second'").fetchone())
+            with self.assertRaises(__import__('sqlite3').IntegrityError):db.execute('UPDATE accounts SET enabled=1 WHERE id=?',(used['id'],))
 
     def test_rec_account_invitation(self):
         import contact_mail
