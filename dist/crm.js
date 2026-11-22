@@ -138,3 +138,32 @@ async function loadCommercial(){const id=++commercialEpoch,t=token;commercialRow
 commercialRefresh.onclick=()=>{if(token)loadCommercial()};
 function clearCommercial(){commercialEpoch++;commercialRows=[];commercialPage=1;commercialSearch.value='';commercialStatus.textContent='';renderCommercial()}
 subscriptionSection.after(commercialSection);const commercialLogin=byId('login-form').onsubmit;byId('login-form').onsubmit=async e=>{await commercialLogin(e);if(token)await loadCommercial()};byId('logout').addEventListener('click',clearCommercial);
+
+const renewalSection=commercialNode('section');renewalSection.id='saas-renewals';renewalSection.className='workflow-section';
+const renewalSearch=commercialNode('input');renewalSearch.type='search';renewalSearch.placeholder='Client, produit ou référence';renewalSearch.setAttribute('aria-label','Rechercher un renouvellement SaaS');
+const renewalRisk=commercialNode('input');renewalRisk.type='checkbox';const renewalRiskLabel=commercialNode('label','À risque uniquement ');renewalRiskLabel.append(renewalRisk);
+const renewalStatus=commercialNode('p'),renewalRows=commercialNode('div'),renewalPrev=commercialNode('button','Précédent'),renewalNext=commercialNode('button','Suivant'),renewalRefresh=commercialNode('button','Actualiser les renouvellements');
+renewalStatus.setAttribute('role','status');renewalSection.append(commercialNode('h2','Renouvellements SaaS'),commercialNode('p','Alertes internes J-90, J-60, J-30 et J-7. Relances consignées, aucun message envoyé automatiquement. ARR exposé indicatif, non garanti.'),renewalSearch,renewalRiskLabel,renewalRefresh,renewalStatus,renewalRows,renewalPrev,renewalNext);commercialSection.after(renewalSection);
+let renewalPage=1,renewalEpoch=0,renewalTimer;
+async function loadRenewals(){
+ const session=token,id=++renewalEpoch;renewalPrev.disabled=renewalNext.disabled=true;renewalStatus.textContent='Chargement…';
+ try{
+  const d=await api('crm/saas-renewals?'+new URLSearchParams({page:renewalPage,q:renewalSearch.value,risk:renewalRisk.checked?'1':''}));
+  if(!token||token!==session||id!==renewalEpoch)return;
+  renewalRows.replaceChildren();renewalStatus.textContent=d.total+' contrat(s) · Page '+d.page+' · ARR exposé global : '+(Object.entries(d.arr_exposure).map(([c,v])=>v+' '+c).join(' · ')||'—');
+  for(const item of d.items){
+   const box=commercialNode('article'),title=commercialNode('h3',item.company+' · '+item.product);
+   box.append(title,commercialNode('p',item.reference+' · échéance '+item.ends_on+' · J-'+item.days+' · seuil J-'+item.milestone+' · '+(item.risk?'À risque':item.pending?'À relancer':'Relance consignée')+' · ARR '+item.arr+' '+item.currency));
+   for(const c of item.contacts)box.append(commercialNode('p','J-'+c.milestone+' · '+c.contacted_on+' · '+c.actor+' : '+c.note));
+   if(d.can_contact&&item.pending){
+    const form=commercialNode('form'),label=commercialNode('label','Compte rendu de relance'),note=commercialNode('textarea'),save=commercialNode('button','Consigner la relance de renouvellement');note.required=true;note.maxLength=1000;label.append(note);form.append(label,save);box.append(form);
+    form.onsubmit=async e=>{e.preventDefault();if(token!==session||id!==renewalEpoch)return;save.disabled=true;try{await api('crm/saas-subscriptions/'+item.id+'/renewal-contact',{method:'POST',body:JSON.stringify({milestone:item.milestone,note:note.value})});if(token===session)await loadRenewals()}catch(error){if(token===session&&id===renewalEpoch){renewalStatus.textContent=error.message;save.disabled=false}}};
+   }
+   renewalRows.append(box);
+  }
+  renewalPrev.disabled=d.page===1;renewalNext.disabled=d.page*10>=d.total;
+ }catch(e){if(token===session&&id===renewalEpoch)renewalStatus.textContent=e.message}
+}
+renewalRefresh.onclick=()=>{if(token)loadRenewals()};renewalSearch.oninput=()=>{clearTimeout(renewalTimer);renewalEpoch++;renewalPage=1;renewalTimer=setTimeout(()=>{if(token)loadRenewals()},200)};renewalRisk.onchange=()=>{renewalPage=1;if(token)loadRenewals()};renewalPrev.onclick=()=>{if(token&&renewalPage>1){renewalPage--;loadRenewals()}};renewalNext.onclick=()=>{if(token&&!renewalNext.disabled){renewalPage++;loadRenewals()}};
+const renewalLogin=byId('login-form').onsubmit;byId('login-form').onsubmit=async e=>{await renewalLogin(e);if(token){renewalPage=1;await loadRenewals()}};
+byId('logout').addEventListener('click',()=>{renewalEpoch++;clearTimeout(renewalTimer);renewalRows.replaceChildren();renewalStatus.textContent='';renewalSearch.value='';renewalRisk.checked=false;renewalPage=1});

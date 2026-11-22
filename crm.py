@@ -135,6 +135,10 @@ def schema(db):
       action TEXT NOT NULL, evidence TEXT NOT NULL, actor TEXT NOT NULL,
       effective_on TEXT NOT NULL, previous_end TEXT NOT NULL,
       created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, PRIMARY KEY(subscription_id,version))''')
+    db.execute('''CREATE TABLE IF NOT EXISTS saas_renewal_contacts (
+      subscription_id TEXT NOT NULL REFERENCES saas_subscriptions(id), milestone INTEGER NOT NULL,
+      note TEXT NOT NULL, actor TEXT NOT NULL, contacted_on TEXT NOT NULL,
+      PRIMARY KEY(subscription_id,milestone))''')
     db.execute('''CREATE TABLE IF NOT EXISTS saas_billing_preparations (
       subscription_id TEXT NOT NULL REFERENCES saas_subscriptions(id), period_start TEXT NOT NULL,
       period_end TEXT NOT NULL, currency TEXT NOT NULL, recurring TEXT NOT NULL, one_off TEXT NOT NULL,
@@ -349,6 +353,67 @@ def saas_commercial(h,connect):
         db.execute('BEGIN')
         return h.json_response(200,saas_commercial_report(db,date.today().isoformat()))
 
+def renewal_milestone(days):
+    return next((n for n in (7,30,60,90) if days<=n),None) if days>=0 else None
+
+def renewal_queue(db,today):
+    now=date.fromisoformat(today)
+    db.row_factory=sqlite3.Row
+    items=[]
+    for row in db.execute("""SELECT s.id,s.ends_on,s.reference,o.company,f.title,f.estimate
+      FROM saas_subscriptions s JOIN saas_offers f ON f.id=s.offer_id JOIN opportunities o ON o.id=f.opportunity_id
+      WHERE s.starts_on<=? AND s.ends_on>=? AND s.ends_on<=?
+      AND NOT EXISTS(SELECT 1 FROM saas_subscription_renewals r WHERE r.predecessor_id=s.id)
+      AND NOT EXISTS(SELECT 1 FROM saas_subscription_events e WHERE e.subscription_id=s.id AND e.action='RESILIATION')
+      ORDER BY s.ends_on,s.id""",(today,today,(now+timedelta(days=90)).isoformat())):
+        item=dict(row)
+        estimate=json.loads(item.pop('estimate'))
+        days=(date.fromisoformat(item['ends_on'])-now).days
+        contacts=[dict(r) for r in db.execute('SELECT milestone,note,actor,contacted_on FROM saas_renewal_contacts WHERE subscription_id=? ORDER BY milestone DESC',(item['id'],))]
+        milestone=renewal_milestone(days)
+        pending=not any(c['milestone']==milestone for c in contacts)
+        item.update(days=days,milestone=milestone,pending=pending,risk=days<=30 and pending,contacts=contacts,
+                    product=estimate['product_name'],currency=estimate['currency'],arr=estimate['arr'])
+        items.append(item)
+    return items
+
+def saas_renewal_queue(h,connect):
+    try:
+        query=parse_qs(urlsplit(h.path).query)
+        page=int(query.get('page',['1'])[0]);q=query.get('q',[''])[0][:120].casefold()
+        risk=query.get('risk',[''])[0]
+        if not 1<=page<=10000 or risk not in ('','1'):raise ValueError()
+    except ValueError:return h.json_response(400,{'error':'Filtre invalide.'})
+    today=date.today().isoformat()
+    with connect() as db:
+        db.execute('BEGIN')
+        rows=renewal_queue(db,today)
+    totals={}
+    for r in rows:
+        totals[r['currency']]=totals.get(r['currency'],Decimal(0))+Decimal(r['arr'])
+    filtered=[r for r in rows if (not risk or r['risk']) and q in (' '.join(str(r[k]) for k in ('company','title','reference','product'))).casefold()]
+    return h.json_response(200,{'items':filtered[(page-1)*10:page*10],'total':len(filtered),'page':page,'as_of':today,
+        'arr_exposure':{k:str(v) for k,v in totals.items()},'can_contact':h.role in ('ADMIN','COMMERCIAL')})
+
+def saas_renewal_contact(h,connect,identifier):
+    if h.role not in ('ADMIN','COMMERCIAL'):return h.json_response(403,{'error':'Relance réservée au commerce.'})
+    try:
+        length=int(h.headers.get('Content-Length','0'))
+        if not 0<length<=4000 or h.headers.get_content_type()!='application/json':raise ValueError()
+        data=json.loads(h.rfile.read(length))
+        if not isinstance(data,dict) or set(data)!={'milestone','note'}:raise ValueError()
+        milestone,note=data['milestone'],data['note']
+        if type(milestone) is not int or milestone not in (7,30,60,90) or not isinstance(note,str) or not note.strip() or len(note)>1000 or chr(0) in note:raise ValueError()
+    except (ValueError,TypeError,UnicodeError):return h.json_response(400,{'error':'Relance invalide.'})
+    today=date.today().isoformat()
+    with connect() as db:
+        db.execute('BEGIN IMMEDIATE')
+        row=next((r for r in renewal_queue(db,today) if r['id']==identifier),None)
+        if not row or row['milestone']!=milestone or not row['pending']:return h.json_response(409,{'error':'Échéance ou relance incompatible.'})
+        db.execute('INSERT INTO saas_renewal_contacts VALUES(?,?,?,?,?)',(identifier,milestone,note.strip(),h.actor,today))
+        accounts.event(db,h.actor,'ABONNEMENT_SAAS_RELANCE',identifier)
+    return h.json_response(201,{'id':identifier,'milestone':milestone,'sent':False})
+
 def subscription_lifecycle(db,identifier,start,end,today,role):
     db.row_factory=sqlite3.Row
     events=[dict(r) for r in db.execute('SELECT version,action,evidence,actor,effective_on,previous_end,created_at FROM saas_subscription_events WHERE subscription_id=? ORDER BY version',(identifier,))]
@@ -548,6 +613,10 @@ def handle(h,connect,method):
     path=urlsplit(h.path).path
     if method=='GET' and path in ('/api/admin/crm/saas-commercial','/api/admin/direction/saas-commercial'):
         return saas_commercial(h,connect)
+    if method=='GET' and path in ('/api/admin/crm/saas-renewals','/api/admin/direction/saas-renewals'):
+        return saas_renewal_queue(h,connect)
+    contact_route=re.fullmatch(r'/api/admin/crm/saas-subscriptions/([0-9a-f-]{36})/renewal-contact',path)
+    if contact_route and method=='POST':return saas_renewal_contact(h,connect,contact_route.group(1))
     billing_route=re.fullmatch(r'/api/admin/crm/saas-subscriptions/([0-9a-f-]{36})/billing',path)
     decision_route=re.fullmatch(r'/api/admin/crm/saas-subscriptions/([0-9a-f-]{36})/decision',path)
     if decision_route and method=='POST':return saas_subscription_decision(h,connect,decision_route.group(1))

@@ -205,7 +205,7 @@ class Handler(SimpleHTTPRequestHandler):
         if re.fullmatch(r'/api/admin/documents(?:/[0-9a-f-]{36})?',urlsplit(self.path).path):return documents.handle(self,connect,'GET')
         if urlsplit(self.path).path=='/api/admin/direction/reporting':return reporting.handle(self,connect)
         if urlsplit(self.path).path=='/api/admin/direction/saas-monthly':return billing.handle(self,connect,'GET')
-        if urlsplit(self.path).path in ('/api/admin/direction/saas-commercial','/api/admin/crm/saas-commercial'):return crm.handle(self,connect,'GET')
+        if urlsplit(self.path).path in ('/api/admin/direction/saas-commercial','/api/admin/crm/saas-commercial','/api/admin/crm/saas-renewals','/api/admin/direction/saas-renewals'):return crm.handle(self,connect,'GET')
         if urlsplit(self.path).path=='/api/admin/billing/expenses':return treasury.handle(self,connect,'GET')
         if re.fullmatch(r'/api/admin/missions/[0-9a-f-]{36}/renewals',urlsplit(self.path).path):return contracts.handle(self,connect,'GET')
         if urlsplit(self.path).path == '/api/admin/crm/organizations':
@@ -416,7 +416,7 @@ class Handler(SimpleHTTPRequestHandler):
             return crm.handle(self, connect, "POST")
         if re.fullmatch(r'/api/admin/crm/saas-offers/[0-9a-f-]{36}/decision',self.path):
             return crm.handle(self,connect,'POST')
-        if re.fullmatch(r'/api/admin/crm/saas-subscriptions/[0-9a-f-]{36}/(?:billing|decision)',self.path):
+        if re.fullmatch(r'/api/admin/crm/saas-subscriptions/[0-9a-f-]{36}/(?:billing|decision|renewal-contact)',self.path):
             return crm.handle(self,connect,'POST')
         if self.path == "/api/admin/consultants":
             return consultants.handle(self, connect, "POST")

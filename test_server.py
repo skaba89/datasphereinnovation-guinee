@@ -1508,6 +1508,18 @@ class IntakeTests(unittest.TestCase):
         self.assertEqual(metrics['metrics']['counts']['ECHEANCE_30J'],1)
         self.assertEqual(metrics['metrics']['groups'][0]['mrr'],'250.00')
         self.assertEqual(metrics['metrics']['groups'][0]['arr'],'3000.00')
+        queue='/api/admin/crm/saas-renewals'
+        contact=subscriptions+'/'+predecessor+'/renewal-contact'
+        self.assertEqual(self.request('GET',queue)[0],401)
+        pending=json.loads(self.request('GET',queue+'?risk=1',headers=commercial)[1])
+        self.assertEqual(pending['total'],1)
+        self.assertEqual(pending['items'][0]['milestone'],30)
+        self.assertEqual(pending['arr_exposure'],{'EUR':'3000.00'})
+        self.assertEqual(self.request('POST',contact,{'milestone':60,'note':'Relance fictive'},commercial)[0],409)
+        self.assertEqual(self.request('POST',contact,{'milestone':30,'note':'Relance fictive'},commercial)[0],201)
+        self.assertEqual(self.request('POST',contact,{'milestone':30,'note':'Doublon'},commercial)[0],409)
+        self.assertEqual(json.loads(self.request('GET',queue+'?risk=1',headers=commercial)[1])['total'],0)
+        self.assertEqual(json.loads(self.request('GET',queue,headers=commercial)[1])['items'][0]['contacts'][0]['note'],'Relance fictive')
         self.assertEqual(self.request('GET',subscriptions+'?status=INVALID',headers=auth)[0],400)
         def accepted_offer():
             status,body,_=self.request('POST',path,data,auth)
@@ -1520,6 +1532,7 @@ class IntakeTests(unittest.TestCase):
         renewal={'offer_id':successor,'starts_on':end,'ends_on':(today+timedelta(days=45)).isoformat(),'reference':'Renouvellement fictif','predecessor_id':predecessor}
         self.assertEqual(self.request('POST',subscriptions,renewal|{'starts_on':today.isoformat()},auth)[0],409)
         self.assertEqual(self.request('POST',subscriptions,renewal,auth)[0],201)
+        self.assertEqual(json.loads(self.request('GET',queue,headers=commercial)[1])['total'],0)
         self.assertEqual(self.request('POST',subscriptions,renewal|{'offer_id':accepted_offer()},auth)[0],409)
         snapshot=json.loads(self.request('GET',subscriptions,headers=auth)[1])
         self.assertEqual(snapshot['metrics']['counts']['ACTIF'],1)
@@ -1558,6 +1571,8 @@ class IntakeTests(unittest.TestCase):
 
     def test_saas_billing_boundaries(self):
         from crm import subscription_schedule
+        from crm import renewal_milestone
+        self.assertEqual([renewal_milestone(x) for x in (-1,0,7,8,30,31,60,61,90,91)],[None,7,7,30,30,60,60,90,90,None])
         estimate={'cycle':'MONTHLY','currency':'EUR','recurring':'25.50','one_off':'10.00'}
         schedule=subscription_schedule('2028-01-31','2028-03-31',estimate)
         self.assertEqual([p['period_end'] for p in schedule],['2028-02-29','2028-03-31'])
