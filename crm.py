@@ -155,6 +155,16 @@ def schema(db):
       id TEXT PRIMARY KEY, organization_id TEXT NOT NULL REFERENCES organizations(id),
       reference TEXT NOT NULL, captured_on TEXT NOT NULL, csat INTEGER, nps INTEGER,
       actor TEXT NOT NULL, UNIQUE(organization_id,reference))''')
+    db.execute('''CREATE TABLE IF NOT EXISTS partner_agreements (
+      id TEXT PRIMARY KEY, partner_id TEXT NOT NULL REFERENCES organizations(id),
+      reference TEXT NOT NULL COLLATE NOCASE, kind TEXT NOT NULL, starts_on TEXT NOT NULL,
+      ends_on TEXT NOT NULL, rate TEXT NOT NULL, actor TEXT NOT NULL,
+      UNIQUE(partner_id,reference))''')
+    db.execute('''CREATE TABLE IF NOT EXISTS partner_referrals (
+      opportunity_id TEXT PRIMARY KEY REFERENCES opportunities(id),
+      agreement_id TEXT NOT NULL REFERENCES partner_agreements(id),
+      currency TEXT NOT NULL, basis TEXT NOT NULL, commission TEXT NOT NULL,
+      actor TEXT NOT NULL, created_on TEXT NOT NULL)''')
     db.execute('''CREATE TABLE IF NOT EXISTS saas_billing_preparations (
       subscription_id TEXT NOT NULL REFERENCES saas_subscriptions(id), period_start TEXT NOT NULL,
       period_end TEXT NOT NULL, currency TEXT NOT NULL, recurring TEXT NOT NULL, one_off TEXT NOT NULL,
@@ -368,6 +378,77 @@ def saas_commercial(h,connect):
     with connect() as db:
         db.execute('BEGIN')
         return h.json_response(200,saas_commercial_report(db,date.today().isoformat()))
+
+def partners(h,connect,method):
+    today=date.today().isoformat()
+    if method=='GET':
+        try:
+            query=parse_qs(urlsplit(h.path).query);page=int(query.get('page',['1'])[0]);q=query.get('q',[''])[0][:120].casefold()
+            if not 1<=page<=10000:raise ValueError()
+        except ValueError:return h.json_response(400,{'error':'Page invalide.'})
+        with connect() as db:
+            db.row_factory=sqlite3.Row;db.execute('BEGIN')
+            agreements=[dict(r) for r in db.execute('SELECT a.*,o.name AS partner FROM partner_agreements a JOIN organizations o ON o.id=a.partner_id ORDER BY a.ends_on,a.id')]
+            referrals=[dict(r) for r in db.execute('''SELECT r.*,a.partner_id,a.reference,o.name AS partner,p.title,p.status FROM partner_referrals r
+                JOIN partner_agreements a ON a.id=r.agreement_id JOIN organizations o ON o.id=a.partner_id
+                JOIN opportunities p ON p.id=r.opportunity_id ORDER BY r.created_on DESC,r.opportunity_id''')]
+            groups=[]
+            for oid,name in db.execute("SELECT id,name FROM organizations WHERE kind='PARTENAIRE' OR id IN (SELECT partner_id FROM partner_agreements) ORDER BY name_key,id"):
+                rows=[r for r in referrals if r['partner_id']==oid];totals={}
+                for r in rows:
+                    if r['status']=='PERDU':continue
+                    bucket=totals.setdefault(r['currency'],{'pipeline':Decimal(0),'won':Decimal(0)})
+                    bucket['won' if r['status'] in ('GAGNE','EN_MISSION','TERMINE') else 'pipeline']+=Decimal(r['commission'])
+                groups.append({'id':oid,'name':name,'active_agreements':sum(a['partner_id']==oid and a['starts_on']<=today<=a['ends_on'] for a in agreements),'referrals':len(rows),'won':sum(r['status'] in ('GAGNE','EN_MISSION','TERMINE') for r in rows),'commission':{c:{k:str(v) for k,v in b.items()} for c,b in totals.items()}})
+            if urlsplit(h.path).path.startswith('/api/admin/direction/'):
+                return h.json_response(200,{'partners':groups,'as_of':today})
+            available=[dict(r) for r in db.execute('SELECT id,title,company FROM opportunities WHERE id NOT IN (SELECT opportunity_id FROM partner_referrals) ORDER BY title,id')]
+        aa=[a for a in agreements if q in (a['partner']+' '+a['reference']+' '+a['kind']).casefold()]
+        rr=[r for r in referrals if q in (r['partner']+' '+r['title']+' '+r['reference']).casefold()]
+        return h.json_response(200,{'partners':groups,'agreements':aa[(page-1)*10:page*10],'agreement_total':len(aa),'referrals':rr[(page-1)*10:page*10],'referral_total':len(rr),'active_agreements':[{'id':a['id'],'label':a['partner']+' · '+a['reference']} for a in agreements if a['starts_on']<=today<=a['ends_on']],'opportunities':available,'page':page,'can_write':h.role in ('ADMIN','COMMERCIAL')})
+    if h.role not in ('ADMIN','COMMERCIAL'):return h.json_response(403,{'error':'Action réservée au commerce.'})
+    try:
+        size=int(h.headers.get('Content-Length','0'))
+        if not 0<size<=8000 or h.headers.get_content_type()!='application/json':raise ValueError()
+        data=json.loads(h.rfile.read(size))
+        if not isinstance(data,dict):raise ValueError()
+        def content(k,n):
+            v=data[k]
+            if not isinstance(v,str) or not v.strip() or len(v)>n or any(ord(c)<32 for c in v):raise ValueError()
+            return v.strip()
+        def identifier(k):
+            v=content(k,36)
+            if str(uuid.UUID(v))!=v:raise ValueError()
+            return v
+        action=data.get('action')
+        if action=='agreement':
+            if set(data)!={'action','partner_id','reference','kind','starts_on','ends_on','rate'}:raise ValueError()
+            partner=identifier('partner_id');reference=content('reference',120);kind=content('kind',20)
+            starts=content('starts_on',10);ends=content('ends_on',10)
+            if kind not in ('COMMERCIAL','TECHNOLOGIQUE','APPORTEUR') or any(date.fromisoformat(v).isoformat()!=v for v in (starts,ends)) or starts>ends:raise ValueError()
+            rate=saas_money(data['rate'],'EUR')
+            if rate>100:raise ValueError()
+        elif action=='referral':
+            if set(data)!={'action','opportunity_id','agreement_id','currency','basis'}:raise ValueError()
+            opportunity=identifier('opportunity_id');agreement=identifier('agreement_id');currency=content('currency',3)
+            if currency not in ('EUR','USD','GNF','XOF'):raise ValueError()
+            basis=saas_money(data['basis'],currency)
+        else:raise ValueError()
+    except (ValueError,TypeError,KeyError,UnicodeError):return h.json_response(400,{'error':'Champs invalides.'})
+    with connect() as db:
+        db.execute('BEGIN IMMEDIATE')
+        if action=='agreement':
+            if not db.execute("SELECT 1 FROM organizations WHERE id=? AND kind='PARTENAIRE'",(partner,)).fetchone():return h.json_response(409,{'error':'Organisation partenaire requise.'})
+            if db.execute('SELECT 1 FROM partner_agreements WHERE partner_id=? AND reference=?',(partner,reference)).fetchone():return h.json_response(409,{'error':'Convention déjà enregistrée.'})
+            oid=str(uuid.uuid4());db.execute('INSERT INTO partner_agreements VALUES(?,?,?,?,?,?,?,?)',(oid,partner,reference,kind,starts,ends,str(rate),h.actor));event='CONVENTION_PARTENAIRE_CREEE'
+        else:
+            row=db.execute('''SELECT a.rate FROM partner_agreements a JOIN organizations o ON o.id=a.partner_id WHERE a.id=? AND o.kind='PARTENAIRE' AND a.starts_on<=? AND a.ends_on>=?''',(agreement,today,today)).fetchone()
+            if not row or not db.execute('SELECT 1 FROM opportunities WHERE id=?',(opportunity,)).fetchone():return h.json_response(409,{'error':'Convention active et opportunité requises.'})
+            if db.execute('SELECT 1 FROM partner_referrals WHERE opportunity_id=?',(opportunity,)).fetchone():return h.json_response(409,{'error':'Opportunité déjà attribuée.'})
+            commission=(basis*Decimal(row[0])/100).quantize(Decimal('1' if currency in ('GNF','XOF') else '0.01'),rounding=ROUND_HALF_UP)
+            oid=opportunity;db.execute('INSERT INTO partner_referrals VALUES(?,?,?,?,?,?,?)',(oid,agreement,currency,str(basis),str(commission),h.actor,today));event='OPPORTUNITE_PARTENAIRE_ATTRIBUEE'
+        accounts.event(db,h.actor,event,oid)
+    return h.json_response(201,{'id':oid})
 
 def customer_growth(h,connect,method,operation='actions',identifier=None):
     today=date.today().isoformat()
@@ -775,6 +856,8 @@ def handle(h,connect,method):
     if (h.headers.get("Origin") and h.headers["Origin"]!=h.expected_origin()) or h.headers.get("Sec-Fetch-Site")=="cross-site":
         return h.json_response(403,{"error":"Origine non autorisée."})
     path=urlsplit(h.path).path
+    if path in ('/api/admin/crm/partners','/api/admin/direction/partners'):
+        return partners(h,connect,method)
     if method=='GET' and path in ('/api/admin/crm/saas-commercial','/api/admin/direction/saas-commercial'):
         return saas_commercial(h,connect)
     if method=='GET' and path in ('/api/admin/crm/saas-renewals','/api/admin/direction/saas-renewals'):

@@ -1280,6 +1280,33 @@ class IntakeTests(unittest.TestCase):
         self.assertEqual(risk['total'],1)
         self.assertTrue(risk['accounts'][0]['risk'])
 
+    def test_partner_referrals(self):
+        from datetime import date
+        import uuid
+        auth={'Authorization':'Bearer '+server.ADMIN_TOKEN,'Content-Type':'application/json'}
+        path='/api/admin/crm/partners';today=date.today().isoformat()
+        code,body,_=self.request('POST','/api/admin/crm/organizations',{'name':'Partenaire fictif','kind':'PARTENAIRE','country':'Guinée','notes':''},auth)
+        self.assertEqual(code,201);partner=json.loads(body)['id']
+        agreement={'action':'agreement','partner_id':partner,'reference':'CONV-1','kind':'APPORTEUR','starts_on':today,'ends_on':today,'rate':'12.50'}
+        self.assertEqual(self.request('GET',path)[0],401)
+        self.assertEqual(self.request('POST',path,agreement|{'rate':'101'},auth)[0],400)
+        code,body,_=self.request('POST',path,agreement,auth)
+        self.assertEqual(code,201);aid=json.loads(body)['id']
+        self.assertEqual(self.request('POST',path,agreement,auth)[0],409)
+        oid=str(uuid.uuid4())
+        with server.connect() as db:
+            db.execute("INSERT INTO opportunities(id,company,contact,email,title,mode,skills,consultant_id,next_action,followup,notes,status) VALUES(?,'Test','','','Apport','REGIE','','','','','','PROSPECT')",(oid,))
+        referral={'action':'referral','opportunity_id':oid,'agreement_id':aid,'currency':'EUR','basis':'100.04'}
+        self.assertEqual(self.request('POST',path,referral,auth)[0],201)
+        self.assertEqual(self.request('POST',path,referral,auth)[0],409)
+        report=json.loads(self.request('GET',path+'?q=conv-1',headers=auth)[1])
+        self.assertEqual(report['referrals'][0]['commission'],'12.51')
+        self.assertEqual(report['partners'][0]['commission']['EUR']['pipeline'],'12.51')
+        with server.connect() as db:db.execute("UPDATE opportunities SET status='GAGNE' WHERE id=?",(oid,))
+        report=json.loads(self.request('GET','/api/admin/direction/partners',headers=auth)[1])
+        self.assertEqual(report['partners'][0]['commission']['EUR']['won'],'12.51')
+        self.assertNotIn('referrals',report)
+
     def test_customer_growth(self):
         from datetime import date,timedelta
         auth={'Authorization':'Bearer '+server.ADMIN_TOKEN,'Content-Type':'application/json'}
