@@ -63,6 +63,8 @@ def handle(handler, connect, method):
             return handler.json_response(400, {"error": "Statut invalide."})
         try:
             page = max(1, min(10000, int(query.get("page", ["1"])[0])))
+            page_size = int(query.get("page_size", ["25"])[0])
+            if page_size not in (10, 25, 50): raise ValueError()
         except ValueError:
             return handler.json_response(400, {"error": "Page invalide."})
         where = "WHERE (?='' OR stage=?) AND (instr(lower(title),lower(?))>0 OR instr(lower(client),lower(?))>0 OR instr(lower(reference),lower(?))>0)"
@@ -70,7 +72,7 @@ def handle(handler, connect, method):
         with connect() as db:
             db.row_factory = sqlite3.Row
             total = db.execute("SELECT count(*) FROM tenders "+where,args).fetchone()[0]
-            rows = [dict(r) for r in db.execute("SELECT * FROM tenders "+where+" ORDER BY deadline,id LIMIT 25 OFFSET ?",(*args,(page-1)*25))]
+            rows = [dict(r) for r in db.execute("SELECT * FROM tenders "+where+" ORDER BY deadline,id LIMIT ? OFFSET ?",(*args,page_size, (page-1)*page_size))]
             counts = dict(db.execute("SELECT stage,count(*) FROM tenders GROUP BY stage").fetchall())
         return handler.json_response(200, {"items": rows, "total": total, "counts": counts})
     try:

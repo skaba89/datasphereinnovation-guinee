@@ -242,6 +242,8 @@ class Handler(SimpleHTTPRequestHandler):
             search = query.get("q", [""])[0][:120]
             try:
                 page = max(1, min(10000, int(query.get("page", ["1"])[0])))
+                page_size = int(query.get("page_size", ["25"])[0])
+                if page_size not in (10, 25, 50): raise ValueError()
             except ValueError:
                 return self.json_response(400, {"error": "Page invalide."})
             if status and status not in STATUSES:
@@ -280,7 +282,7 @@ class Handler(SimpleHTTPRequestHandler):
                 db.row_factory = sqlite3.Row
                 counts = dict((x["status"], x["n"]) for x in db.execute("SELECT status,count(*) n FROM requests GROUP BY status"))
                 total = db.execute("SELECT count(*) FROM requests " + where, args).fetchone()[0]
-                rows = [dict(x) for x in db.execute("SELECT * FROM requests " + where + " ORDER BY created_at DESC,id DESC LIMIT 25 OFFSET ?", (*args, (page-1)*25))]
+                rows = [dict(x) for x in db.execute("SELECT * FROM requests " + where + " ORDER BY created_at DESC,id DESC LIMIT ? OFFSET ?", (*args, page_size, (page-1)*page_size))]
                 # Cohort metrics use all filtered rows, not the current page.
                 metrics = [dict(x) for x in db.execute("""
                     WITH cohort AS (SELECT * FROM requests """ + where + """),

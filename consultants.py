@@ -50,6 +50,8 @@ def handle(h,connect,method):
         q=query.get("q",[""])[0][:120]
         try:
             page=max(1,min(10000,int(query.get("page",["1"])[0])))
+            page_size = int(query.get("page_size", ["25"])[0])
+            if page_size not in (10, 25, 50): raise ValueError()
             if status and status not in STATUSES: raise ValueError()
         except ValueError:
             return h.json_response(400,{"error":"Filtre invalide."})
@@ -58,7 +60,7 @@ def handle(h,connect,method):
         with connect() as db:
             db.row_factory=sqlite3.Row
             total=db.execute("SELECT count(*) FROM consultants"+where,args).fetchone()[0]
-            rows=[dict(row) for row in db.execute("SELECT * FROM consultants"+where+" ORDER BY name,id LIMIT 25 OFFSET ?",(*args,(page-1)*25))]
+            rows=[dict(row) for row in db.execute("SELECT * FROM consultants"+where+" ORDER BY name,id LIMIT ? OFFSET ?",(*args,page_size, (page-1)*page_size))]
             counts=dict(db.execute("SELECT status,count(*) FROM consultants GROUP BY status").fetchall())
         return h.json_response(200,{"items":rows,"counts":counts,"total":total})
     try:
