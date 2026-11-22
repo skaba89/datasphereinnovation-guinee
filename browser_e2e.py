@@ -1007,7 +1007,7 @@ class BrowserTests(unittest.TestCase):
             with self.subTest(module=module):
                 self.page.goto('/'+module+'.html')
                 if module=='audit':
-                    expect(self.page.locator('#notice')).to_contain_text('100 derniers événements')
+                    expect(self.page.locator('#notice')).to_contain_text('événements correspondants')
                     expect(self.page.locator('#rows tr').first).to_be_visible()
                     expect(self.page.get_by_role('combobox',name='Éléments par page')).to_have_value('10')
                 else: expect(self.page.locator('#dashboard' if module=='admin' else '#workspace')).to_be_visible()
@@ -1218,7 +1218,7 @@ class BrowserTests(unittest.TestCase):
                         self.assertEqual(set(nav.evaluate_all('(nodes) => nodes.map(a => a.getAttribute("href"))')), expected | {'connexion.html'})
                         expect(self.page.locator('.app-sidebar nav a[aria-current="page"]')).to_have_attribute('href', target)
                         if target == 'audit.html':
-                            expect(self.page.locator('#notice')).to_contain_text('100 derniers événements')
+                            expect(self.page.locator('#notice')).to_contain_text('événements correspondants')
                         else:
                             expect(self.page.locator('#dashboard' if target=='admin.html' else '#workspace')).to_be_visible()
                         if target == 'missions.html':
