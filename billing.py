@@ -10,6 +10,50 @@ import accounts
 
 SAAS_COST_CATEGORIES=('INFRASTRUCTURE','SUPPORT','ACQUISITION','EXPLOITATION')
 
+def saas_budget_report(db,report,product='',currency=''):
+    products=report['products']
+    rows={(r['month'],r['product_id'],r['currency']):dict(r) for r in report['items']}
+    targets={}
+    for r in db.execute('''SELECT month,product_id,currency,revenue_target,cost_budget
+        FROM saas_budget_revisions ORDER BY id'''):
+        m,p,c=r[:3]
+        if report['start']<=m<=report['end'] and (not product or product==p) and (not currency or currency==c):
+            targets[m,p,c]=(Decimal(r[3]),Decimal(r[4]))
+    for (m,p,c) in targets:
+        rows.setdefault((m,p,c),{'month':m,'product_id':p,'product':products[p],'currency':c,'invoiced_ht':'0','received_ttc':'0','allocated':'0','cash_contribution':'0',**dict.fromkeys(SAAS_COST_CATEGORIES,'0')})
+    def compare(r,target):
+        revenue,cost=Decimal(r['invoiced_ht']),Decimal(r['allocated'])
+        if target is None:return dict(r,revenue_target=None,cost_budget=None,revenue_gap=None,cost_remaining=None,achievement_pct=None,over_budget=False)
+        rt,cb=target
+        return dict(r,revenue_target=str(rt),cost_budget=str(cb),revenue_gap=str(revenue-rt),cost_remaining=str(cb-cost),
+                    achievement_pct=str((revenue*100/rt).quantize(Decimal('0.01'))) if rt else None,over_budget=cost>cb)
+    items=[compare(r,targets.get(k)) for k,r in sorted(rows.items())]
+    totals={}
+    for key,r in rows.items():
+        if key not in targets:continue
+        _,p,c=key
+        t=totals.setdefault((p,c),[Decimal(0)]*4+[0])
+        t[0]+=Decimal(r['invoiced_ht']);t[1]+=Decimal(r['allocated']);t[2]+=targets[key][0];t[3]+=targets[key][1];t[4]+=1
+    return report|{'items':items,'budget_totals':[compare({'product':products[p],'currency':c,'invoiced_ht':str(t[0]),'allocated':str(t[1]),'months_planned':t[4]},(t[2],t[3])) for (p,c),t in sorted(totals.items())]}
+
+def save_saas_budget(h,connect):
+    if h.role not in ('ADMIN','COMPTABLE'):return h.json_response(403,{'error':'Action réservée à la finance.'})
+    try:
+        n=int(h.headers.get('Content-Length','0'))
+        if not 0<n<=4000 or h.headers.get_content_type()!='application/json':raise ValueError()
+        v=json.loads(h.rfile.read(n))
+        if not isinstance(v,dict) or set(v)!={'month','product_id','currency','revenue_target','cost_budget'} or any(not isinstance(x,str) or len(x)>80 for x in v.values()):raise ValueError()
+        if not re.fullmatch(r'[0-9]{4}-[0-9]{2}',v['month']):raise ValueError()
+        date.fromisoformat(v['month']+'-01')
+        if v['product_id'] not in {p['id'] for p in crm.CATALOGUE} or v['currency'] not in ('EUR','USD','GNF','XOF'):raise ValueError()
+        revenue=crm.saas_money(v['revenue_target'],v['currency']);cost=crm.saas_money(v['cost_budget'],v['currency'])
+        with connect() as db:
+            db.execute('BEGIN IMMEDIATE')
+            row=db.execute('INSERT INTO saas_budget_revisions(month,product_id,currency,revenue_target,cost_budget,actor) VALUES(?,?,?,?,?,?)',(v['month'],v['product_id'],v['currency'],str(revenue),str(cost),h.actor))
+            accounts.event(db,h.actor,'BUDGET_SAAS_REVISE',str(row.lastrowid))
+        return h.json_response(201,{'id':row.lastrowid})
+    except (ValueError,TypeError,UnicodeError):return h.json_response(400,{'error':'Budget invalide.'})
+
 def saas_monthly(db,start,end,product='',currency=''):
     """Calendar months, each flow dated by its own source event."""
     months={}
@@ -135,6 +179,10 @@ def searched_page(db, select, fields, order, search, page, page_size):
 
 
 def schema(db):
+    db.execute('''CREATE TABLE IF NOT EXISTS saas_budget_revisions (
+        id INTEGER PRIMARY KEY AUTOINCREMENT, month TEXT NOT NULL, product_id TEXT NOT NULL,
+        currency TEXT NOT NULL, revenue_target TEXT NOT NULL, cost_budget TEXT NOT NULL,
+        actor TEXT NOT NULL, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)''')
     db.execute('''CREATE TABLE IF NOT EXISTS saas_expense_allocations (
       id TEXT PRIMARY KEY, expense_id TEXT NOT NULL REFERENCES expenses(id),
       product_id TEXT NOT NULL, category TEXT NOT NULL, amount TEXT NOT NULL,
@@ -186,6 +234,7 @@ def handle(h,connect,method):
     if (h.headers.get('Origin') and h.headers['Origin']!=h.expected_origin()) or h.headers.get('Sec-Fetch-Site')=='cross-site':return h.json_response(403,{'error':'Origine interdite.'})
     path=urlsplit(h.path).path; kind=path.split('/')[4] if len(path.split('/'))>4 else ''
     if method=='POST' and kind=='saas-profitability':return allocate_saas_cost(h,connect)
+    if method=='POST' and kind=='saas-budget':return save_saas_budget(h,connect)
     action=re.fullmatch(r'/api/admin/billing/saas-receivables/([0-9]{1,18})/(receipt|reminder)',path)
     if method=='POST' and action:
         if h.role not in ('ADMIN','COMPTABLE'):return h.json_response(403,{'error':'Action réservée à la finance.'})
@@ -233,7 +282,8 @@ def handle(h,connect,method):
                     if currency not in ('','EUR','USD','GNF','XOF'):raise ValueError()
                 except ValueError:return h.json_response(400,{'error':'Période ou filtre invalide (24 mois maximum).'})
                 db.execute('BEGIN')
-                return h.json_response(200,saas_monthly(db,start,end,product,currency))
+                report=saas_monthly(db,start,end,product,currency)
+                return h.json_response(200,saas_budget_report(db,report,product,currency)|{'can_budget':h.role in ('ADMIN','COMPTABLE')})
             if kind=='saas-receivables':
                 state=query.get('state',[''])[0]
                 if state not in ('','OUVERTE','PARTIELLE','REGLEE','EN_RETARD'):return h.json_response(400,{'error':'État invalide.'})
