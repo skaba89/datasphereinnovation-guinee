@@ -34,7 +34,7 @@ try{
  assert(fs.statSync(path.join(out,'hero-image.webp')).size<=180*1024);
  assert(gzipSync(read('icons.js')).length+gzipSync(read('public-menu.js')).length<=4*1024);
  assert.throws(()=>build(out,'test@dsig-consulting.com'));
- for(const privateFile of ['accounts.html','accounts.js','admin.html','connexion.html','billing.html','app.js','server.py','expertise.js'])assert(!files.includes(privateFile));
+ for(const privateFile of ['client-portal.html','client-portal.js','accounts.html','accounts.js','admin.html','connexion.html','billing.html','app.js','server.py','expertise.js'])assert(!files.includes(privateFile));
  assert(!read('robots.txt').includes('Disallow: /'));
  const urls=[...read('sitemap.xml').matchAll(/<loc>https:\/\/dsig-consulting\.com([^<]*)<\/loc>/g)].map(m=>m[1]);
  assert.equal(urls.length,count);assert.equal(new Set(urls).size,count);assert(count>=60);

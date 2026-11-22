@@ -23,6 +23,7 @@ import billing
 import treasury
 import reporting
 import reconciliation
+import client_portal
 import documents
 import alerts
 import notifications
@@ -86,6 +87,7 @@ def connect():
     billing.schema(db)
     treasury.schema(db)
     reconciliation.schema(db)
+    client_portal.schema(db)
     accounts.schema(db)
     documents.schema(db)
     notifications.schema(db)
@@ -219,6 +221,7 @@ class Handler(SimpleHTTPRequestHandler):
             return self.json_response(200 if ready else 503,{'status':'ready' if ready else 'unavailable'})
         if urlsplit(self.path).path=='/api/auth/me':return authentication.me(self,connect)
         if urlsplit(self.path).path=='/api/admin/my-activity':return own_activity.handle(self,connect,'GET')
+        if urlsplit(self.path).path=='/api/admin/client-portal':return client_portal.handle(self,connect,'GET')
         if urlsplit(self.path).path in ('/api/admin/accounts','/api/admin/audit'):return accounts.handle(self,connect,'GET')
         if re.fullmatch(r'/api/admin/billing(?:/milestones|/contracts|/schedule|/receivables|/forecast|/planned-expenses|/saas-receivables|/saas-profitability|/saas-monthly)?',urlsplit(self.path).path): return billing.handle(self,connect,'GET')
         if re.fullmatch(r'/api/admin/missions(?:/eligible|/[0-9a-f-]{36}/activity)?',urlsplit(self.path).path):
@@ -409,6 +412,7 @@ class Handler(SimpleHTTPRequestHandler):
             return organizations.convert(self,connect,org_conversion.group(1))
         if self.path in ('/api/auth/activate','/api/auth/login','/api/auth/logout','/api/auth/mfa-setup','/api/auth/mfa-confirm','/api/auth/revoke-others','/api/auth/change-password'):return authentication.handle(self,connect)
         if self.path=='/api/admin/my-activity':return own_activity.handle(self,connect,'POST')
+        if self.path=='/api/admin/client-portal':return client_portal.handle(self,connect,'POST')
         if self.path=='/api/admin/accounts':return accounts.handle(self,connect,'POST')
         if self.path=='/api/admin/billing/reconciliation':return reconciliation.handle(self,connect,'POST')
         if re.fullmatch(r'/api/admin/billing/(?:milestones|invoices|payments|schedule|reminders|planned-expenses|saas-profitability|saas-budget)',self.path): return billing.handle(self,connect,'POST')
