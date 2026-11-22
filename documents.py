@@ -46,13 +46,20 @@ def handle(h,connect,method):
     if h.headers.get('Sec-Fetch-Site')=='cross-site' or (h.headers.get('Origin') and h.headers['Origin']!=h.expected_origin()):return h.json_response(403,{'error':'Origine non autorisée.'})
     path=urlsplit(h.path).path
     if method=='GET' and path=='/api/admin/documents':
-        try:page=max(1,min(10000,int(parse_qs(urlsplit(h.path).query).get('page',['1'])[0])))
+        query=parse_qs(urlsplit(h.path).query)
+        try:
+            page=max(1,min(10000,int(query.get('page',['1'])[0])))
+            size=int(query.get('page_size',['25'])[0])
+            if size not in (10,25,50):raise ValueError()
         except ValueError:return h.json_response(400,{'error':'Page invalide.'})
         with connect() as db:
             db.row_factory=sqlite3.Row
-            rows=[dict(r) for r in db.execute('''SELECT d.id,d.category,d.entity_id,d.title,d.size,d.sha256,d.actor,d.created_at,coalesce(h.version,1) AS version,coalesce(h.previous_id,'') AS previous_id,coalesce(h.review_date,'') AS review_date,NOT EXISTS(SELECT 1 FROM document_history n WHERE n.previous_id=d.id) AS current FROM documents d LEFT JOIN document_history h ON h.document_id=d.id ORDER BY d.created_at DESC,d.id LIMIT 25 OFFSET ?''',((page-1)*25,))]
+            search=query.get('q',[''])[0].strip()[:120]
+            source=' FROM documents d LEFT JOIN document_history h ON h.document_id=d.id WHERE instr(lower(d.title),lower(?))>0 OR instr(lower(d.category),lower(?))>0 OR instr(lower(d.entity_id),lower(?))>0 OR instr(lower(d.id),lower(?))>0'
+            args=(search,)*4
+            rows=[dict(r) for r in db.execute('''SELECT d.id,d.category,d.entity_id,d.title,d.size,d.sha256,d.actor,d.created_at,coalesce(h.version,1) AS version,coalesce(h.previous_id,'') AS previous_id,coalesce(h.review_date,'') AS review_date,NOT EXISTS(SELECT 1 FROM document_history n WHERE n.previous_id=d.id) AS current'''+source+' ORDER BY d.created_at DESC,d.id LIMIT ? OFFSET ?',(*args,size,(page-1)*size))]
             for r in rows:r['review_due']=bool(r['review_date'] and r['review_date']<=date.today().isoformat())
-            return h.json_response(200,{'items':rows,'total':db.execute('SELECT count(*) FROM documents').fetchone()[0]})
+            return h.json_response(200,{'items':rows,'total':db.execute('SELECT count(*)'+source,args).fetchone()[0]})
     try:key=cipher()
     except (ValueError,TypeError):return h.json_response(503,{'error':'Clé documentaire non configurée.'})
     if method=='GET':
