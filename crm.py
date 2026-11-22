@@ -3,6 +3,7 @@ import json
 import re
 import sqlite3
 import uuid
+import accounts
 from decimal import Decimal, ROUND_HALF_UP
 from datetime import date
 from urllib.parse import parse_qs, urlsplit
@@ -112,6 +113,45 @@ def schema(db):
       version INTEGER NOT NULL, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)""")
     db.execute("""CREATE TABLE IF NOT EXISTS opportunity_qualification (
       opportunity_id TEXT PRIMARY KEY REFERENCES opportunities(id), payload TEXT NOT NULL)""")
+    db.execute("""CREATE TABLE IF NOT EXISTS saas_offers (
+      id TEXT PRIMARY KEY, opportunity_id TEXT NOT NULL REFERENCES opportunities(id),
+      title TEXT NOT NULL, valid_until TEXT NOT NULL, inputs TEXT NOT NULL,
+      estimate TEXT NOT NULL, actor TEXT NOT NULL, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)""")
+    db.execute('CREATE INDEX IF NOT EXISTS saas_offers_opportunity ON saas_offers(opportunity_id)')
+
+def saas_offers(h,connect,method):
+    if method=='GET':
+        try:
+            page=int(parse_qs(urlsplit(h.path).query).get('page',['1'])[0])
+            if not 1<=page<=10000:raise ValueError()
+        except ValueError:return h.json_response(400,{'error':'Page invalide.'})
+        with connect() as db:
+            db.row_factory=sqlite3.Row
+            total=db.execute('SELECT count(*) FROM saas_offers').fetchone()[0]
+            rows=[dict(r) for r in db.execute('''SELECT s.*,o.company,o.title opportunity_title FROM saas_offers s
+                JOIN opportunities o ON o.id=s.opportunity_id ORDER BY s.created_at DESC,s.id DESC LIMIT 10 OFFSET ?''',((page-1)*10,))]
+        for row in rows:
+            row['inputs']=json.loads(row['inputs']);row['estimate']=json.loads(row['estimate']);row['status']='BROUILLON'
+        return h.json_response(200,{'items':rows,'total':total,'page':page})
+    try:
+        length=int(h.headers.get('Content-Length','0'))
+        if not 0<length<=6000 or h.headers.get_content_type()!='application/json':raise ValueError()
+        data=json.loads(h.rfile.read(length))
+        if not isinstance(data,dict) or set(data)!={'opportunity_id','title','valid_until','inputs'}:raise ValueError()
+        oid,title,until=data['opportunity_id'],data['title'],data['valid_until']
+        if not isinstance(oid,str) or str(uuid.UUID(oid))!=oid:raise ValueError()
+        if not isinstance(title,str) or not title.strip() or len(title)>180 or '\x00' in title:raise ValueError()
+        if not isinstance(until,str) or date.fromisoformat(until).isoformat()!=until or until<date.today().isoformat():raise ValueError()
+        estimate=simulate_saas(data['inputs'])
+    except (ValueError,TypeError,UnicodeError):return h.json_response(400,{'error':'Offre ou date de validité invalide.'})
+    with connect() as db:
+        db.execute('BEGIN IMMEDIATE')
+        if not db.execute('SELECT 1 FROM opportunities WHERE id=?',(oid,)).fetchone():return h.json_response(404,{'error':'Opportunité introuvable.'})
+        identifier=str(uuid.uuid4())
+        db.execute('INSERT INTO saas_offers(id,opportunity_id,title,valid_until,inputs,estimate,actor) VALUES(?,?,?,?,?,?,?)',
+                   (identifier,oid,title.strip(),until,json.dumps(data['inputs']),json.dumps(estimate,ensure_ascii=False),h.actor))
+        accounts.event(db,h.actor,'OFFRE_SAAS_BROUILLON',identifier)
+    return h.json_response(201,{'id':identifier,'status':'BROUILLON','estimate':estimate})
 
 def validate(data):
     if not isinstance(data,dict) or set(data)!=set(FIELDS): raise ValueError()
@@ -132,6 +172,8 @@ def handle(h,connect,method):
     if (h.headers.get("Origin") and h.headers["Origin"]!=h.expected_origin()) or h.headers.get("Sec-Fetch-Site")=="cross-site":
         return h.json_response(403,{"error":"Origine non autorisée."})
     path=urlsplit(h.path).path
+    if path=='/api/admin/crm/saas-offers':
+        return saas_offers(h,connect,method)
     if method=="GET" and path=="/api/admin/crm/catalogue":
         return h.json_response(200,{"items":CATALOGUE})
     if method=='POST' and path=='/api/admin/crm/saas-simulation':
