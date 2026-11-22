@@ -407,7 +407,7 @@ class Handler(SimpleHTTPRequestHandler):
             return missions.handle(self,connect,'POST')
         if self.path == "/api/admin/quotes":
             return quotes.handle(self, connect, "POST")
-        if self.path == "/api/admin/crm":
+        if self.path in ("/api/admin/crm","/api/admin/crm/saas-simulation"):
             return crm.handle(self, connect, "POST")
         if self.path == "/api/admin/consultants":
             return consultants.handle(self, connect, "POST")
