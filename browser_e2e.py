@@ -714,7 +714,10 @@ class BrowserTests(unittest.TestCase):
         for module in ('admin','crm','appointments','quotes','tenders','consultants','recruitment','missions','billing','direction','accounts','audit','documents','alerts','notifications'):
             with self.subTest(module=module):
                 self.page.goto('/'+module+'.html')
-                if module=='audit': expect(self.page.locator('#notice')).to_contain_text('100 derniers événements')
+                if module=='audit':
+                    expect(self.page.locator('#notice')).to_contain_text('100 derniers événements')
+                    expect(self.page.locator('#rows tr').first).to_be_visible()
+                    expect(self.page.get_by_role('combobox',name='Éléments par page')).to_have_value('10')
                 else: expect(self.page.locator('#dashboard' if module=='admin' else '#workspace')).to_be_visible()
                 active = self.page.locator('.app-sidebar nav a[aria-current="page"]')
                 expect(active).to_have_attribute('href', module+'.html')
@@ -723,6 +726,8 @@ class BrowserTests(unittest.TestCase):
                 expect(self.page.locator('body')).to_have_css('background-color','rgb(245, 246, 250)')
                 self.assert_responsive(module)
                 if module=='accounts':
+                    expect(self.page.locator('#events')).to_have_count(0)
+                    expect(self.page.locator('.app-sidebar nav a[href="audit.html"]')).to_be_visible()
                     own=self.page.locator('#rows tr').filter(has_text='admin.e2e')
                     expect(own).to_contain_text('Activé')
                     expect(own.get_by_role('combobox')).to_be_disabled()

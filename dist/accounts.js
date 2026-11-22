@@ -41,14 +41,13 @@ function actionMenu(cell,x){
  menu.append(select,apply);cell.append(menu);
 }
 async function load(){
- const t=token,[a,b]=await Promise.all([api('accounts'),api('audit')]);if(!token||t!==token)return;
- for(const id of ['rows','events'])$(id).replaceChildren();
+ const t=token,a=await api('accounts');if(!token||t!==token)return;
+ $('rows').replaceChildren();
  for(const x of a.items){
   const values=[x.username,x.role,x.archived?'Archivé':x.enabled?'Actif':'Désactivé',x.archived?'—':x.activated?'Activé':'À activer',x.archived?'—':x.mfa_enabled?'Activé':'Non activé',({NONE:'Non envoyée',PENDING:'En attente',ACCEPTED:'Acceptée par Resend',FAILED:'Échec',CANCELLED:'Annulée'})[x.invitation_state]||'—'];
   const r=row($('rows'),[...values,'']);r.dataset.searchText=values.join(' ');actionMenu(r.lastChild,x);
  }
- for(const e of b.items)row($('events'),[e.created_at,e.actor,e.action,e.resource]);
 }
 $('login-form').onsubmit=async e=>{e.preventDefault();token=$('token').value;$('token').value='';try{await load();$('login').hidden=true;$('workspace').hidden=false}catch(e){token='';notice(e.message)}};
-$('logout').onclick=()=>{token='';key();$('rows').replaceChildren();$('events').replaceChildren();$('create').reset();resetPicker();$('workspace').hidden=true;$('login').hidden=false;notice('Déconnecté.')};$('clear-key').onclick=()=>key();
+$('logout').onclick=()=>{token='';key();$('rows').replaceChildren();$('create').reset();resetPicker();$('workspace').hidden=true;$('login').hidden=false;notice('Déconnecté.')};$('clear-key').onclick=()=>key();
 $('create').onsubmit=e=>{e.preventDefault();safe(async()=>{const b=e.submitter;b.disabled=true;try{key();const d=await api('accounts','POST',Object.fromEntries(new FormData(e.target)));key(d.key);e.target.reset();resetPicker();await load();notice('Compte créé.')}finally{b.disabled=false}})};
