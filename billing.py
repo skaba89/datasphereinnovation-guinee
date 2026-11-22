@@ -49,14 +49,18 @@ def handle(h,connect,method):
     if (h.headers.get('Origin') and h.headers['Origin']!=h.expected_origin()) or h.headers.get('Sec-Fetch-Site')=='cross-site':return h.json_response(403,{'error':'Origine interdite.'})
     path=urlsplit(h.path).path; kind=path.split('/')[4] if len(path.split('/'))>4 else ''
     if method=='GET':
-        try:page=max(1,min(10000,int(parse_qs(urlsplit(h.path).query).get('page',['1'])[0])))
+        try:
+            query=parse_qs(urlsplit(h.path).query)
+            page=max(1,min(10000,int(query.get('page',['1'])[0])))
+            page_size=int(query.get('page_size',['25'])[0])
+            if page_size not in (10,25,50):raise ValueError()
         except ValueError:return h.json_response(400,{'error':'Page invalide.'})
         with connect() as db:
             db.row_factory=sqlite3.Row
             if kind=='planned-expenses':
                 items=[dict(r) for r in db.execute("""SELECT p.*,e.reference AS expense_reference
                     FROM planned_expenses p LEFT JOIN expenses e ON e.id=p.expense_id
-                    ORDER BY p.due_date,p.id LIMIT 25 OFFSET ?""",((page-1)*25,))]
+                    ORDER BY p.due_date,p.id LIMIT ? OFFSET ?""",(page_size,(page-1)*page_size))]
                 return h.json_response(200,{'items':items,'total':db.execute('SELECT count(*) FROM planned_expenses').fetchone()[0]})
             if kind=='forecast':
                 db.execute('BEGIN')
@@ -102,14 +106,14 @@ def handle(h,connect,method):
                     x.update(balance=str(balance),days_overdue=days,bucket=bucket,reminders=history,
                              reminder_count=db.execute('SELECT count(*) FROM billing_reminders WHERE invoice_id=?',(x['id'],)).fetchone()[0])
                     items.append(x)
-                return h.json_response(200,{'items':items[(page-1)*25:page*25],'total':len(items),
+                return h.json_response(200,{'items':items[(page-1)*page_size:page*page_size],'total':len(items),
                     'aging':{c:{k:str(v) for k,v in sums.items()} for c,sums in aging.items()}})
             if kind=='schedule':
                 items=[]
                 for record in db.execute("""SELECT s.*,q.currency,q.title,o.company,m.contract_ref,i.reference invoice_reference
                     FROM billing_schedule s JOIN missions m ON m.id=s.mission_id JOIN quotes q ON q.id=m.quote_id
                     JOIN opportunities o ON o.id=m.opportunity_id LEFT JOIN invoices i ON i.id=s.invoice_id
-                    ORDER BY s.due_date,s.id LIMIT 25 OFFSET ?""",((page-1)*25,)):
+                    ORDER BY s.due_date,s.id LIMIT ? OFFSET ?""",(page_size,(page-1)*page_size)):
                     x=dict(record)
                     x['overdue']=x['state']=='PREVU' and x['due_date']<date.today().isoformat()
                     items.append(x)
@@ -120,7 +124,7 @@ def handle(h,connect,method):
                 for record in db.execute("""SELECT q.*, m.id mission_id,m.contract_ref,m.status mission_status,
                     o.company,sc.signed_date FROM missions m JOIN quotes q ON q.id=m.quote_id
                     JOIN opportunities o ON o.id=m.opportunity_id LEFT JOIN signed_contracts sc ON sc.quote_id=q.id
-                    ORDER BY m.created_at DESC,m.id LIMIT 25 OFFSET ?""",((page-1)*25,)):
+                    ORDER BY m.created_at DESC,m.id LIMIT ? OFFSET ?""",(page_size,(page-1)*page_size)):
                     m=dict(record);mid=m['mission_id']
                     planned=Decimal(quotes.calculate(m)['revenue'])
                     activity=missions.amounts(m,[dict(a) for a in db.execute('SELECT * FROM activity WHERE mission_id=?',(mid,))])
@@ -138,7 +142,7 @@ def handle(h,connect,method):
                         {k:str(v.quantize(unit)) for k,v in values.items()})
                 return h.json_response(200,{'items':items,'total':db.execute('SELECT count(*) FROM missions').fetchone()[0]})
             if kind=='milestones':
-                rows=[dict(r) for r in db.execute('SELECT j.*,q.currency,q.title AS mission_title FROM milestones j JOIN missions m ON m.id=j.mission_id JOIN quotes q ON q.id=m.quote_id ORDER BY j.id LIMIT 25 OFFSET ?',((page-1)*25,))]
+                rows=[dict(r) for r in db.execute('SELECT j.*,q.currency,q.title AS mission_title FROM milestones j JOIN missions m ON m.id=j.mission_id JOIN quotes q ON q.id=m.quote_id ORDER BY j.id LIMIT ? OFFSET ?',(page_size,(page-1)*page_size))]
                 return h.json_response(200,{'items':rows,'total':db.execute('SELECT count(*) FROM milestones').fetchone()[0]})
             query=parse_qs(urlsplit(h.path).query)
             search=query.get('q',[''])[0].strip().casefold()
@@ -155,7 +159,7 @@ def handle(h,connect,method):
                 if search and not any(search in x[k].casefold() for k in ('reference','title','currency')):continue
                 if state=='OPEN' and due<=0 or state=='OVERDUE' and not x['overdue'] or state=='PAID' and due!=0:continue
                 items.append(x)
-            return h.json_response(200,{'items':items[(page-1)*25:page*25],'total':len(items),'totals':{c:{k:str(v) for k,v in t.items()} for c,t in totals.items()}})
+            return h.json_response(200,{'items':items[(page-1)*page_size:page*page_size],'total':len(items),'totals':{c:{k:str(v) for k,v in t.items()} for c,t in totals.items()}})
     try:
         n=int(h.headers.get('Content-Length','0'))
         if not 0<n<=16000 or h.headers.get_content_type()!='application/json':raise ValueError()

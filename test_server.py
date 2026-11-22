@@ -1036,6 +1036,22 @@ class IntakeTests(unittest.TestCase):
         s,body,_=self.request('POST',renew2,payload,auth);self.assertEqual(s,201);rid3=json.loads(body)['id']
         self.assertEqual(self.request('PATCH',renew2+'/'+rid3,{'status':'VALIDE'},auth)[0],403)
 
+    def test_finance_page_sizes_keep_global_cash(self):
+        auth={'Authorization':'Bearer '+server.ADMIN_TOKEN,'Content-Type':'application/json'}
+        base='/api/admin/billing'
+        for suffix in ('','/expenses','/contracts','/schedule','/receivables','/milestones','/planned-expenses'):
+            self.assertEqual(self.request('GET',base+suffix+'?page_size=11',headers=auth)[0],400)
+            for size in (10,25,50):
+                self.assertEqual(self.request('GET',base+suffix+f'?page_size={size}',headers=auth)[0],200)
+        for i in range(12):
+            payload={'reference':f'PAGE-{i:02d}','currency':'GNF','amount':'1000','paid_date':'2020-01-01','category':'AUTRE','description':'Dépense fictive','mission_id':''}
+            self.assertEqual(self.request('POST',base+'/expenses',payload,auth)[0],201)
+        first=json.loads(self.request('GET',base+'/expenses?page_size=10',headers=auth)[1])
+        second=json.loads(self.request('GET',base+'/expenses?page_size=10&page=2',headers=auth)[1])
+        self.assertEqual((first['total'],len(first['items']),len(second['items'])),(12,10,2))
+        self.assertEqual(first['cash'],second['cash'])
+        self.assertEqual(first['cash'][0]['outflows'],'12000')
+
     def test_direction_and_backup(self):
         auth={'Authorization':'Bearer '+server.ADMIN_TOKEN,'Content-Type':'application/json'}
         path='/api/admin/direction'
