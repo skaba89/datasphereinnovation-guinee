@@ -57,5 +57,7 @@ button,input,select,textarea{font-family:inherit}
 .row-actions summary{cursor:pointer;border:1px solid #d6cde5;border-radius:8px;padding:10px 12px;min-height:44px;background:#fff;color:#38225e;font-weight:600}
 .row-actions-body{display:grid;gap:6px;padding:8px 0}
 .row-actions-body button{width:100%;white-space:normal;min-height:44px;text-align:left}
+.finance-search{display:flex;gap:6px;max-width:420px;width:100%;margin:16px 0 10px}
+.finance-search input{width:100%;min-height:44px}
 @media(max-width:850px){.dsig-pager{justify-content:flex-start}.table-wrap{width:100%}}
 @media(max-width:650px){#consultant-picker label{flex-basis:100%}.dsig-pager span{flex:1 1 100%;order:-1}.dsig-pager button,.dsig-pager select{flex:1 1 auto;min-width:0}.table-wrap td button{margin:3px 0}.app-sidebar nav a{overflow-wrap:anywhere}}
