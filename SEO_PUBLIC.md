@@ -130,3 +130,38 @@ requêtes par langue et pays, erreurs d'exploration et Core Web Vitals.
 Comparer des périodes de 28 jours équivalentes. Si une métrique est indisponible,
 indiquer « non mesurée » et non zéro. Aucun identifiant, jeton ni secret dans Git.
 Google et Bing peuvent découvrir les pages sans garantir leur indexation.
+
+## V121 — Déploiement Docker public autonome
+
+Le Dockerfile public génère les pages dans un étage Node puis copie uniquement
+l'export statique dans Caddy. Aucun serveur Python, secret, volume REC ou port
+publié sur l'hôte. Le conteneur utilise un utilisateur non root et un système
+de fichiers en lecture seule. Le proxy existant termine TLS sur le réseau edge.
+Le job CI `public-docker-smoke` vérifie l'image en isolation.
+
+Préparer sur le VPS, seulement après validation CI et approbation des coordonnées
+et mentions légales :
+
+```bash
+SHA=$(git rev-parse HEAD)
+# Remplacer par la boîte commerciale approuvée et vérifiée.
+read -r -p 'Adresse commerciale DSIG : ' DSIG_PUBLIC_EMAIL
+test -z "$(git status --porcelain --untracked-files=no)"
+docker build -f Dockerfile.public --build-arg DSIG_PUBLIC_EMAIL="$DSIG_PUBLIC_EMAIL" --label "org.opencontainers.image.revision=$SHA" -t "dsig-public:$SHA" .
+bash scripts/deploy-public.sh "$SHA" --activate-public
+```
+
+Avant activation, vérifier que le projet `dsig-public` et l'alias réseau
+`dsig-public-vitrine` ne sont pas déjà utilisés par une autre application.
+L'activation ne modifie pas le proxy. Après vérification de l'existence et de
+l'unicité du vhost public, sauvegarder la configuration du proxy, examiner
+`deploy/public/edge.caddy.example` et ajouter uniquement le vhost public.
+Valider la configuration complète du proxy avant rechargement. Ne pas toucher
+aux vhosts REC, MineFleet ou autres. Contrôler ensuite depuis un réseau externe
+avec `node scripts/check-public-indexing.mjs`.
+
+Le script tente le retour à l'image précédente si le nouveau service ne devient
+pas sain. Pour un retour volontaire, conserver le SHA de la version précédente
+et relancer `bash scripts/deploy-public.sh SHA_PRECEDENT --activate-public`.
+Lors du premier lancement sans image précédente, maintenir le vhost non activé
+si le contrôle échoue. Aucun nettoyage Docker global ni suppression de volumes.

@@ -83,3 +83,31 @@ jobs:
       - name: Cleanup
         if: always()
         run: docker rm -f dsig-ci || true
+  public-docker-smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build static public image
+        run: docker build -f Dockerfile.public --build-arg DSIG_PUBLIC_EMAIL=test@dsig-consulting.com -t dsig-public:ci .
+      - name: Validate composition
+        env:
+          DSIG_PUBLIC_IMAGE: dsig-public:ci
+        run: |
+          bash -n scripts/deploy-public.sh
+          docker compose -f compose.public.yaml config --quiet
+      - name: Test isolated static container
+        run: |
+          docker run -d --name dsig-public-ci --read-only --cap-drop ALL --security-opt no-new-privileges:true --tmpfs /tmp --tmpfs /data:uid=10001,gid=10001 --tmpfs /config:uid=10001,gid=10001 -p 127.0.0.1:8080:8080 dsig-public:ci
+          for i in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:8080/healthz; then break; fi
+            sleep 1
+          done
+          curl -fsS http://127.0.0.1:8080/healthz
+          curl -fsS http://127.0.0.1:8080/ | grep 'rel="canonical" href="https://dsig-consulting.com/"'
+          curl -fsS http://127.0.0.1:8080/sitemap.xml | grep 'https://dsig-consulting.com/en.html'
+          for route in /accounts.html /connexion.html /api/admin/requests /.env /server.py; do
+            test "$(curl -sS -o /dev/null -w '%{http_code}' "http://127.0.0.1:8080$route")" = 404
+          done
+      - name: Cleanup public container
+        if: always()
+        run: docker rm -f dsig-public-ci || true

@@ -1,0 +1,8 @@
+**
+!dist/
+!dist/**
+!scripts/
+!scripts/*.mjs
+!deploy/
+!deploy/public/
+!deploy/public/Caddyfile

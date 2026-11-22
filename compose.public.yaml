@@ -1,0 +1,21 @@
+name: dsig-public
+services:
+  vitrine:
+    image: "${DSIG_PUBLIC_IMAGE:?Set verified public image}"
+    restart: unless-stopped
+    read_only: true
+    user: "10001:10001"
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    tmpfs:
+      - /tmp:rw,nosuid,nodev,noexec,size=16m
+      - /data:rw,nosuid,nodev,noexec,size=16m,uid=10001,gid=10001
+      - /config:rw,nosuid,nodev,noexec,size=16m,uid=10001,gid=10001
+    mem_limit: 128m
+    cpus: 0.5
+    networks:
+      edge:
+        aliases: [dsig-public-vitrine]
+networks:
+  edge:
+    external: true
