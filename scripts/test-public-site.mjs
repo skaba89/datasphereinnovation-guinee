@@ -4,6 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import {build} from './build-public-site.mjs';
 import {posts} from './blog-content.mjs';
+import {sectors} from './sector-content.mjs';
 
 const tmp=fs.mkdtempSync(path.join(os.tmpdir(),'dsig-public-test-'));
 const out=path.join(tmp,'site');
@@ -63,6 +64,23 @@ try{
   assert(html.includes('href="'+(name==='en.html'?'/blog-en.html':'/blog.html')+'"'));
  }
  assert.equal(urls.filter(u=>u.startsWith('/blog')).length,2+posts.length*2);
+ assert.equal(urls.filter(u=>/^\/sect(?:eurs|ors)[.-]/.test(u)).length,2+sectors.length*2);
+ for(const lang of ['fr','en']){
+  const prefix=lang==='en'?'sectors':'secteurs',other=lang==='en'?'secteurs':'sectors';
+  assert(read(lang==='en'?'en.html':'index.html').includes('href="/'+prefix+'.html"'));
+  const index=read(prefix+'.html');
+  for(const sector of sectors){
+   const url='/'+prefix+'-'+sector.slug+'.html',alternate='/'+other+'-'+sector.slug+'.html';
+   assert(urls.includes(url));assert(urls.includes(alternate));
+   assert(index.includes('href="'+url+'"'));
+   const html=read(url.slice(1));
+   assert(html.includes('href="'+alternate+'" hreflang="'+(lang==='en'?'fr':'en')+'"'));
+   assert(html.includes('href="/'+prefix+'.html"'));
+   assert.equal([...html.matchAll(/<h1\b/g)].length,1);
+   assert(html.includes('mailto:test@dsig-consulting.com'));
+   for(const slug of sector.expertise)assert(html.includes('href="/expertise-'+(lang==='en'?'en-':'')+slug+'.html"'));
+  }
+ }
  for(const post of posts)for(const lang of ['fr','en']){
   const index=read(lang==='en'?'blog-en.html':'blog.html');
   assert(index.includes('href="/blog'+(lang==='en'?'-en':'')+'-'+post.slug+'.html"'));

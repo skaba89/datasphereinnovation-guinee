@@ -65,3 +65,14 @@ clients, de signatures individuelles ou de dates de publication. Les articles
 existants ne déclarent pas de date tant que la publication réelle n'est pas
 confirmée. Pour ajouter un guide, compléter les deux langues et conserver les
 slugs des articles déjà publiés ; lancer le test SEO avant livraison.
+
+## V118 — Pages sectorielles
+
+Six secteurs disposent de pages dédiées en français et en anglais : mines,
+banques, télécommunications, administrations, éducation, transport et logistique.
+Les index `/secteurs.html` et `/sectors.html` sont accessibles depuis les accueils.
+Chaque page présente des besoins opérationnels, des indicateurs à suivre et des
+liens vers deux expertises DSIG. Les pages sont incluses dans le sitemap, avec
+canonical, hreflang et JSON-LD WebPage. Le catalogue est maintenu dans
+`scripts/sector-content.mjs`. Aucun témoignage ni résultat client fictif.
+L'export contient désormais 84 pages indexables ; REC reste privée et noindex.
