@@ -5,11 +5,12 @@ from datetime import date
 from decimal import Decimal
 from urllib.parse import parse_qs,urlsplit
 import missions
+import reconciliation
 
 FIELDS=('period','currency','worked','billable','validated_revenue','validated_cost','margin','invoiced','received','outflows','net_flow')
 NUMERIC=FIELDS[2:]
 
-FLOW_FIELDS=('mission_received','saas_received','expenses','commission_paid','commission_overlap','conflicts')
+FLOW_FIELDS=('mission_received','saas_received','expenses','commission_paid','commission_overlap','conflicts','reviewed_conflicts')
 
 def consolidated(db,year,today):
     """Recorded flows only; allocations never create additional cash movements."""
@@ -25,6 +26,7 @@ def consolidated(db,year,today):
         for day,currency,amount in db.execute(sql):
             b=bucket(day,currency)
             if b is not None:b[key]+=Decimal(amount)
+    reviewed={x['reference']:reconciliation.approved(db,x) for x in reconciliation.conflicts(db)}
     for day,currency,amount,reference,oid in db.execute('''SELECT p.paid_on,r.currency,p.amount,p.reference,p.opportunity_id FROM partner_commission_payments p JOIN partner_referrals r ON r.opportunity_id=p.opportunity_id'''):
         b=bucket(day,currency)
         if b is not None:b['commission_paid']+=Decimal(amount)
@@ -34,15 +36,20 @@ def consolidated(db,year,today):
             if (ed,ec,Decimal(ea))==(day,currency,Decimal(amount)) and (not mission or opportunity==oid):
                 if b is not None:b['commission_overlap']+=Decimal(amount)
             else:
+                treatment=reviewed.get(reference)
+                if treatment=='DOUBLON' and ed<=today and day<=today and b is not None:
+                    b['commission_overlap']+=Decimal(amount)
                 affected={(day[:7],currency),(ed[:7],ec)}
                 for month,cur in affected:
-                    if month.startswith(year+'-') and (month,cur) in groups:groups[(month,cur)]['conflicts']+=1
+                    if month.startswith(year+'-') and (month,cur) in groups:
+                        key='reviewed_conflicts' if treatment=='DISTINCTS' or (treatment=='DOUBLON' and ed<=today and day<=today) else 'conflicts'
+                        groups[(month,cur)][key]+=1
     annual=defaultdict(lambda:{k:Decimal(0) for k in FLOW_FIELDS})
     def row(period,currency,b):
         received=b['mission_received']+b['saas_received']
         out=b['expenses']+b['commission_paid']-b['commission_overlap']
-        return {'period':period,'currency':currency,**{k:str(v) for k,v in b.items() if k!='conflicts'},
-                'conflicts':int(b['conflicts']),'received':str(received),
+        return {'period':period,'currency':currency,**{k:str(v) for k,v in b.items() if k not in ('conflicts','reviewed_conflicts')},
+                'conflicts':int(b['conflicts']),'reviewed_conflicts':int(b['reviewed_conflicts']),'received':str(received),
                 'outflows':None if b['conflicts'] else str(out),'net_flow':None if b['conflicts'] else str(received-out)}
     rows=[]
     for (month,currency),b in sorted(groups.items()):

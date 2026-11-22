@@ -1168,8 +1168,8 @@ class BrowserTests(unittest.TestCase):
         }
         nested = {
             'crm': ('crm/catalogue','crm/organizations','crm/appointments','crm/saas-commercial','crm/saas-renewals','crm/customer-success','crm/customer-growth','crm/partners'),
-            'billing': ('billing/expenses','billing/milestones','billing/contracts','billing/schedule','billing/receivables','billing/forecast','billing/planned-expenses','billing/saas-monthly','billing/partner-commissions','billing/partner-targets','billing/partner-costs'),
-            'direction': ('direction/saas-monthly','direction/saas-commercial','direction/saas-renewals','direction/customer-success','direction/customer-growth','direction/partners','direction/partner-commissions','direction/partner-profitability','direction/partner-targets','direction/financial-consolidation'),
+            'billing': ('billing/expenses','billing/milestones','billing/contracts','billing/schedule','billing/receivables','billing/forecast','billing/planned-expenses','billing/saas-monthly','billing/partner-commissions','billing/partner-targets','billing/partner-costs','billing/reconciliation'),
+            'direction': ('direction/saas-monthly','direction/saas-commercial','direction/saas-renewals','direction/customer-success','direction/customer-growth','direction/partners','direction/partner-commissions','direction/partner-profitability','direction/partner-targets','direction/financial-consolidation','direction/reconciliation'),
             'missions': ('missions/eligible',),
         }
         for role, (read, write) in matrix.items():
