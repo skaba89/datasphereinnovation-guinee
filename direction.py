@@ -29,4 +29,5 @@ def snapshot(db):
     for currency,bucket in sorted(totals.items()):
         financial.append({'currency':currency,**{k:str(v) if isinstance(v,Decimal) else v for k,v in bucket.items()}})
     saas=billing.saas_receivables(db,date.fromisoformat(today),'','',1,1)['totals']
-    return {'counts':counts,'overdue':overdue,'financial':financial,'ambiguous_opportunities':conflicts,'as_of':today,'controlling':controlling.snapshot(db,today),'saas_finance':saas}
+    profitability=billing.saas_profitability(db)
+    return {'counts':counts,'overdue':overdue,'financial':financial,'ambiguous_opportunities':conflicts,'as_of':today,'controlling':controlling.snapshot(db,today),'saas_finance':saas,'saas_profitability':profitability['groups']}

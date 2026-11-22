@@ -8,6 +8,57 @@ import quotes
 import crm
 import accounts
 
+SAAS_COST_CATEGORIES=('INFRASTRUCTURE','SUPPORT','ACQUISITION','EXPLOITATION')
+
+def saas_profitability(db,search='',page=1,page_size=10):
+    db.row_factory=sqlite3.Row
+    products={p['id']:p['name'] for p in crm.CATALOGUE}
+    groups={}; residual={}
+    def group(product,currency):
+        return groups.setdefault((product,currency),dict.fromkeys(('invoiced_ht','received_ttc','allocated',*SAAS_COST_CATEGORIES),Decimal(0)))
+    for r in db.execute('''SELECT i.subscription_id,i.period_start,f.inputs FROM saas_invoice_register i
+        JOIN saas_subscriptions s ON s.id=i.subscription_id JOIN saas_offers f ON f.id=s.offer_id'''):
+        x=crm.saas_invoice_details(db,r[0],r[1],date.today().isoformat())
+        g=group(json.loads(r[2])['product_id'],x['currency'])
+        g['invoiced_ht']+=Decimal(x['recurring'])+Decimal(x['one_off'])
+        g['received_ttc']+=Decimal(x['paid'])
+    for r in db.execute("SELECT currency,amount FROM expenses WHERE mission_id=''"):
+        residual[r[0]]=residual.get(r[0],Decimal(0))+Decimal(r[1])
+    for r in db.execute('''SELECT a.product_id,a.category,a.amount,e.currency FROM saas_expense_allocations a
+        JOIN expenses e ON e.id=a.expense_id'''):
+        n=Decimal(r[2]);g=group(r[0],r[3]);g['allocated']+=n;g[r[1]]+=n
+        residual[r[3]]-=n
+    rows,count=searched_page(db,'''SELECT a.*,e.reference,e.currency,e.paid_date FROM saas_expense_allocations a
+        JOIN expenses e ON e.id=a.expense_id''',('reference','product_id','category','currency'),'created_at DESC,id',search,page,page_size)
+    return {'products':products,'categories':SAAS_COST_CATEGORIES,'groups':[
+        {'product_id':p,'product':products.get(p,p),'currency':c,**{k:str(v) for k,v in g.items()},
+         'cash_contribution':str(g['received_ttc']-g['allocated'])} for (p,c),g in sorted(groups.items())],
+        'unallocated':{c:str(v) for c,v in sorted(residual.items())},'items':[dict(r) for r in rows],'total':count}
+
+def allocate_saas_cost(h,connect):
+    if h.role not in ('ADMIN','COMPTABLE'):return h.json_response(403,{'error':'Action réservée à la finance.'})
+    try:
+        n=int(h.headers.get('Content-Length','0'))
+        if not 0<n<=4000 or h.headers.get_content_type()!='application/json':raise ValueError()
+        v=json.loads(h.rfile.read(n))
+        if not isinstance(v,dict) or set(v)!={'reference','product_id','category','amount'} or any(not isinstance(x,str) or len(x)>180 or '\x00' in x for x in v.values()):raise ValueError()
+        if v['product_id'] not in {p['id'] for p in crm.CATALOGUE} or v['category'] not in SAAS_COST_CATEGORIES:raise ValueError()
+        with connect() as db:
+            db.execute('BEGIN IMMEDIATE')
+            e=db.execute('SELECT id,currency,amount,mission_id FROM expenses WHERE reference=? COLLATE NOCASE',(v['reference'].strip(),)).fetchone()
+            if not e:return h.json_response(404,{'error':'Décaissement introuvable.'})
+            if e[3]:return h.json_response(409,{'error':'Décaissement déjà affecté à une mission.'})
+            a=crm.saas_money(v['amount'],e[1])
+            if a<=0:raise ValueError()
+            used=sum((Decimal(r[0]) for r in db.execute('SELECT amount FROM saas_expense_allocations WHERE expense_id=?',(e[0],))),Decimal(0))
+            if used+a>Decimal(e[2]):return h.json_response(409,{'error':'Montant supérieur au solde disponible.'})
+            identifier=str(uuid.uuid4())
+            db.execute('INSERT INTO saas_expense_allocations(id,expense_id,product_id,category,amount,actor) VALUES(?,?,?,?,?,?)',(identifier,e[0],v['product_id'],v['category'],str(a),h.actor))
+            accounts.event(db,h.actor,'COUT_SAAS_AFFECTE',identifier)
+        return h.json_response(201,{'id':identifier})
+    except (ValueError,TypeError,UnicodeError):return h.json_response(400,{'error':'Données invalides.'})
+    except sqlite3.IntegrityError:return h.json_response(409,{'error':'Affectation déjà enregistrée.'})
+
 def saas_receivables(db,today,search,state,page,page_size):
     db.row_factory=sqlite3.Row
     totals={};items=[];clients={}
@@ -59,6 +110,11 @@ def searched_page(db, select, fields, order, search, page, page_size):
 
 
 def schema(db):
+    db.execute('''CREATE TABLE IF NOT EXISTS saas_expense_allocations (
+      id TEXT PRIMARY KEY, expense_id TEXT NOT NULL REFERENCES expenses(id),
+      product_id TEXT NOT NULL, category TEXT NOT NULL, amount TEXT NOT NULL,
+      actor TEXT NOT NULL, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE(expense_id,product_id,category))''')
     db.execute('''CREATE TABLE IF NOT EXISTS saas_collection_reminders (
       id TEXT PRIMARY KEY, invoice_id INTEGER NOT NULL REFERENCES saas_invoice_register(id),
       channel TEXT NOT NULL, note TEXT NOT NULL, actor TEXT NOT NULL, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)''')
@@ -104,6 +160,7 @@ def handle(h,connect,method):
     if not h.admin_authorized():return
     if (h.headers.get('Origin') and h.headers['Origin']!=h.expected_origin()) or h.headers.get('Sec-Fetch-Site')=='cross-site':return h.json_response(403,{'error':'Origine interdite.'})
     path=urlsplit(h.path).path; kind=path.split('/')[4] if len(path.split('/'))>4 else ''
+    if method=='POST' and kind=='saas-profitability':return allocate_saas_cost(h,connect)
     action=re.fullmatch(r'/api/admin/billing/saas-receivables/([0-9]{1,18})/(receipt|reminder)',path)
     if method=='POST' and action:
         if h.role not in ('ADMIN','COMPTABLE'):return h.json_response(403,{'error':'Action réservée à la finance.'})
@@ -136,6 +193,9 @@ def handle(h,connect,method):
         if len(search)>180:return h.json_response(400,{'error':'Filtre invalide.'})
         with connect() as db:
             db.row_factory=sqlite3.Row
+            if kind=='saas-profitability':
+                db.execute('BEGIN')
+                return h.json_response(200,saas_profitability(db,search,page,page_size)|{'can_allocate':h.role in ('ADMIN','COMPTABLE')})
             if kind=='saas-receivables':
                 state=query.get('state',[''])[0]
                 if state not in ('','OUVERTE','PARTIELLE','REGLEE','EN_RETARD'):return h.json_response(400,{'error':'État invalide.'})
