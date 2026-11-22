@@ -4,7 +4,7 @@ import hashlib, secrets, json, re, sqlite3, uuid, time, os
 from urllib.parse import urlsplit
 
 ROLES={
- 'ADMIN': {'*':'RW','my-activity':''},
+ 'ADMIN': {'*':'RW','my-activity':'','client-portal':''},
  'DIRECTION': {'direction':'R','billing':'R','missions':'R','quotes':'R','crm':'R','tenders':'R','alerts':'R','notifications':'RW'},
  'COMMERCIAL': {'requests':'RW','crm':'RW','quotes':'RW','tenders':'RW','consultants':'R'},
  'RH': {'consultants':'RW','requests':'R','recruitment':'RW'},
@@ -13,11 +13,12 @@ ROLES={
  'COMPTABLE': {'billing':'RW','missions':'R'},
  'AUDITEUR': {'direction':'R','audit':'R'},
  'CONSULTANT': {'my-activity':'RW'},
+ 'CLIENT': {'client-portal':'RW'},
 }
 
-RESOURCES=frozenset({'requests','crm','quotes','tenders','consultants','missions','billing','direction','accounts','audit','documents','alerts','notifications','my-activity','recruitment'})
+RESOURCES=frozenset({'requests','crm','quotes','tenders','consultants','missions','billing','direction','accounts','audit','documents','alerts','notifications','my-activity','recruitment','client-portal'})
 def mfa_required(role):
-    return role=='ADMIN' or role in {x.strip() for x in os.environ.get('DSIG_MFA_REQUIRED_ROLES','DIRECTION,CONTROLE,COMPTABLE,AUDITEUR').split(',')}
+    return role in ('ADMIN','CLIENT') or role in {x.strip() for x in os.environ.get('DSIG_MFA_REQUIRED_ROLES','DIRECTION,CONTROLE,COMPTABLE,AUDITEUR').split(',')}
 
 def effective_permissions(role,mfa_enabled):
     return {} if mfa_required(role) and not mfa_enabled else ROLES.get(role,{})
@@ -35,6 +36,7 @@ def schema(db):
 def unused(db,oid,username,consultant_id):
     # Conservative: retain any linked consultant, invitation or recorded use.
     if consultant_id:return False
+    if db.execute('SELECT 1 FROM client_accounts WHERE account_id=?',(oid,)).fetchone():return False
     if db.execute('SELECT 1 FROM access_events WHERE actor=? COLLATE NOCASE LIMIT 1',(username,)).fetchone():return False
     for table,column in (('credentials','account_id'),('mfa','account_id'),('sessions','account_id'),('recovery_codes','account_id'),('account_invitation','request_id'),('request_workflow','owner_id'),('request_workflow_events','owner_id')):
         if db.execute(f'SELECT 1 FROM {table} WHERE {column}=? LIMIT 1',(oid,)).fetchone():return False
@@ -106,6 +108,9 @@ def handle(h,connect,method):
             else:
                 items=[dict(r) for r in db.execute('SELECT a.id,a.username,a.role,a.consultant_id,a.enabled,a.created_at,EXISTS(SELECT 1 FROM credentials c WHERE c.account_id=a.id) AS activated,EXISTS(SELECT 1 FROM mfa m WHERE m.account_id=a.id AND m.enabled=1) AS mfa_enabled FROM accounts a ORDER BY a.username')]
                 for item in items:
+                    org=db.execute('SELECT o.id,o.name FROM client_accounts c JOIN organizations o ON o.id=c.organization_id WHERE c.account_id=?',(item['id'],)).fetchone()
+                    item['organization_id']=org[0] if org else ''
+                    item['organization_name']=org[1] if org else ''
                     item['self']=item['id']==getattr(h,'actor_id',None)
                     item['archived']=bool(db.execute('SELECT 1 FROM archived_accounts WHERE account_id=?',(item['id'],)).fetchone())
                     item['protected']=admin_protected(db,item['id'])
@@ -121,13 +126,19 @@ def handle(h,connect,method):
         with connect() as db:
             db.execute('BEGIN IMMEDIATE')
             if method=='POST':
+                organization_id=v.pop('organization_id','')
+                if not isinstance(organization_id,str):raise ValueError()
                 if set(v)!={'username','role','consultant_id'} or not all(isinstance(x,str) for x in v.values()) or not re.fullmatch(r'[A-Za-z0-9._-]{3,64}',v['username']) or v['role'] not in ROLES:raise ValueError()
+                if v['role']=='CLIENT':
+                    if not db.execute("SELECT 1 FROM organizations WHERE id=? AND kind='CLIENT'",(organization_id,)).fetchone():raise ValueError()
+                elif organization_id:raise ValueError()
                 if v['role']=='CONSULTANT':
                     if not db.execute('SELECT 1 FROM consultants WHERE id=?',(v['consultant_id'],)).fetchone():raise ValueError()
                 elif v['consultant_id']:raise ValueError()
                 if db.execute("SELECT 1 FROM access_events WHERE action='COMPTE_SUPPRIME' AND resource=? COLLATE NOCASE",(v['username'],)).fetchone():return h.json_response(409,{'error':'Identifiant réservé par le journal d’audit.'})
                 oid=str(uuid.uuid4());key='dsig_'+secrets.token_urlsafe(32)
                 db.execute('INSERT INTO accounts(id,username,role,key_hash,consultant_id) VALUES(?,?,?,?,?)',(oid,v['username'],v['role'],digest(key),v['consultant_id']));event(db,h.actor,'COMPTE_CREE',v['username'])
+                if v['role']=='CLIENT':db.execute('INSERT INTO client_accounts VALUES(?,?)',(oid,organization_id))
                 result={'id':oid,'key':key}
             else:
                 if v not in ({'action':'DISABLE'},{'action':'ROTATE'},{'action':'INVITE'},{'action':'ARCHIVE'},{'action':'DELETE'}):raise ValueError()

@@ -533,7 +533,7 @@ class IntakeTests(unittest.TestCase):
     def test_role_matrix(self):
         import accounts
         expected={
-            'ADMIN':(set(accounts.RESOURCES)-{'my-activity'},set(accounts.RESOURCES)-{'my-activity'}),
+            'ADMIN':(set(accounts.RESOURCES)-{'my-activity','client-portal'},set(accounts.RESOURCES)-{'my-activity','client-portal'}),
             'DIRECTION':({'direction','billing','missions','quotes','crm','tenders','alerts','notifications'},{'notifications'}),
             'COMMERCIAL':({'requests','crm','quotes','tenders','consultants'},{'requests','crm','quotes','tenders'}),
             'RH':({'consultants','requests','recruitment'},{'consultants','recruitment'}),
@@ -541,7 +541,7 @@ class IntakeTests(unittest.TestCase):
             'CONTROLE':({'direction','missions','billing','quotes'},set()),
             'COMPTABLE':({'billing','missions'},{'billing'}),
             'AUDITEUR':({'direction','audit'},set()),
-            'CONSULTANT':({'my-activity'},{'my-activity'}),
+            'CONSULTANT':({'my-activity'},{'my-activity'}),'CLIENT':({'client-portal'},{'client-portal'}),
         }
         self.assertEqual(set(expected),set(accounts.ROLES))
         for role,(read,write) in expected.items():
@@ -555,7 +555,7 @@ class IntakeTests(unittest.TestCase):
         server.authentication.ATTEMPTS.clear()
         with patch.dict(os.environ,{'DSIG_MFA_REQUIRED_ROLES':'DIRECTION,CONTROLE,COMPTABLE,AUDITEUR'}):
             for role in accounts.ROLES:
-                self.assertEqual(accounts.mfa_required(role),role in {'ADMIN','DIRECTION','CONTROLE','COMPTABLE','AUDITEUR'})
+                self.assertEqual(accounts.mfa_required(role),role in {'ADMIN','DIRECTION','CONTROLE','COMPTABLE','AUDITEUR','CLIENT'})
             admin={'Authorization':'Bearer '+server.ADMIN_TOKEN,'Content-Type':'application/json'}
             s,b,_=self.request('POST','/api/admin/accounts',{'username':'secure.test','role':'ADMIN','consultant_id':''},admin)
             self.assertEqual(s,201);account=json.loads(b);key=account['key']
@@ -1246,6 +1246,70 @@ class IntakeTests(unittest.TestCase):
         self.assertEqual(json.loads(self.request('GET',path+'?q=CLIENT',headers=auth)[1])['items'][0]['opportunities'],1)
         self.assertEqual(self.request('PATCH',crm_path+'/'+pid,data|{'version':2,'organization_id':''},auth)[0],200)
         self.assertEqual(json.loads(self.request('GET',path,headers=auth)[1])['items'][0]['opportunities'],0)
+
+    def test_client_portal_isolation(self):
+        import uuid
+        from datetime import date
+        auth={'Authorization':'Bearer '+server.ADMIN_TOKEN,'Content-Type':'application/json'}
+        origin={'Content-Type':'application/json','Origin':f'http://127.0.0.1:{self.port}','X-DSIG-Session':'cookie'}
+        path='/api/admin/client-portal'
+        def create(route,data):
+            status,body,_=self.request('POST',route,data,auth)
+            self.assertEqual(status,201,body);return json.loads(body)
+        orgs=[create('/api/admin/crm/organizations',{'name':'Client portail '+x,'kind':'CLIENT','country':'Guinée','notes':'Interne'})['id'] for x in ('A','B')]
+        prospect=create('/api/admin/crm/organizations',{'name':'Prospect portail','kind':'PROSPECT','country':'','notes':''})['id']
+        user={'username':'portal.a','role':'CLIENT','consultant_id':''}
+        self.assertEqual(self.request('POST','/api/admin/accounts',user,auth)[0],400)
+        self.assertEqual(self.request('POST','/api/admin/accounts',user|{'organization_id':prospect},auth)[0],400)
+        self.assertEqual(self.request('POST','/api/admin/accounts',user|{'role':'RH','organization_id':orgs[0]},auth)[0],400)
+        today=date.today().isoformat()
+        opportunities=[]
+        data={'company':'Même libellé','contact':'','email':'','title':'Mission','mode':'REGIE','skills':'','consultant_id':'','next_action':'','followup':'','notes':'','status':'PROSPECT'}
+        for i,org in enumerate(orgs):
+            oid=create('/api/admin/crm',data|{'organization_id':org})['id'];opportunities.append(oid)
+            with server.connect() as db:
+                db.execute("INSERT INTO quotes(id,opportunity_id,title,scope,mode,currency,days,rate,daily_cost,expenses,fixed_price,status) VALUES(?,?,?,'secret-scope','REGIE','EUR','1','100','secret-cost','0','0','ACCEPTE')",(f'q{i}',oid,f'Mission {i}'))
+                db.execute("INSERT INTO missions(id,quote_id,opportunity_id,consultant_id,contract_ref,start_date,end_date) VALUES(?,?,?,'',?,?,?)",(f'm{i}',f'q{i}',oid,f'C-{i}',today,today))
+                db.execute("INSERT INTO invoices(id,mission_id,reference,amount,due_date) VALUES(?,?,?,?,?)",(f'i{i}',f'm{i}',f'FACT-{i}','100',today))
+                db.execute("INSERT INTO payments VALUES(?,?,?,?,?)",(f'p{i}',f'i{i}',f'VIR-{i}','20',today))
+                db.execute("INSERT INTO saas_offers(id,opportunity_id,title,valid_until,inputs,estimate,actor) VALUES(?,?,?,?,'{}','{}','secret-actor')",(f'f{i}',oid,f'SaaS {i}',today))
+                db.execute("INSERT INTO saas_subscriptions(id,offer_id,starts_on,ends_on,reference,actor) VALUES(?,?,?,?,?,'secret-actor')",(f's{i}',f'f{i}',today,today,f'SUB-{i}'))
+                db.execute("INSERT INTO saas_billing_preparations(subscription_id,period_start,period_end,currency,recurring,one_off,actor) VALUES(?,?,?,'EUR','20','5','secret-actor')",(f's{i}',today,today))
+                db.execute("INSERT INTO saas_invoice_register(subscription_id,period_start,reference,issued_on,due_on,tax,actor) VALUES(?,?,?,?,?,'2','secret-actor')",(f's{i}',today,f'SAAS-{i}',today,today))
+        self.assertEqual(self.request('PATCH','/api/admin/crm/'+opportunities[0],data|{'version':1,'organization_id':orgs[1]},auth)[0],409)
+        def session(username,org):
+            server.authentication.ATTEMPTS.clear()
+            a=create('/api/admin/accounts',user|{'username':username,'organization_id':org})
+            credentials={'username':username,'password':'portal-test-password-123'}
+            self.assertEqual(self.request('POST','/api/auth/activate',credentials|{'key':a['key']})[0],200)
+            s,b,h=self.request('POST','/api/auth/login',credentials,origin);self.assertEqual(s,200)
+            self.assertEqual(json.loads(b)['permissions'],{})
+            headers=origin|{'Authorization':'Bearer session','Cookie':h['Set-Cookie'].split(';')[0]}
+            self.assertEqual(self.request('GET',path,headers=headers)[0],403)
+            s,b,_=self.request('POST','/api/auth/mfa-setup',{'password':credentials['password']},headers);self.assertEqual(s,200)
+            secret=json.loads(b)['secret'];now=int(time.time());step=now//30
+            with patch('authentication.time.time',return_value=now):
+                self.assertEqual(self.request('POST','/api/auth/mfa-confirm',{'code':server.authentication.totp(secret,step)},headers)[0],200)
+                s,b,h=self.request('POST','/api/auth/login',credentials|{'otp':server.authentication.totp(secret,step+1)},origin);self.assertEqual(s,200)
+            headers['Cookie']=h['Set-Cookie'].split(';')[0]
+            return a,headers
+        a,first=session('portal.a',orgs[0]);b,second=session('portal.b',orgs[1])
+        self.assertEqual(self.request('GET',path)[0],401)
+        self.assertEqual(self.request('GET',path,headers=auth)[0],403)
+        self.assertEqual(self.request('GET','/api/admin/billing',headers=first)[0],403)
+        for i,headers in enumerate((first,second)):
+            for kind,refs in [('contracts',[f'C-{i}']),('subscriptions',[f'SUB-{i}']),('invoices',[f'FACT-{i}',f'SAAS-{i}'])]:
+                code,body,_=self.request('GET',path+'?kind='+kind,headers=headers);self.assertEqual(code,200)
+                result=json.loads(body);self.assertEqual({r['reference'] for r in result['items']},set(refs));self.assertNotIn(b'secret-',body)
+            self.assertEqual(self.request('GET',path+'?organization_id='+orgs[1-i],headers=headers)[0],400)
+        self.assertEqual(self.request('POST',path,{'title':'Ticket A','description':'Assistance fictive'},first|{'Origin':'https://evil.invalid'})[0],403)
+        code,body,_=self.request('POST',path,{'title':'Ticket A','description':'Assistance fictive'},first);self.assertEqual(code,201);ticket=json.loads(body)['id']
+        self.assertEqual(json.loads(self.request('GET',path+'?kind=tickets',headers=second)[1])['total'],0)
+        self.assertEqual(json.loads(self.request('GET',path+'?kind=tickets',headers=first)[1])['items'][0]['id'],ticket)
+        self.assertEqual(json.loads(self.request('GET','/api/admin/crm/customer-success',headers=auth)[1])['items'][0]['request_text'],'Assistance fictive')
+        self.assertEqual(self.request('PATCH','/api/admin/accounts/'+a['id'],{'action':'DISABLE'},auth)[0],200)
+        self.assertEqual(self.request('GET',path,headers=first)[0],401)
+        self.assertEqual(self.request('GET',path,headers=second)[0],200)
 
     def test_customer_success(self):
         from datetime import date,timedelta
