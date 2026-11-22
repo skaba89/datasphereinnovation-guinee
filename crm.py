@@ -130,6 +130,11 @@ def schema(db):
     db.execute('''CREATE TABLE IF NOT EXISTS saas_subscription_renewals (
       predecessor_id TEXT PRIMARY KEY REFERENCES saas_subscriptions(id),
       successor_id TEXT NOT NULL UNIQUE REFERENCES saas_subscriptions(id))''')
+    db.execute('''CREATE TABLE IF NOT EXISTS saas_subscription_events (
+      subscription_id TEXT NOT NULL REFERENCES saas_subscriptions(id), version INTEGER NOT NULL,
+      action TEXT NOT NULL, evidence TEXT NOT NULL, actor TEXT NOT NULL,
+      effective_on TEXT NOT NULL, previous_end TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, PRIMARY KEY(subscription_id,version))''')
     db.execute('''CREATE TABLE IF NOT EXISTS saas_billing_preparations (
       subscription_id TEXT NOT NULL REFERENCES saas_subscriptions(id), period_start TEXT NOT NULL,
       period_end TEXT NOT NULL, currency TEXT NOT NULL, recurring TEXT NOT NULL, one_off TEXT NOT NULL,
@@ -291,7 +296,8 @@ def saas_commercial_report(db,today):
         return groups.setdefault(key,{'product':e['product_name'],'currency':key[1],
             'draft':0,'validated':0,'sent':0,'accepted':0,'refused':0,'cancelled':0,'expired_offers':0,
             'active':0,'mrr':Decimal(0),'arr':Decimal(0),'cohort_open':0,'cohort_lost':0,
-            'due_30':0,'renewed_30':0,'unrenewed_30':0,'forecast_90':Decimal(0),'past_unbilled':Decimal(0),'manual_schedule':0})
+            'due_30':0,'renewed_30':0,'unrenewed_30':0,'forecast_90':Decimal(0),'past_unbilled':Decimal(0),'manual_schedule':0,
+            'terminated_30':0})
     opportunities={};converted={}
     for oid,raw,until,status in db.execute("""SELECT f.opportunity_id,f.estimate,f.valid_until,COALESCE(
       (SELECT e.status FROM saas_offer_events e WHERE e.offer_id=f.id ORDER BY version DESC LIMIT 1),'BROUILLON') FROM saas_offers f"""):
@@ -322,6 +328,10 @@ def saas_commercial_report(db,today):
             amount=Decimal(p['recurring'])+Decimal(p['one_off'])
             if p['period_start']<today:g['past_unbilled']+=amount
             elif p['period_start']<=horizon:g['forecast_90']+=amount
+    for raw,effective in db.execute("""SELECT f.estimate,e.effective_on FROM saas_subscription_events e
+      JOIN saas_subscriptions s ON s.id=e.subscription_id JOIN saas_offers f ON f.id=s.offer_id
+      WHERE e.action='RESILIATION' AND e.effective_on>? AND e.effective_on<=?""",(beginning,today)):
+        group(json.loads(raw))['terminated_30']+=1
     def ratio(n,d):
         return str((Decimal(n)*100/d).quantize(Decimal('0.01'))) if d else None
     items=[]
@@ -338,6 +348,48 @@ def saas_commercial(h,connect):
     with connect() as db:
         db.execute('BEGIN')
         return h.json_response(200,saas_commercial_report(db,date.today().isoformat()))
+
+def subscription_lifecycle(db,identifier,start,end,today,role):
+    db.row_factory=sqlite3.Row
+    events=[dict(r) for r in db.execute('SELECT version,action,evidence,actor,effective_on,previous_end,created_at FROM saas_subscription_events WHERE subscription_id=? ORDER BY version',(identifier,))]
+    last=events[-1] if events else None
+    state=last['action'] if last else 'NORMAL'
+    actions=[]
+    if role=='ADMIN' and today<end and state!='RESILIATION':
+        if start<=today: actions.append('REACTIVATION' if state=='SUSPENSION' else 'SUSPENSION')
+        if not db.execute('SELECT 1 FROM saas_subscription_renewals WHERE predecessor_id=?',(identifier,)).fetchone():actions.append('RESILIATION')
+    return {'state':state,'version':last['version'] if last else 0,'actions':actions,'events':events}
+
+def saas_subscription_decision(h,connect,identifier):
+    if h.role!='ADMIN':return h.json_response(403,{'error':'Décision réservée à un administrateur.'})
+    try:
+        length=int(h.headers.get('Content-Length','0'))
+        if not 0<length<=4000 or h.headers.get_content_type()!='application/json':raise ValueError()
+        data=json.loads(h.rfile.read(length))
+        if not isinstance(data,dict) or set(data)!={'version','action','evidence','effective_on'}:raise ValueError()
+        version,action,evidence,effective=(data[k] for k in ('version','action','evidence','effective_on'))
+        if type(version) is not int or version<0 or action not in ('SUSPENSION','REACTIVATION','RESILIATION'):raise ValueError()
+        if not isinstance(evidence,str) or not evidence.strip() or len(evidence)>1000 or chr(0) in evidence:raise ValueError()
+        if not isinstance(effective,str) or date.fromisoformat(effective).isoformat()!=effective:raise ValueError()
+    except (ValueError,TypeError,UnicodeError):return h.json_response(400,{'error':'Décision, date ou preuve invalide.'})
+    today=date.today().isoformat()
+    with connect() as db:
+        db.execute('BEGIN IMMEDIATE')
+        row=db.execute('SELECT s.starts_on,s.ends_on,f.estimate FROM saas_subscriptions s JOIN saas_offers f ON f.id=s.offer_id WHERE s.id=?',(identifier,)).fetchone()
+        if not row:return h.json_response(404,{'error':'Abonnement introuvable.'})
+        start,end,raw=row
+        lifecycle=subscription_lifecycle(db,identifier,start,end,today,h.role)
+        if version!=lifecycle['version'] or action not in lifecycle['actions']:return h.json_response(409,{'error':'Version ou état incompatible.'})
+        if action=='RESILIATION':
+            schedule=subscription_schedule(start,end,json.loads(raw))
+            if not schedule or not today<=effective<=end or effective<=start or effective not in {p['period_end'] for p in schedule}:return h.json_response(409,{'error':'Résiliation à une limite de période contractuelle future requise.'})
+            if db.execute('SELECT 1 FROM saas_billing_preparations WHERE subscription_id=? AND period_end>?',(identifier,effective)).fetchone():return h.json_response(409,{'error':'Échéances déjà préparées après cette date : régularisation manuelle requise.'})
+            db.execute('UPDATE saas_subscriptions SET ends_on=? WHERE id=?',(effective,identifier))
+        elif effective!=today:
+            return h.json_response(400,{'error':'Suspension ou réactivation à la date du jour uniquement.'})
+        db.execute('INSERT INTO saas_subscription_events(subscription_id,version,action,evidence,actor,effective_on,previous_end) VALUES(?,?,?,?,?,?,?)',(identifier,version+1,action,evidence.strip(),h.actor,effective,end))
+        accounts.event(db,h.actor,'ABONNEMENT_SAAS_'+action,identifier)
+    return h.json_response(200,{'id':identifier,'version':version+1,'action':action,'effective_on':effective})
 
 def saas_subscriptions(h,connect,method):
     if method=='GET':
@@ -368,6 +420,7 @@ def saas_subscriptions(h,connect,method):
                 successor=db.execute('SELECT successor_id FROM saas_subscription_renewals WHERE predecessor_id=?',(row['id'],)).fetchone()
                 row['predecessor_id']=predecessor[0] if predecessor else None
                 row['successor_id']=successor[0] if successor else None
+                row['lifecycle']=subscription_lifecycle(db,row['id'],row['starts_on'],row['ends_on'],today,h.role)
             metrics=subscription_metrics(db,today)
         return h.json_response(200,{'items':rows,'total':total,'page':page,'metrics':metrics})
     if h.role!='ADMIN':return h.json_response(403,{'error':'Enregistrement réservé à un administrateur.'})
@@ -393,6 +446,7 @@ def saas_subscriptions(h,connect,method):
         if predecessor:
             previous=db.execute('SELECT s.ends_on,f.opportunity_id,f.inputs FROM saas_subscriptions s JOIN saas_offers f ON f.id=s.offer_id WHERE s.id=?',(predecessor,)).fetchone()
             if not previous:return h.json_response(404,{'error':'Abonnement précédent introuvable.'})
+            if db.execute("SELECT 1 FROM saas_subscription_events WHERE subscription_id=? AND action='RESILIATION'",(predecessor,)).fetchone():return h.json_response(409,{'error':'Abonnement résilié : nouvelle souscription distincte requise.'})
             if start!=previous[0] or offer[0]!=previous[1] or json.loads(offer[1])['product_id']!=json.loads(previous[2])['product_id'] or db.execute('SELECT 1 FROM saas_subscription_renewals WHERE predecessor_id=?',(predecessor,)).fetchone():return h.json_response(409,{'error':'Renouvellement incompatible : même opportunité, même produit, dates contiguës et un seul successeur requis.'})
         identifier=str(uuid.uuid4())
         db.execute('INSERT INTO saas_subscriptions(id,offer_id,starts_on,ends_on,reference,actor) VALUES(?,?,?,?,?,?)',(identifier,oid,start,end,reference.strip(),h.actor))
@@ -495,6 +549,8 @@ def handle(h,connect,method):
     if method=='GET' and path in ('/api/admin/crm/saas-commercial','/api/admin/direction/saas-commercial'):
         return saas_commercial(h,connect)
     billing_route=re.fullmatch(r'/api/admin/crm/saas-subscriptions/([0-9a-f-]{36})/billing',path)
+    decision_route=re.fullmatch(r'/api/admin/crm/saas-subscriptions/([0-9a-f-]{36})/decision',path)
+    if decision_route and method=='POST':return saas_subscription_decision(h,connect,decision_route.group(1))
     if billing_route and method in ('GET','POST'):return saas_billing(h,connect,method,billing_route.group(1))
     transition=re.fullmatch(r'/api/admin/crm/saas-offers/([0-9a-f-]{36})/decision',path)
     if method=='POST' and transition:return saas_transition(h,connect,transition.group(1))
