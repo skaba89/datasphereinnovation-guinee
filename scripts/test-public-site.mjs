@@ -8,10 +8,25 @@ import {build} from './build-public-site.mjs';
 import {posts} from './blog-content.mjs';
 import {sectors} from './sector-content.mjs';
 import {offers} from './offer-content.mjs';
+import {loadReferenceLogos,renderReferenceLogos,referenceBrands} from './reference-logos.mjs';
 
 const tmp=fs.mkdtempSync(path.join(os.tmpdir(),'dsig-public-test-'));
 const out=path.join(tmp,'site');
 try{
+ const fixture=path.join(tmp,'logo-fixture');fs.mkdirSync(path.join(fixture,'reference-logos'),{recursive:true});
+ const png=Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aW1sAAAAASUVORK5CYII=','base64');
+ const entry={id:'keyrus',sourceUrl:'https://example.invalid/logo.png',sha256:createHash('sha256').update(png).digest('hex')};
+ const writeManifest=entries=>fs.writeFileSync(path.join(fixture,'reference-logos.json'),JSON.stringify(entries));
+ fs.writeFileSync(path.join(fixture,'reference-logos','keyrus.png'),png);
+ writeManifest([entry]);const logos=loadReferenceLogos(fixture);
+ const markup='<article><strong>Keyrus</strong><span>Analytics</span></article>';
+ assert(renderReferenceLogos(markup,logos).includes('src="/reference-logos/keyrus.png" alt=""'));
+ assert.equal(renderReferenceLogos(markup,[]),markup);
+ assert.throws(()=>renderReferenceLogos(markup+markup,logos));
+ writeManifest([entry,entry]);assert.throws(()=>loadReferenceLogos(fixture));
+ writeManifest([{...entry,sha256:'0'.repeat(64)}]);assert.throws(()=>loadReferenceLogos(fixture));
+ writeManifest([{...entry,id:'../secret'}]);assert.throws(()=>loadReferenceLogos(fixture));
+ assert.equal(Object.keys(referenceBrands).length,13);
  assert.throws(()=>build(out,'invalid'));
  const count=build(out,'test@dsig-consulting.com');
  const files=fs.readdirSync(out);
