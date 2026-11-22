@@ -6,6 +6,7 @@ from urllib.parse import urlsplit, parse_qs
 import missions
 import quotes
 import crm
+import accounts
 
 def saas_receivables(db,today,search,state,page,page_size):
     db.row_factory=sqlite3.Row
@@ -22,10 +23,15 @@ def saas_receivables(db,today,search,state,page,page_size):
         invoice['days_overdue']=days if Decimal(invoice['balance'])>0 else 0
         currency=invoice['currency'];balance=Decimal(invoice['balance'])
         bucket='current' if days==0 else 'd30' if days<=30 else 'd60' if days<=60 else 'd90' if days<=90 else 'older'
-        group=totals.setdefault(currency,dict.fromkeys(('invoiced','paid','balance','overdue','current','d30','d60','d90','older'),Decimal(0)))
+        group=totals.setdefault(currency,dict.fromkeys(('invoiced','paid','balance','overdue','current','d30','d60','d90','older','receipts_30','receipts_60','receipts_90'),Decimal(0)))
         for key,field in (('invoiced','total'),('paid','paid'),('balance','balance')):group[key]+=Decimal(invoice[field])
         group[bucket]+=balance
         if days:group['overdue']+=balance
+        else:
+            remaining=(date.fromisoformat(invoice['due_on'])-today).days
+            for horizon in (30,60,90):
+                if remaining<=horizon:group[f'receipts_{horizon}']+=balance
+        invoice['reminders']=[dict(r) for r in db.execute('SELECT channel,note,actor,created_at FROM saas_collection_reminders WHERE invoice_id=? ORDER BY created_at DESC,id DESC LIMIT 10',(invoice['id'],))]
         # The company is a display label, not a legal customer identifier.
         client=clients.setdefault((invoice['company'],currency),{'company':invoice['company'],'currency':currency,'balance':Decimal(0),'overdue':Decimal(0)})
         client['balance']+=balance
@@ -53,6 +59,10 @@ def searched_page(db, select, fields, order, search, page, page_size):
 
 
 def schema(db):
+    db.execute('''CREATE TABLE IF NOT EXISTS saas_collection_reminders (
+      id TEXT PRIMARY KEY, invoice_id INTEGER NOT NULL REFERENCES saas_invoice_register(id),
+      channel TEXT NOT NULL, note TEXT NOT NULL, actor TEXT NOT NULL, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)''')
+    db.execute('CREATE INDEX IF NOT EXISTS saas_collection_reminders_invoice ON saas_collection_reminders(invoice_id)')
     db.execute('''CREATE TABLE IF NOT EXISTS milestones(id TEXT PRIMARY KEY, mission_id TEXT NOT NULL, title TEXT NOT NULL, amount TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'PREVU')''')
     db.execute('''CREATE TABLE IF NOT EXISTS invoices(id TEXT PRIMARY KEY, mission_id TEXT NOT NULL, reference TEXT NOT NULL UNIQUE, amount TEXT NOT NULL, due_date TEXT NOT NULL, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)''')
     db.execute('''CREATE TABLE IF NOT EXISTS payments(id TEXT PRIMARY KEY, invoice_id TEXT NOT NULL, reference TEXT NOT NULL UNIQUE, amount TEXT NOT NULL, paid_date TEXT NOT NULL)''')
@@ -94,6 +104,27 @@ def handle(h,connect,method):
     if not h.admin_authorized():return
     if (h.headers.get('Origin') and h.headers['Origin']!=h.expected_origin()) or h.headers.get('Sec-Fetch-Site')=='cross-site':return h.json_response(403,{'error':'Origine interdite.'})
     path=urlsplit(h.path).path; kind=path.split('/')[4] if len(path.split('/'))>4 else ''
+    action=re.fullmatch(r'/api/admin/billing/saas-receivables/([0-9]{1,18})/(receipt|reminder)',path)
+    if method=='POST' and action:
+        if h.role not in ('ADMIN','COMPTABLE'):return h.json_response(403,{'error':'Action réservée à la finance.'})
+        try:
+            length=int(h.headers.get('Content-Length','0'))
+            if not 0<length<=4000 or h.headers.get_content_type()!='application/json':raise ValueError()
+            data=json.loads(h.rfile.read(length))
+            if not isinstance(data,dict):raise ValueError()
+            if action[2]=='receipt' and set(data)!={'reference','paid_on','amount'}:raise ValueError()
+            if action[2]=='reminder' and (set(data)!={'channel','note'} or data['channel'] not in ('EMAIL','TELEPHONE','AUTRE') or not isinstance(data['note'],str) or not data['note'].strip() or len(data['note'])>1000 or '\x00' in data['note']):raise ValueError()
+        except (ValueError,TypeError,UnicodeError):return h.json_response(400,{'error':'Données invalides.'})
+        with connect() as db:
+            db.execute('BEGIN IMMEDIATE')
+            invoice=db.execute('SELECT subscription_id,period_start FROM saas_invoice_register WHERE id=?',(int(action[1]),)).fetchone()
+            if not invoice:return h.json_response(404,{'error':'Facture introuvable.'})
+            if action[2]=='receipt':return crm.saas_register_invoice(h,db,invoice[0],data|{'action':'receipt','period_start':invoice[1]})
+            details=crm.saas_invoice_details(db,invoice[0],invoice[1],date.today().isoformat())
+            if Decimal(details['balance'])<=0:return h.json_response(409,{'error':'Facture soldée.'})
+            db.execute('INSERT INTO saas_collection_reminders(id,invoice_id,channel,note,actor) VALUES(?,?,?,?,?)',(str(uuid.uuid4()),int(action[1]),data['channel'],data['note'].strip(),h.actor))
+            accounts.event(db,h.actor,'RELANCE_SAAS_DOCUMENTEE',str(action[1]))
+        return h.json_response(201,{'status':'ENREGISTREE','sent':False})
     if method=='GET':
         try:
             query=parse_qs(urlsplit(h.path).query)
@@ -109,7 +140,7 @@ def handle(h,connect,method):
                 state=query.get('state',[''])[0]
                 if state not in ('','OUVERTE','PARTIELLE','REGLEE','EN_RETARD'):return h.json_response(400,{'error':'État invalide.'})
                 db.execute('BEGIN')
-                return h.json_response(200,saas_receivables(db,date.today(),search,state,page,page_size))
+                return h.json_response(200,saas_receivables(db,date.today(),search,state,page,page_size)|{'can_collect':h.role in ('ADMIN','COMPTABLE')})
             if kind=='planned-expenses':
                 rows,count=searched_page(db,"""SELECT p.*,e.reference AS expense_reference
                     FROM planned_expenses p LEFT JOIN expenses e ON e.id=p.expense_id""",

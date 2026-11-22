@@ -1373,6 +1373,15 @@ class IntakeTests(unittest.TestCase):
         report=json.loads(self.request('GET',ledger+'?state=PARTIELLE',headers=finance)[1])
         self.assertEqual(report['total'],1)
         self.assertEqual(report['totals']['EUR']['current'],'160.00')
+        self.assertEqual(report['totals']['EUR']['receipts_30'],'160.00')
+        executive=json.loads(self.request('GET','/api/admin/direction',headers=auth)[1])['saas_finance']
+        self.assertEqual(executive['EUR']['receipts_30'],'160.00')
+        collection_path=ledger+'/'+str(report['items'][0]['id'])
+        self.assertEqual(self.request('POST',collection_path+'/reminder',{'channel':'EMAIL','note':'Relance fictive'},commercial)[0],403)
+        self.assertEqual(self.request('POST',collection_path+'/reminder',{'channel':'EMAIL','note':''},finance)[0],400)
+        code,body,_=self.request('POST',collection_path+'/reminder',{'channel':'EMAIL','note':'Relance fictive'},finance)
+        self.assertEqual(code,201)
+        self.assertFalse(json.loads(body)['sent'])
         self.assertEqual(report['clients'][0]['balance'],'160.00')
         with server.connect() as db:
             db.execute("UPDATE saas_invoice_register SET due_on=date('now','-35 days')")
@@ -1380,12 +1389,15 @@ class IntakeTests(unittest.TestCase):
         self.assertEqual(report['total'],1)
         self.assertEqual(report['totals']['EUR']['d60'],'160.00')
         self.assertEqual(report['items'][0]['days_overdue'],35)
+        self.assertEqual(report['items'][0]['reminders'][0]['note'],'Relance fictive')
+        self.assertEqual(report['totals']['EUR']['receipts_30'],'0')
         self.assertEqual(self.request('GET',ledger+'?state=BAD',headers=finance)[0],400)
         self.assertEqual(json.loads(self.request('GET',ledger+'?q=absent',headers=finance)[1])['total'],0)
         self.assertEqual(self.request('POST',billing_path,receipt,auth)[0],409)
-        status,body,_=self.request('POST',billing_path,receipt|{'reference':'VIR-TEST-135','amount':'160.00'},auth)
+        status,body,_=self.request('POST',collection_path+'/receipt',{'reference':'VIR-TEST-135','amount':'160.00','paid_on':day},finance)
         self.assertEqual(status,201)
         self.assertEqual(json.loads(body)['status'],'REGLEE')
+        self.assertEqual(self.request('POST',collection_path+'/reminder',{'channel':'EMAIL','note':'Relance fictive'},finance)[0],409)
         billing_metrics=json.loads(self.request('GET',subscriptions,headers=auth)[1])['metrics']['billing_groups'][0]
         self.assertEqual((billing_metrics['invoiced'],billing_metrics['received'],billing_metrics['outstanding']),('260.00','260.00','0.00'))
         with server.connect() as db:
