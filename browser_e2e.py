@@ -817,6 +817,7 @@ class BrowserTests(unittest.TestCase):
         expect(records).to_contain_text('PLANIFIE')
         records.locator(':scope > details > summary').click()
         expect(records.get_by_text('Historique des décisions (0)',exact=True)).to_be_visible()
+        expect(self.page.locator('#saas-renewals')).to_contain_text('0 contrat(s)')
         records.get_by_role('button',name='Voir l’échéancier de facturation').click()
         expect(records).to_contain_text('0/1 échéances préparées')
         self.page.once('dialog',lambda dialog:dialog.accept())
@@ -1166,9 +1167,9 @@ class BrowserTests(unittest.TestCase):
             'notifications':'notifications.html',
         }
         nested = {
-            'crm': ('crm/catalogue','crm/organizations','crm/appointments','crm/saas-commercial'),
+            'crm': ('crm/catalogue','crm/organizations','crm/appointments','crm/saas-commercial','crm/saas-renewals'),
             'billing': ('billing/expenses','billing/milestones','billing/contracts','billing/schedule','billing/receivables','billing/forecast','billing/planned-expenses','billing/saas-monthly'),
-            'direction': ('direction/saas-monthly','direction/saas-commercial'),
+            'direction': ('direction/saas-monthly','direction/saas-commercial','direction/saas-renewals'),
             'missions': ('missions/eligible',),
         }
         for role, (read, write) in matrix.items():
