@@ -744,8 +744,8 @@ def customer_success(h,connect,method,identifier=None):
         with connect() as db:
             db.row_factory=sqlite3.Row
             db.execute('BEGIN')
-            rows=[dict(r) for r in db.execute('''SELECT t.*,o.name AS company FROM customer_tickets t
-              JOIN organizations o ON o.id=t.organization_id ORDER BY t.opened_on DESC,t.id''')]
+            rows=[dict(r) for r in db.execute('''SELECT t.*,o.name AS company,p.request_text FROM customer_tickets t
+              JOIN organizations o ON o.id=t.organization_id LEFT JOIN client_portal_tickets p ON p.ticket_id=t.id ORDER BY t.opened_on DESC,t.id''')]
         groups={}
         for r in rows:
             r['overdue']=r['status']=='OUVERT' and r['due_on']<today
@@ -1150,6 +1150,12 @@ def handle(h,connect,method):
             row=db.execute("SELECT version FROM opportunities WHERE id=?",(oid,)).fetchone()
             if not row: return h.json_response(404,{"error":"Opportunité introuvable."})
             if row[0]!=version: return h.json_response(409,{"error":"Dossier modifié. Actualisez."})
+            if organization_id is not None:
+                previous=db.execute('SELECT organization_id FROM organization_links WHERE opportunity_id=?',(oid,)).fetchone()
+                if (previous[0] if previous else '')!=organization_id:
+                    contracted=db.execute('SELECT 1 FROM missions WHERE opportunity_id=? UNION SELECT 1 FROM saas_subscriptions s JOIN saas_offers f ON f.id=s.offer_id WHERE f.opportunity_id=?',(oid,oid)).fetchone()
+                    if contracted and (previous or h.role!='ADMIN'):
+                        return h.json_response(409,{'error':'Rattachement contractuel protégé.'})
             version+=1
             db.execute("UPDATE opportunities SET "+",".join(k+"=?" for k in keys)+",version=? WHERE id=?",(*values.values(),version,oid))
         if qualification is not None:

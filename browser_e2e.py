@@ -1248,6 +1248,41 @@ class BrowserTests(unittest.TestCase):
                 self.assertEqual(revoked.status, 401, f'{role}: session after logout')
         self.assertEqual(self.errors, [])
 
+    def test_client_portal_session_and_support(self):
+        org=self.seed('/api/admin/crm/organizations',{'name':'Client navigateur fictif','kind':'CLIENT','country':'Guinée','notes':''})
+        account=self.seed('/api/admin/accounts',{'username':'client.browser','role':'CLIENT','consultant_id':'','organization_id':org['id']})
+        self.page.goto('/connexion.html')
+        for name,value in {'username':'client.browser','key':account['key'],'password':self.password}.items():
+            self.page.locator(f'#activate [name={name}]').fill(value)
+        self.page.locator('#activate button').click()
+        expect(self.page.locator('#notice')).to_contain_text('Activation effectuée')
+        self.login('client.browser')
+        expect(self.page.locator('#modules a')).to_have_count(0)
+        self.page.locator('#mfa-setup [name=password]').fill(self.password)
+        self.page.locator('#mfa-setup button').click()
+        expect(self.page.locator('#mfa-pending')).to_be_visible()
+        secret=self.page.locator('#secret').input_value()
+        self.page.locator('#mfa-confirm [name=code]').fill(server.authentication.totp(secret,int(time.time())//30))
+        self.page.locator('#mfa-confirm button').click()
+        expect(self.page.locator('#recovery')).to_be_visible()
+        code=self.page.locator('#recovery-codes').inner_text().splitlines()[0]
+        self.page.locator('#dismiss-recovery').click()
+        self.login('client.browser',code)
+        expect(self.page.locator('#modules a')).to_have_count(1)
+        self.page.locator('#modules a[href="client-portal.html"]').click()
+        expect(self.page.locator('#workspace')).to_be_visible()
+        expect(self.page.locator('#organization')).to_have_text('Client navigateur fictif')
+        self.page.locator('#ticket [name=title]').fill('Demande fictive navigateur')
+        self.page.locator('#ticket [name=description]').fill('Description de test')
+        self.page.locator('#ticket button').click()
+        expect(self.page.locator('#rows')).to_contain_text('Demande fictive navigateur')
+        self.assert_responsive('client-portal.html')
+        self.page.locator('#logout').click()
+        self.page.wait_for_url('**/connexion.html')
+        expect(self.page.locator('#login')).to_be_visible()
+        self.assertEqual(self.context.request.get('/api/admin/client-portal',headers={'Authorization':'Bearer session'}).status,401)
+        self.assertEqual(self.errors,[])
+
     def test_anonymous_private_routes_and_crm_workspace(self):
         # A public static shell must not grant access to private records.
         paths = (
@@ -1256,7 +1291,7 @@ class BrowserTests(unittest.TestCase):
             'billing','billing/expenses','billing/contracts','billing/milestones',
             'billing/schedule','billing/receivables','billing/forecast','billing/planned-expenses',
             'direction','direction/reporting','accounts','audit','documents',
-            'alerts','notifications','my-activity',
+            'alerts','notifications','my-activity','client-portal',
         )
         for path in paths:
             with self.subTest(path=path):
