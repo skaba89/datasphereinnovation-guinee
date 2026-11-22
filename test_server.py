@@ -1350,6 +1350,17 @@ class IntakeTests(unittest.TestCase):
         schedule=json.loads(self.request('GET',billing_path,headers=auth)[1])
         self.assertEqual(schedule['total'],1)
         self.assertEqual(schedule['items'][0]['total_ht'],'250.00')
+        from crm import saas_commercial_report
+        with server.connect() as db:
+            forecast=saas_commercial_report(db,'2098-12-15')['items'][0]
+            self.assertEqual(Decimal(forecast['forecast_90']),Decimal('250'))
+            self.assertEqual(forecast['subscription_conversion_pct'],'100.00')
+            self.assertEqual(forecast['offer_conversion_pct'],'100.00')
+            expired=saas_commercial_report(db,'2099-02-01')['items'][0]
+            self.assertEqual(expired['churn_proxy_pct'],'100.00')
+            self.assertEqual(expired['unrenewed_30'],1)
+        self.assertEqual(self.request('GET','/api/admin/crm/saas-commercial',headers=commercial)[0],200)
+        self.assertEqual(self.request('GET','/api/admin/direction/saas-commercial',headers=commercial)[0],403)
         period={'period_start':'2099-01-01'}
         self.assertEqual(self.request('POST',billing_path,period,commercial)[0],403)
         self.assertEqual(self.request('POST',billing_path,period|{'period_start':'2099-01-02'},auth)[0],400)
@@ -1361,6 +1372,8 @@ class IntakeTests(unittest.TestCase):
         invoice=period|{'action':'invoice','reference':'FAC-TEST-134','issued_on':day,'due_on':day,'tax':'10.00'}
         self.assertEqual(self.request('POST',billing_path,invoice,commercial)[0],403)
         self.assertEqual(self.request('POST',billing_path,invoice,auth)[0],201)
+        with server.connect() as db:
+            self.assertEqual(Decimal(saas_commercial_report(db,'2098-12-15')['items'][0]['forecast_90']),Decimal(0))
         self.assertEqual(self.request('POST',billing_path,invoice,auth)[0],409)
         receipt=period|{'action':'receipt','reference':'VIR-TEST-134','paid_on':day,'amount':'100.00'}
         self.assertEqual(self.request('POST',billing_path,receipt|{'amount':'261.00'},auth)[0],409)
@@ -1507,6 +1520,11 @@ class IntakeTests(unittest.TestCase):
         self.assertEqual(snapshot['metrics']['counts']['PLANIFIE'],1)
         self.assertEqual(snapshot['items'][0]['successor_id'],snapshot['items'][1]['id'])
         self.assertEqual(snapshot['items'][1]['predecessor_id'],predecessor)
+        with server.connect() as db:
+            report=saas_commercial_report(db,end)['items'][0]
+            self.assertEqual(report['renewed_30'],1)
+            self.assertEqual(report['unrenewed_30'],0)
+            self.assertEqual(report['active'],1)
 
     def test_saas_billing_boundaries(self):
         from crm import subscription_schedule

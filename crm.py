@@ -280,6 +280,65 @@ def subscription_metrics(db,today):
         for key in ('invoiced','received','outstanding','overdue'):group[key]=str(group[key])
     return {'as_of':today,'counts':counts,'groups':[groups[k] for k in sorted(groups)],'billing_groups':[invoiced[k] for k in sorted(invoiced)]}
 
+def saas_commercial_report(db,today):
+    """Contractual forecast, offer conversion and maturity cohort; no assumed probabilities."""
+    now=date.fromisoformat(today)
+    beginning=(now-timedelta(days=30)).isoformat()
+    horizon=(now+timedelta(days=90)).isoformat()
+    groups={}
+    def group(e):
+        key=(e['product_id'],e['currency'])
+        return groups.setdefault(key,{'product':e['product_name'],'currency':key[1],
+            'draft':0,'validated':0,'sent':0,'accepted':0,'refused':0,'cancelled':0,'expired_offers':0,
+            'active':0,'mrr':Decimal(0),'arr':Decimal(0),'cohort_open':0,'cohort_lost':0,
+            'due_30':0,'renewed_30':0,'unrenewed_30':0,'forecast_90':Decimal(0),'past_unbilled':Decimal(0),'manual_schedule':0})
+    opportunities={};converted={}
+    for oid,raw,until,status in db.execute("""SELECT f.opportunity_id,f.estimate,f.valid_until,COALESCE(
+      (SELECT e.status FROM saas_offer_events e WHERE e.offer_id=f.id ORDER BY version DESC LIMIT 1),'BROUILLON') FROM saas_offers f"""):
+        e=json.loads(raw);g=group(e)
+        opportunities.setdefault((e['product_id'],e['currency']),set()).add(oid)
+        if status in ('BROUILLON','VALIDEE','TRANSMISE') and until<today:g['expired_offers']+=1
+        else:g[{'BROUILLON':'draft','VALIDEE':'validated','TRANSMISE':'sent','ACCEPTEE':'accepted','REFUSEE':'refused','ANNULEE':'cancelled'}[status]]+=1
+    billed={tuple(r) for r in db.execute('SELECT subscription_id,period_start FROM saas_invoice_register')}
+    for sid,start,end,raw,successor,oid in db.execute('''SELECT s.id,s.starts_on,s.ends_on,f.estimate,r.successor_id,f.opportunity_id
+      FROM saas_subscriptions s JOIN saas_offers f ON f.id=s.offer_id
+      LEFT JOIN saas_subscription_renewals r ON r.predecessor_id=s.id'''):
+        e=json.loads(raw);g=group(e)
+        converted.setdefault((e['product_id'],e['currency']),set()).add(oid)
+        if start<=today<end:
+            g['active']+=1;g['mrr']+=Decimal(e['mrr']);g['arr']+=Decimal(e['arr'])
+        if start<=beginning<end:
+            g['cohort_open']+=1
+            if end<=today and not successor:g['cohort_lost']+=1
+        if beginning<end<=today:
+            g['due_30']+=1
+            g['renewed_30' if successor else 'unrenewed_30']+=1
+        schedule=subscription_schedule(start,end,e)
+        if schedule is None:
+            if end>today:g['manual_schedule']+=1
+            continue
+        for p in schedule:
+            if (sid,p['period_start']) in billed:continue
+            amount=Decimal(p['recurring'])+Decimal(p['one_off'])
+            if p['period_start']<today:g['past_unbilled']+=amount
+            elif p['period_start']<=horizon:g['forecast_90']+=amount
+    def ratio(n,d):
+        return str((Decimal(n)*100/d).quantize(Decimal('0.01'))) if d else None
+    items=[]
+    for key,g in sorted(groups.items()):
+        prospect_count=len(opportunities.get(key,()))
+        converted_count=len(converted.get(key,()))
+        items.append({**{k:str(v) if isinstance(v,Decimal) else v for k,v in g.items()},
+            'opportunities':prospect_count,'converted_opportunities':converted_count,'subscription_conversion_pct':ratio(converted_count,prospect_count),
+            'offer_conversion_pct':ratio(g['accepted'],g['accepted']+g['refused']),
+            'churn_proxy_pct':ratio(g['cohort_lost'],g['cohort_open'])})
+    return {'as_of':today,'cohort_start':beginning,'forecast_end':horizon,'items':items}
+
+def saas_commercial(h,connect):
+    with connect() as db:
+        db.execute('BEGIN')
+        return h.json_response(200,saas_commercial_report(db,date.today().isoformat()))
+
 def saas_subscriptions(h,connect,method):
     if method=='GET':
         query=parse_qs(urlsplit(h.path).query)
@@ -433,6 +492,8 @@ def handle(h,connect,method):
     if (h.headers.get("Origin") and h.headers["Origin"]!=h.expected_origin()) or h.headers.get("Sec-Fetch-Site")=="cross-site":
         return h.json_response(403,{"error":"Origine non autorisée."})
     path=urlsplit(h.path).path
+    if method=='GET' and path in ('/api/admin/crm/saas-commercial','/api/admin/direction/saas-commercial'):
+        return saas_commercial(h,connect)
     billing_route=re.fullmatch(r'/api/admin/crm/saas-subscriptions/([0-9a-f-]{36})/billing',path)
     if billing_route and method in ('GET','POST'):return saas_billing(h,connect,method,billing_route.group(1))
     transition=re.fullmatch(r'/api/admin/crm/saas-offers/([0-9a-f-]{36})/decision',path)
