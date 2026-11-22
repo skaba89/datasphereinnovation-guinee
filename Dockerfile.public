@@ -4,13 +4,15 @@ COPY dist/ dist/
 COPY scripts/*.mjs scripts/
 ARG DSIG_PUBLIC_EMAIL
 RUN node scripts/test-public-site.mjs && node scripts/test-public-indexing.mjs \
-    && node scripts/build-public-site.mjs /public "$DSIG_PUBLIC_EMAIL"
+    && node scripts/build-public-site.mjs /public "$DSIG_PUBLIC_EMAIL" \
+    && find /public -type d -exec chmod 0755 {} + \
+    && find /public -type f -exec chmod 0644 {} +
 
 FROM caddy:2-alpine
 ARG DSIG_PUBLIC_EMAIL
 LABEL com.dsig.public.email=$DSIG_PUBLIC_EMAIL
 COPY --from=build /public/ /srv/public/
-COPY deploy/public/Caddyfile /etc/caddy/Caddyfile
+COPY --chmod=0644 deploy/public/Caddyfile /etc/caddy/Caddyfile
 USER 10001:10001
 EXPOSE 8080
 HEALTHCHECK --interval=10s --timeout=3s --retries=3 CMD wget -q -O /dev/null http://127.0.0.1:8080/healthz || exit 1

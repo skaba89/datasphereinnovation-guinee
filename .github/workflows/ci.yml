@@ -90,7 +90,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Build static public image
-        run: docker build -f Dockerfile.public --build-arg DSIG_PUBLIC_EMAIL=test@dsig-consulting.com -t dsig-public:ci .
+        run: |
+          # Reproduce a private VPS checkout (umask 077).
+          chmod 0600 deploy/public/Caddyfile
+          find dist -type f -exec chmod 0600 {} +
+          docker build -f Dockerfile.public --build-arg DSIG_PUBLIC_EMAIL=test@dsig-consulting.com -t dsig-public:ci .
       - name: Validate composition
         env:
           DSIG_PUBLIC_IMAGE: dsig-public:ci
