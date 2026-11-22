@@ -171,6 +171,11 @@ def schema(db):
     db.execute('''CREATE TABLE IF NOT EXISTS partner_commission_payments (
       id TEXT PRIMARY KEY, opportunity_id TEXT NOT NULL REFERENCES partner_commission_approvals(opportunity_id),
       reference TEXT NOT NULL UNIQUE COLLATE NOCASE, amount TEXT NOT NULL, paid_on TEXT NOT NULL, actor TEXT NOT NULL)''')
+    db.execute('''CREATE TABLE IF NOT EXISTS partner_targets (
+      id INTEGER PRIMARY KEY AUTOINCREMENT, partner_id TEXT NOT NULL REFERENCES organizations(id),
+      month TEXT NOT NULL, currency TEXT NOT NULL, target TEXT NOT NULL,
+      actor TEXT NOT NULL, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)''')
+    db.execute('CREATE INDEX IF NOT EXISTS partner_targets_lookup ON partner_targets(partner_id,month,currency,id)')
     db.execute('''CREATE TABLE IF NOT EXISTS saas_billing_preparations (
       subscription_id TEXT NOT NULL REFERENCES saas_subscriptions(id), period_start TEXT NOT NULL,
       period_end TEXT NOT NULL, currency TEXT NOT NULL, recurring TEXT NOT NULL, one_off TEXT NOT NULL,
@@ -384,6 +389,52 @@ def saas_commercial(h,connect):
     with connect() as db:
         db.execute('BEGIN')
         return h.json_response(200,saas_commercial_report(db,date.today().isoformat()))
+
+def partner_targets(h,connect,method):
+    today=date.today().isoformat()
+    if method=='GET':
+        try:
+            query=parse_qs(urlsplit(h.path).query);year=query.get('year',[today[:4]])[0];page=int(query.get('page',['1'])[0]);q=query.get('q',[''])[0][:120].casefold()
+            if not re.fullmatch(r'20\d{2}',year) or not 1<=page<=10000:raise ValueError()
+        except ValueError:return h.json_response(400,{'error':'Filtre invalide.'})
+        with connect() as db:
+            db.execute('BEGIN');groups={};options={}
+            def group(pid,name,cur,month):
+                return groups.setdefault((pid,cur,month),{'partner_id':pid,'partner':name,'currency':cur,'month':month,'target':None,'received':Decimal(0)})
+            for pid,name in db.execute("SELECT id,name FROM organizations WHERE kind='PARTENAIRE' ORDER BY name_key,id"):options[pid]=name
+            for pid,name,cur,month,target in db.execute('''SELECT t.partner_id,o.name,t.currency,t.month,t.target FROM partner_targets t JOIN organizations o ON o.id=t.partner_id WHERE t.month LIKE ? AND t.id=(SELECT MAX(x.id) FROM partner_targets x WHERE x.partner_id=t.partner_id AND x.month=t.month AND x.currency=t.currency)''',(year+'-%',)):
+                group(pid,name,cur,month)['target']=Decimal(target)
+            for oid,pid,name in db.execute('SELECT r.opportunity_id,o.id,o.name FROM partner_referrals r JOIN partner_agreements a ON a.id=r.agreement_id JOIN organizations o ON o.id=a.partner_id'):
+                for cur,amount,day in db.execute('''SELECT q.currency,p.amount,p.paid_date FROM payments p JOIN invoices i ON i.id=p.invoice_id JOIN missions m ON m.id=i.mission_id JOIN quotes q ON q.id=m.quote_id WHERE m.opportunity_id=? AND p.paid_date LIKE ? AND p.paid_date<=?''',(oid,year+'-%',today)):
+                    group(pid,name,cur,day[:7])['received']+=Decimal(amount)
+                for cur,amount,day in db.execute('''SELECT p.currency,r.amount,r.paid_on FROM saas_receipts r JOIN saas_invoice_register i ON i.id=r.invoice_id JOIN saas_billing_preparations p ON p.subscription_id=i.subscription_id AND p.period_start=i.period_start JOIN saas_subscriptions s ON s.id=i.subscription_id JOIN saas_offers f ON f.id=s.offer_id WHERE f.opportunity_id=? AND r.paid_on LIKE ? AND r.paid_on<=?''',(oid,year+'-%',today)):
+                    group(pid,name,cur,day[:7])['received']+=Decimal(amount)
+        rows=[g for g in groups.values() if q in (g['partner']+' '+g['currency']).casefold()];rows.sort(key=lambda g:(g['partner'].casefold(),g['partner_id'],g['currency'],g['month']))
+        totals={}
+        for g in rows:
+            a=totals.setdefault((g['partner_id'],g['currency']),{'partner':g['partner'],'currency':g['currency'],'target':Decimal(0),'received':Decimal(0),'covered_received':Decimal(0),'planned_months':0})
+            a['received']+=g['received'];t=g['target'];g['gap']=None if t is None else g['received']-t
+            g['achievement_pct']=None if not t else (g['received']*100/t).quantize(Decimal('0.01'),rounding=ROUND_HALF_UP)
+            g['state']='NON_PLANIFIE' if t is None else 'ATTEINT' if g['received']>=t else 'A_VENIR' if g['month']>today[:7] else 'EN_COURS' if g['month']==today[:7] else 'RETARD'
+            if t is not None:a['target']+=t;a['covered_received']+=g['received'];a['planned_months']+=1
+        def serialize(g):return {k:str(v) if isinstance(v,Decimal) else v for k,v in g.items()}
+        return h.json_response(200,{'items':[serialize(g) for g in rows[(page-1)*10:page*10]],'annual':[serialize(g) for g in totals.values()],'total':len(rows),'page':page,'year':year,'partners':options if h.role in ('ADMIN','COMPTABLE') else {},'can_write':h.role in ('ADMIN','COMPTABLE') and '/billing/' in h.path})
+    if h.role not in ('ADMIN','COMPTABLE'):return h.json_response(403,{'error':'Action réservée à la finance.'})
+    try:
+        size=int(h.headers.get('Content-Length','0'))
+        if not 0<size<=8000 or h.headers.get_content_type()!='application/json':raise ValueError()
+        data=json.loads(h.rfile.read(size))
+        if not isinstance(data,dict) or set(data)!={'partner_id','month','currency','target'}:raise ValueError()
+        pid=data['partner_id'];month=data['month'];cur=data['currency']
+        if not isinstance(pid,str) or str(uuid.UUID(pid))!=pid or not isinstance(month,str) or not re.fullmatch(r'20\d{2}-(0[1-9]|1[0-2])',month) or cur not in ('EUR','USD','GNF','XOF'):raise ValueError()
+        target=saas_money(data['target'],cur)
+    except (ValueError,TypeError,KeyError,UnicodeError):return h.json_response(400,{'error':'Champs invalides.'})
+    with connect() as db:
+        db.execute('BEGIN IMMEDIATE')
+        if not db.execute("SELECT 1 FROM organizations WHERE id=? AND kind='PARTENAIRE'",(pid,)).fetchone():return h.json_response(409,{'error':'Partenaire requis.'})
+        identifier=db.execute('INSERT INTO partner_targets(partner_id,month,currency,target,actor) VALUES(?,?,?,?,?)',(pid,month,cur,str(target),h.actor)).lastrowid
+        accounts.event(db,h.actor,'OBJECTIF_PARTENAIRE_REVISE',str(identifier))
+    return h.json_response(201,{'id':identifier})
 
 def partner_profitability(h,connect):
     try:
@@ -957,6 +1008,7 @@ def handle(h,connect,method):
     if (h.headers.get("Origin") and h.headers["Origin"]!=h.expected_origin()) or h.headers.get("Sec-Fetch-Site")=="cross-site":
         return h.json_response(403,{"error":"Origine non autorisée."})
     path=urlsplit(h.path).path
+    if path in ('/api/admin/billing/partner-targets','/api/admin/direction/partner-targets'):return partner_targets(h,connect,method)
     if path=='/api/admin/direction/partner-profitability' and method=='GET':return partner_profitability(h,connect)
     if path in ('/api/admin/billing/partner-commissions','/api/admin/direction/partner-commissions'):
         return partner_finance(h,connect,method)
