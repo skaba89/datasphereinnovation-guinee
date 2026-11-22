@@ -29,7 +29,9 @@ jobs:
       - name: JavaScript syntax
         run: for f in dist/*.js; do node --check "$f" || exit 1; done
       - name: Public SEO export
-        run: node scripts/test-public-site.mjs
+        run: |
+          node scripts/test-public-site.mjs
+          node scripts/test-public-indexing.mjs
   browser-acceptance:
     runs-on: ubuntu-latest
     steps:
