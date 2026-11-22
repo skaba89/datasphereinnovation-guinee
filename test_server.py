@@ -1327,12 +1327,36 @@ class IntakeTests(unittest.TestCase):
         self.assertEqual((result['status'],result['version'],result['actions']),('ACCEPTEE',4,[]))
         self.assertEqual([e['status'] for e in result['history']],['VALIDEE','TRANSMISE','ACCEPTEE'])
         self.assertEqual(result['inputs'],inputs)
+        subscriptions='/api/admin/crm/saas-subscriptions'
+        registration={'offer_id':offer,'starts_on':'2099-01-01','ends_on':'2099-02-01','reference':'Contrat fictif 131'}
+        self.assertTrue(result['can_register_subscription'])
+        self.assertEqual(self.request('GET',subscriptions)[0],401)
+        self.assertEqual(self.request('POST',subscriptions,registration,commercial)[0],403)
+        self.assertEqual(self.request('POST',subscriptions,registration|{'ends_on':'2099-01-01'},auth)[0],400)
+        self.assertEqual(self.request('POST',subscriptions,registration|{'reference':''},auth)[0],400)
+        self.assertEqual(self.request('POST',subscriptions,registration|{'starts_on':'2000-01-01'},auth)[0],409)
+        self.assertEqual(self.request('POST',subscriptions,registration,auth|{'Origin':'https://invalid.example'})[0],403)
+        self.assertEqual(self.request('POST',subscriptions,registration,auth)[0],201)
+        self.assertEqual(self.request('POST',subscriptions,registration,auth)[0],409)
+        records=json.loads(self.request('GET',subscriptions+'?q=131',headers=auth)[1])
+        self.assertEqual(records['total'],1)
+        self.assertEqual(records['items'][0]['status'],'PLANIFIE')
+        self.assertEqual(records['items'][0]['estimate'],result['estimate'])
+        with server.connect() as db:
+            db.execute("UPDATE saas_subscriptions SET starts_on='2000-01-01' WHERE offer_id=?",(offer,))
+        self.assertEqual(json.loads(self.request('GET',subscriptions,headers=auth)[1])['items'][0]['status'],'ACTIF')
+        with server.connect() as db:
+            db.execute("UPDATE saas_subscriptions SET ends_on='2000-02-01' WHERE offer_id=?",(offer,))
+        self.assertEqual(json.loads(self.request('GET',subscriptions,headers=auth)[1])['items'][0]['status'],'EXPIRE')
+        self.assertEqual(json.loads(self.request('GET',subscriptions+'?q=absent',headers=auth)[1])['total'],0)
+        self.assertFalse(json.loads(self.request('GET',path,headers=auth)[1])['items'][0]['can_register_subscription'])
         self.assertEqual(self.request('POST',path,data,auth)[0],201)
         with server.connect() as db:
             expired=db.execute('SELECT id FROM saas_offers WHERE id<>?',(offer,)).fetchone()[0]
             db.execute("UPDATE saas_offers SET valid_until='2000-01-01' WHERE id=?",(expired,))
             self.assertEqual(db.execute('SELECT count(*) FROM quotes').fetchone()[0],0)
         self.assertEqual(self.request('POST',path+'/'+expired+'/decision',v,auth)[0],409)
+        self.assertEqual(self.request('POST',subscriptions,registration|{'offer_id':expired},auth)[0],409)
         self.assertEqual(self.request('POST',path+'/'+expired+'/decision',v|{'action':'ANNULEE'},auth)[0],200)
 
     def test_saas_offer_drafts(self):

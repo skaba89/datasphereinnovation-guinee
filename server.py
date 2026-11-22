@@ -226,7 +226,7 @@ class Handler(SimpleHTTPRequestHandler):
                 return self.json_response(200, direction.snapshot(db))
         if urlsplit(self.path).path == "/api/admin/quotes":
             return quotes.handle(self, connect, "GET")
-        if urlsplit(self.path).path in ("/api/admin/crm","/api/admin/crm/catalogue","/api/admin/crm/saas-offers"):
+        if urlsplit(self.path).path in ("/api/admin/crm","/api/admin/crm/catalogue","/api/admin/crm/saas-offers","/api/admin/crm/saas-subscriptions"):
             return crm.handle(self, connect, "GET")
         if urlsplit(self.path).path == "/api/admin/consultants":
             return consultants.handle(self, connect, "GET")
@@ -407,7 +407,7 @@ class Handler(SimpleHTTPRequestHandler):
             return missions.handle(self,connect,'POST')
         if self.path == "/api/admin/quotes":
             return quotes.handle(self, connect, "POST")
-        if self.path in ("/api/admin/crm","/api/admin/crm/saas-simulation","/api/admin/crm/saas-offers"):
+        if self.path in ("/api/admin/crm","/api/admin/crm/saas-simulation","/api/admin/crm/saas-offers","/api/admin/crm/saas-subscriptions"):
             return crm.handle(self, connect, "POST")
         if re.fullmatch(r'/api/admin/crm/saas-offers/[0-9a-f-]{36}/decision',self.path):
             return crm.handle(self,connect,'POST')
