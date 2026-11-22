@@ -1298,6 +1298,43 @@ class IntakeTests(unittest.TestCase):
             self.assertEqual(db.execute("SELECT status FROM opportunity_events WHERE opportunity_id=? ORDER BY id",(oid,)).fetchall(),[("PROSPECT",),("EN_MISSION",)])
         self.assertEqual(self.request("GET","/crm.html")[0],200)
 
+    def test_saas_offer_lifecycle(self):
+        path='/api/admin/crm/saas-offers'
+        auth={'Authorization':'Bearer '+server.ADMIN_TOKEN,'Content-Type':'application/json'}
+        opp={'company':'Prospect fictif','contact':'','email':'','title':'Cadrage','mode':'CONSEIL','skills':'','consultant_id':'','next_action':'','followup':'','notes':'','status':'PROSPECT'}
+        status,body,_=self.request('POST','/api/admin/crm',opp,auth)
+        self.assertEqual(status,201)
+        oid=json.loads(body)['id']
+        inputs={'product_id':'minefleet360','currency':'EUR','cycle':'MONTHLY','quantity':10,'unit_price':'25','options':'0','setup':'0','training':'0'}
+        data={'opportunity_id':oid,'title':'Offre fictive','valid_until':'2099-01-01','inputs':inputs}
+        status,body,_=self.request('POST',path,data,auth)
+        self.assertEqual(status,201)
+        offer=json.loads(body)['id'];target=path+'/'+offer+'/decision'
+        status,body,_=self.request('POST','/api/admin/accounts',{'username':'commercial.v130','role':'COMMERCIAL','consultant_id':''},auth)
+        self.assertEqual(status,201)
+        commercial=auth|{'Authorization':'Bearer '+json.loads(body)['key']}
+        v={'version':1,'action':'VALIDEE','evidence':'Validation fictive'}
+        self.assertEqual(self.request('POST',target,v)[0],401)
+        self.assertEqual(self.request('POST',target,v,commercial)[0],403)
+        self.assertEqual(self.request('POST',target,v|{'action':'ACCEPTEE'},auth)[0],409)
+        self.assertEqual(self.request('POST',target,v|{'evidence':''},auth)[0],400)
+        self.assertEqual(self.request('POST',target,v,auth)[0],200)
+        self.assertEqual(self.request('POST',target,v,auth)[0],409)
+        self.assertEqual(self.request('POST',target,{'version':2,'action':'TRANSMISE','evidence':'Transmission fictive'},commercial)[0],200)
+        self.assertEqual(self.request('POST',target,{'version':3,'action':'ACCEPTEE','evidence':'Accord fictif'},commercial)[0],200)
+        self.assertEqual(self.request('POST',target,{'version':4,'action':'ANNULEE','evidence':'Test'},auth)[0],409)
+        result=json.loads(self.request('GET',path,headers=auth)[1])['items'][0]
+        self.assertEqual((result['status'],result['version'],result['actions']),('ACCEPTEE',4,[]))
+        self.assertEqual([e['status'] for e in result['history']],['VALIDEE','TRANSMISE','ACCEPTEE'])
+        self.assertEqual(result['inputs'],inputs)
+        self.assertEqual(self.request('POST',path,data,auth)[0],201)
+        with server.connect() as db:
+            expired=db.execute('SELECT id FROM saas_offers WHERE id<>?',(offer,)).fetchone()[0]
+            db.execute("UPDATE saas_offers SET valid_until='2000-01-01' WHERE id=?",(expired,))
+            self.assertEqual(db.execute('SELECT count(*) FROM quotes').fetchone()[0],0)
+        self.assertEqual(self.request('POST',path+'/'+expired+'/decision',v,auth)[0],409)
+        self.assertEqual(self.request('POST',path+'/'+expired+'/decision',v|{'action':'ANNULEE'},auth)[0],200)
+
     def test_saas_offer_drafts(self):
         path='/api/admin/crm/saas-offers'
         auth={'Authorization':'Bearer '+server.ADMIN_TOKEN,'Content-Type':'application/json'}
