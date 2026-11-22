@@ -1397,6 +1397,26 @@ class IntakeTests(unittest.TestCase):
         status,body,_=self.request('POST',collection_path+'/receipt',{'reference':'VIR-TEST-135','amount':'160.00','paid_on':day},finance)
         self.assertEqual(status,201)
         self.assertEqual(json.loads(body)['status'],'REGLEE')
+        cost='/api/admin/billing/saas-profitability'
+        expense={'reference':'DEP-SAAS-137','currency':'EUR','amount':'100','paid_date':day,
+                 'category':'FONCTIONNEMENT','description':'Infrastructure fictive','mission_id':''}
+        self.assertEqual(self.request('POST','/api/admin/billing/expenses',expense,finance)[0],201)
+        allocation={'reference':expense['reference'],'product_id':inputs['product_id'],'category':'INFRASTRUCTURE','amount':'60'}
+        self.assertEqual(self.request('POST',cost,allocation,commercial)[0],403)
+        self.assertEqual(self.request('POST',cost,allocation,finance)[0],201)
+        self.assertEqual(self.request('POST',cost,allocation,finance)[0],409)
+        self.assertEqual(self.request('POST',cost,allocation|{'category':'SUPPORT','amount':'41'},finance)[0],409)
+        self.assertEqual(self.request('POST',cost,allocation|{'category':'SUPPORT','amount':'20'},finance)[0],201)
+        result=json.loads(self.request('GET',cost,headers=finance)[1])
+        self.assertEqual(result['unallocated']['EUR'],'20.00')
+        self.assertEqual(result['groups'][0]['allocated'],'80.00')
+        self.assertEqual(result['groups'][0]['cash_contribution'],'180.00')
+        self.assertEqual(result['groups'][0]['invoiced_ht'],'250.00')
+        self.assertEqual(result['groups'][0]['SUPPORT'],'20.00')
+        self.assertEqual(json.loads(self.request('GET','/api/admin/direction',headers=auth)[1])['saas_profitability'],result['groups'])
+        self.assertEqual(result['total'],2)
+        self.assertEqual(self.request('GET',cost,headers=commercial)[0],403)
+        self.assertEqual(json.loads(self.request('GET',cost+'?q=absent',headers=finance)[1])['total'],0)
         self.assertEqual(self.request('POST',collection_path+'/reminder',{'channel':'EMAIL','note':'Relance fictive'},finance)[0],409)
         billing_metrics=json.loads(self.request('GET',subscriptions,headers=auth)[1])['metrics']['billing_groups'][0]
         self.assertEqual((billing_metrics['invoiced'],billing_metrics['received'],billing_metrics['outstanding']),('260.00','260.00','0.00'))
