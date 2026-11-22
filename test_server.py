@@ -1372,6 +1372,30 @@ class IntakeTests(unittest.TestCase):
         self.assertEqual(self.request('POST',costs,allocation|{'amount':'1'},auth)[0],409)
         r=json.loads(self.request('GET',profit,headers=auth)[1])['items'][0]
         self.assertEqual((r['allocated_costs'],r['contribution']),('20.00','47.49'))
+        path='/api/admin/direction/financial-consolidation'
+        self.assertEqual(self.request('GET',path)[0],401)
+        self.assertEqual(self.request('GET',path+'?year=bad',headers=auth)[0],400)
+        data=json.loads(self.request('GET',path+'?year='+today[:4],headers=auth)[1])
+        row=data['items'][0]
+        self.assertEqual((row['mission_received'],row['expenses'],row['commission_overlap'],row['net_flow']),('100','55.00','5.00','37.49'))
+        self.assertEqual(data['annual'][0]['net_flow'],'37.49')
+        self.assertEqual(json.loads(self.request('GET',path+'?q=USD',headers=auth)[1])['total'],0)
+        self.assertEqual(self.request('GET',path+'?format=csv',headers=auth)[0],200)
+        with server.connect() as db:db.execute("UPDATE expenses SET amount='6.00' WHERE id='pe'")
+        data=json.loads(self.request('GET',path,headers=auth)[1])
+        self.assertIsNone(data['items'][0]['net_flow'])
+        self.assertIsNone(data['annual'][0]['net_flow'])
+        with server.connect() as db:
+            db.execute("UPDATE expenses SET amount='5.00',paid_date='2001-01-01' WHERE id='pe'")
+            for month in range(1,13):
+                db.execute("INSERT INTO expenses(id,reference,currency,amount,paid_date,category,description,mission_id,actor) VALUES(?,?, 'USD','1',?,'AUTRE','','','test')",(f'history-{month}',f'HIST-{month}',f'2001-{month:02d}-01'))
+        data=json.loads(self.request('GET',path+'?year=2001',headers=auth)[1])
+        self.assertEqual((data['total'],len(data['items'])),(13,10))
+        self.assertEqual(len(json.loads(self.request('GET',path+'?year=2001&page=2',headers=auth)[1])['items']),3)
+        annual={r['currency']:r for r in data['annual']}
+        self.assertIsNone(annual['EUR']['net_flow'])
+        self.assertEqual(annual['USD']['net_flow'],'-12')
+        self.assertIsNone(json.loads(self.request('GET',path,headers=auth)[1])['annual'][0]['net_flow'])
 
     def test_customer_growth(self):
         from datetime import date,timedelta
@@ -1589,6 +1613,11 @@ class IntakeTests(unittest.TestCase):
         self.assertEqual(result['groups'][0]['SUPPORT'],'20.00')
         self.assertEqual(json.loads(self.request('GET','/api/admin/direction',headers=auth)[1])['saas_profitability'],result['groups'])
         self.assertEqual(result['total'],2)
+        consolidated='/api/admin/direction/financial-consolidation?year='+day[:4]
+        self.assertEqual(self.request('GET',consolidated,headers=commercial)[0],403)
+        consolidation_data=json.loads(self.request('GET',consolidated,headers=auth)[1])
+        row=next(r for r in consolidation_data['annual'] if r['currency']=='EUR')
+        self.assertEqual((row['saas_received'],row['expenses'],row['net_flow']),('260.00','100','160.00'))
         monthly='/api/admin/billing/saas-monthly'
         month=day[:7]
         query='?start='+month+'&end='+month+'&product='+inputs['product_id']+'&currency=EUR'
