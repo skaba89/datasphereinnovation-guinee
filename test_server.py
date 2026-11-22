@@ -585,6 +585,9 @@ class IntakeTests(unittest.TestCase):
         s,body,_=self.request('POST',path,{'username':'audit.test','role':'AUDITEUR','consultant_id':''},auth);self.assertEqual(s,201);a=json.loads(body)
         user={'Authorization':'Bearer '+a['key'],'Content-Type':'application/json'}
         self.assertEqual(self.request('GET','/api/admin/direction',headers=user)[0],200)
+        self.assertEqual(self.request('GET','/api/admin/direction/saas-monthly',headers=user)[0],200)
+        self.assertEqual(self.request('GET','/api/admin/billing/saas-monthly',headers=user)[0],403)
+        self.assertEqual(self.request('GET','/api/admin/direction/saas-monthly?start=2026-13',headers=user)[0],400)
         self.assertEqual(self.request('GET','/api/admin/audit',headers=user)[0],200)
         self.assertEqual(self.request('GET','/api/admin/billing',headers=user)[0],403)
         self.assertEqual(self.request('POST',path,{'username':'bad','role':'ADMIN','consultant_id':''},user)[0],403)

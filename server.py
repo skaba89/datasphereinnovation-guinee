@@ -204,6 +204,7 @@ class Handler(SimpleHTTPRequestHandler):
         if urlsplit(self.path).path=='/api/admin/alerts':return alerts.handle(self,connect)
         if re.fullmatch(r'/api/admin/documents(?:/[0-9a-f-]{36})?',urlsplit(self.path).path):return documents.handle(self,connect,'GET')
         if urlsplit(self.path).path=='/api/admin/direction/reporting':return reporting.handle(self,connect)
+        if urlsplit(self.path).path=='/api/admin/direction/saas-monthly':return billing.handle(self,connect,'GET')
         if urlsplit(self.path).path=='/api/admin/billing/expenses':return treasury.handle(self,connect,'GET')
         if re.fullmatch(r'/api/admin/missions/[0-9a-f-]{36}/renewals',urlsplit(self.path).path):return contracts.handle(self,connect,'GET')
         if urlsplit(self.path).path == '/api/admin/crm/organizations':
