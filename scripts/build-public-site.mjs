@@ -7,6 +7,7 @@ import {fileURLToPath} from 'node:url';
 import {posts} from './blog-content.mjs';
 import {sectors} from './sector-content.mjs';
 import {offers} from './offer-content.mjs';
+import {loadReferenceLogos,renderReferenceLogos} from './reference-logos.mjs';
 
 const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'..');
 const source=path.join(root,'dist');
@@ -164,12 +165,17 @@ function buildBlog(out,contact){
 
 export function build(out,contact){
  if(!/^[a-zA-Z0-9._+-]+@dsig-consulting\.com$/.test(contact))throw Error('Provide an approved DSIG business email.');
+ const logos=loadReferenceLogos(source);
  // mkdir fails if destination exists: no overwrite of an existing release.
  fs.mkdirSync(out,{mode:0o755});
  pages.length=0;
  for(const asset of assets){
   const target=path.join(out,asset);fs.mkdirSync(path.dirname(target),{recursive:true});
   fs.copyFileSync(path.join(source,asset),target);
+ }
+ for(const logo of logos){
+  const target=path.join(out,logo.file);fs.mkdirSync(path.dirname(target),{recursive:true});
+  fs.writeFileSync(target,logo.bytes);
  }
  const groups={fr:[],en:[]};let i=0;
  for(const [g,group] of data.expertiseGroups.entries()){
@@ -207,7 +213,7 @@ export function build(out,contact){
  }
  for(const lang of ['fr','en']){
   const english=lang==='en',filename=english?'en.html':'index.html';
-  let html=read(filename);
+  let html=renderReferenceLogos(read(filename),logos);
   const placeholder='<div id="expertise-groups"></div>';
   if(!html.includes(placeholder))throw Error('Missing expertise group');
   html=html.replace(placeholder,'<div id="expertise-groups">'+groups[lang].join('')+'</div>')
