@@ -761,6 +761,28 @@ class BrowserTests(unittest.TestCase):
             expect(self.page.locator('#request [name=message]')).to_have_value(('Domaine : ' if path=='/' else 'Expertise: ')+label+' — ')
         self.assertEqual(self.errors, [])
 
+    def test_crm_qualification_editor(self):
+        self.page.goto('/crm.html')
+        self.page.locator('#token').fill(server.ADMIN_TOKEN)
+        self.page.locator('#login-form button').click()
+        expect(self.page.locator('#workspace')).to_be_visible()
+        editor = self.page.locator('#editor')
+        editor.locator('[name=company]').fill('Prospect V125 fictif')
+        editor.locator('[name=title]').fill('Démo V125')
+        editor.locator('[name=qualification_need]').select_option('YES')
+        editor.locator('[name=qualification_budget]').select_option('YES')
+        editor.locator('[name=qualification_demo_status]').select_option('SCHEDULED')
+        editor.locator('[name=qualification_demo_date]').fill('2027-01-15')
+        expect(editor.locator('.crm-qualification p')).to_contain_text('2/4')
+        self.page.locator('#save').click()
+        expect(self.page.locator('#rows')).to_contain_text('Démo V125')
+        self.page.locator('#rows').get_by_role('button', name='Modifier').click()
+        expect(editor.locator('[name=qualification_need]')).to_have_value('YES')
+        expect(editor.locator('[name=qualification_demo_date]')).to_have_value('2027-01-15')
+        self.page.set_viewport_size({'width':390,'height':844})
+        self.assertTrue(self.page.evaluate('document.documentElement.scrollWidth <= innerWidth + 1'))
+        self.assertEqual(self.errors, [])
+
     def test_admin_mfa_all_modules_and_logout(self):
         self.activate('admin.e2e', 'ADMIN')
         expect(self.page.locator('#modules a')).to_have_count(0)
