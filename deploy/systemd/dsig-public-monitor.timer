@@ -1,0 +1,11 @@
+[Unit]
+Description=DSIG public HTTPS monitoring schedule
+
+[Timer]
+OnBootSec=2min
+OnUnitInactiveSec=5min
+AccuracySec=15s
+Unit=dsig-public-monitor.service
+
+[Install]
+WantedBy=timers.target

@@ -33,6 +33,7 @@ jobs:
           node scripts/test-public-site.mjs
           node scripts/test-public-indexing.mjs
           node scripts/test-public-release-gate.mjs
+          python scripts/test-monitor-public.py
   browser-acceptance:
     runs-on: ubuntu-latest
     steps:
