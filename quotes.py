@@ -98,15 +98,20 @@ def handle(h,connect,method):
         q=parse_qs(urlsplit(h.path).query)
         try:
             page=max(1,min(10000,int(q.get('page',['1'])[0])))
+            size=int(q.get('page_size',['25'])[0])
+            if size not in (10,25,50):raise ValueError()
         except ValueError: return h.json_response(400,{'error':'Page invalide.'})
         with connect() as db:
             db.row_factory=sqlite3.Row
-            rows=[dict(r) for r in db.execute('SELECT q.*,o.company,COALESCE(p.valid_until,\'\') valid_until,COALESCE(p.terms,\'\') terms FROM quotes q JOIN opportunities o ON q.opportunity_id=o.id LEFT JOIN quote_proposal_terms p ON p.quote_id=q.id ORDER BY q.created_at DESC,q.id DESC LIMIT 25 OFFSET ?',((page-1)*25,))]
+            search=q.get('q',[''])[0].strip()[:120]
+            source=' FROM quotes q JOIN opportunities o ON q.opportunity_id=o.id LEFT JOIN quote_proposal_terms p ON p.quote_id=q.id WHERE instr(lower(q.title),lower(?))>0 OR instr(lower(o.company),lower(?))>0 OR instr(lower(q.status),lower(?))>0 OR instr(lower(q.currency),lower(?))>0'
+            args=(search,)*4
+            rows=[dict(r) for r in db.execute('SELECT q.*,o.company,COALESCE(p.valid_until,\'\') valid_until,COALESCE(p.terms,\'\') terms'+source+' ORDER BY q.created_at DESC,q.id DESC LIMIT ? OFFSET ?',(*args,size,(page-1)*size))]
             for row in rows:
                 row['transmission']=dict(t) if (t:=db.execute('SELECT version,actor,evidence,created_at FROM quote_transmissions WHERE quote_id=? ORDER BY version DESC LIMIT 1',(row['id'],)).fetchone()) else None
                 row['contract']=dict(c) if (c:=db.execute('SELECT reference,signed_date,actor,created_at FROM signed_contracts WHERE quote_id=?',(row['id'],)).fetchone()) else None
                 row['decision']=dict(d) if (d:=db.execute('SELECT version,actor,decision,evidence,created_at FROM quote_decisions WHERE quote_id=?',(row['id'],)).fetchone()) else None
-            total=db.execute('SELECT count(*) FROM quotes').fetchone()[0]
+            total=db.execute('SELECT count(*)'+source,args).fetchone()[0]
         return h.json_response(200,{'items':[r|calculate(r) for r in rows],'total':total,'can_manage':h.role in ('ADMIN','COMMERCIAL')})
     try:
         n=int(h.headers.get('Content-Length','0'))

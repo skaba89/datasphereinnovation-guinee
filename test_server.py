@@ -49,7 +49,7 @@ class IntakeTests(unittest.TestCase):
 
     def test_list_page_size_validation(self):
         headers={'Authorization':'Bearer '+server.ADMIN_TOKEN}
-        for resource in ('requests','consultants','crm','tenders'):
+        for resource in ('requests','consultants','crm','tenders','quotes','documents'):
             for size in ('0','11','1000','invalid','10','25','50'):
                 with self.subTest(resource=resource,size=size):
                     code,body,_=self.request('GET',f'/api/admin/{resource}?page_size={size}',headers=headers)
@@ -757,6 +757,9 @@ class IntakeTests(unittest.TestCase):
             s,b,_=self.request('POST',path,newer,auth);self.assertEqual(s,201);self.assertEqual(json.loads(b)['version'],2);newid=json.loads(b)['id']
             self.assertEqual(self.request('POST',path,newer,auth)[0],409)
             items={x['id']:x for x in json.loads(self.request('GET',path,headers=auth)[1])['items']};self.assertFalse(items[oid]['current']);self.assertTrue(items[newid]['current']);self.assertTrue(items[newid]['review_due'])
+            filtered=json.loads(self.request('GET',path+'?q='+newid+'&page_size=10',headers=auth)[1])
+            self.assertEqual(filtered['total'],1);self.assertEqual(filtered['items'][0]['id'],newid)
+            self.assertEqual(json.loads(self.request('GET',path+'?q=absent-test',headers=auth)[1])['total'],0)
             self.assertEqual(self.request('GET',path+'/'+oid,headers=auth)[1],raw)
             oldkey=os.environ['DSIG_DOCUMENT_KEY']
         with patch.dict(os.environ,{'DSIG_DOCUMENT_KEY':Fernet.generate_key().decode(),'DSIG_DOCUMENT_PREVIOUS_KEY':''}):self.assertEqual(self.request('GET',path+'/'+oid,headers=auth)[0],503)
@@ -1103,6 +1106,9 @@ class IntakeTests(unittest.TestCase):
         self.assertEqual(json.loads(self.request('GET',path,headers=auth)[1])['total'],1)
         proposal=json.loads(self.request('GET',path,headers=auth)[1])['items'][0]
         self.assertEqual(proposal['valid_until'],'2027-01-31')
+        for term,total in [('analytics',1),('EUR',1),('absent-test',0)]:
+            result=json.loads(self.request('GET',path+'?page_size=10&q='+term,headers=auth)[1])
+            self.assertEqual(result['total'],total);self.assertEqual(len(result['items']),total)
         self.assertEqual(proposal['terms'],'Acompte à confirmer')
         with server.connect() as db:
             self.assertEqual(db.execute('SELECT count(*) FROM quote_events').fetchone()[0],2)
