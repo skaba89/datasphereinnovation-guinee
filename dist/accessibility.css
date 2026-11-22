@@ -49,5 +49,9 @@ button,input,select,textarea{font-family:inherit}
 #consultant-picker select{width:100%}
 #consultant-picker p{flex-basis:100%;margin:0}
 .table-wrap td button{margin:3px;white-space:normal}
+.account-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap;min-width:190px}
+.account-actions select{min-height:44px;width:100%;max-width:240px;border:1px solid #d6cde5;border-radius:8px;padding:8px;color:#38225e;background:#fff}
+.account-actions button{min-height:44px}
+.account-actions select:disabled{opacity:.65}
 @media(max-width:850px){.dsig-pager{justify-content:flex-start}.table-wrap{width:100%}}
 @media(max-width:650px){#consultant-picker label{flex-basis:100%}.dsig-pager span{flex:1 1 100%;order:-1}.dsig-pager button,.dsig-pager select{flex:1 1 auto;min-width:0}.table-wrap td button{margin:3px 0}.app-sidebar nav a{overflow-wrap:anywhere}}

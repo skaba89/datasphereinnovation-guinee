@@ -32,15 +32,15 @@ document.addEventListener('DOMContentLoaded',()=>{
   const prev=document.createElement('button'),next=document.createElement('button'),status=document.createElement('span'),size=document.createElement('select'),search=document.createElement('input');
   search.type='search';search.className='dsig-list-search';search.placeholder='Rechercher dans cette liste';search.setAttribute('aria-label','Rechercher dans '+id);search.autocomplete='off';
   prev.type=next.type='button';prev.textContent='Précédent';next.textContent='Suivant';status.setAttribute('role','status');
-  size.setAttribute('aria-label','Éléments par page');for(const n of [10,25,50])size.append(new Option(n+' par page',n));size.value='25';
+  size.setAttribute('aria-label','Éléments par page');for(const n of [10,25,50])size.append(new Option(n+' par page',n));size.value=page==='accounts.html'?'10':'25';
   controls.append(search,prev,status,next,size);
-  const anchor=root.closest('.table-wrap')||root;anchor.after(controls);
+  const anchor=root.closest('.table-wrap')||root;if(page==='accounts.html'&&id==='rows'){search.placeholder='Rechercher un compte…';anchor.before(controls)}else anchor.after(controls);
   let current=1;
   const normalize=value=>value.normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLocaleLowerCase('fr');
   function render(){
    const children=Array.from(root.children),items=children.filter(item=>!(item.tagName==='TR'&&item.cells.length===1&&item.cells[0].colSpan>1));
    if(!items.length){search.value='';current=1;controls.hidden=true;children.forEach(item=>item.hidden=false);return;}
-   const terms=normalize(search.value.trim()).split(/\s+/).filter(Boolean),matches=items.filter(item=>terms.every(term=>normalize(item.textContent).includes(term)));
+   const terms=normalize(search.value.trim()).split(/\s+/).filter(Boolean),matches=items.filter(item=>terms.every(term=>normalize(item.dataset.searchText??item.textContent).includes(term)));
    const limit=Number(size.value),pages=Math.max(1,Math.ceil(matches.length/limit));current=Math.min(current,pages);
    const visible=new Set(matches.slice((current-1)*limit,current*limit));items.forEach(item=>item.hidden=!visible.has(item));
    status.textContent=matches.length?'Page '+current+' / '+pages+' · '+matches.length+' / '+items.length+' élément(s)':'Aucun résultat sur '+items.length+' élément(s)';
