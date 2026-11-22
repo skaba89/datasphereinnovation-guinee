@@ -10,6 +10,23 @@ STATUSES=("PROSPECT","QUALIFIE","PROPOSITION","NEGOCIATION","GAGNE","EN_MISSION"
 FIELDS={"company":180,"contact":120,"email":254,"title":180,"mode":20,"skills":1000,
         "consultant_id":36,"next_action":500,"followup":10,"notes":2000,"status":30}
 
+CRITERIA = ('need', 'budget', 'decision_maker', 'timeline')
+QUALIFICATION_DEFAULT = dict.fromkeys(CRITERIA, 'UNKNOWN') | {'demo_status': 'NONE', 'demo_date': ''}
+
+def validate_qualification(values):
+    if not isinstance(values, dict) or set(values) != set(QUALIFICATION_DEFAULT):
+        raise ValueError()
+    if any(values[k] not in ('UNKNOWN', 'NO', 'YES') for k in CRITERIA):
+        raise ValueError()
+    if values['demo_status'] not in ('NONE', 'REQUESTED', 'SCHEDULED', 'DONE', 'CANCELLED'):
+        raise ValueError()
+    day = values['demo_date']
+    if not isinstance(day, str) or (day and date.fromisoformat(day).isoformat() != day):
+        raise ValueError()
+    if (values['demo_status'] in ('SCHEDULED', 'DONE') and not day) or (values['demo_status'] == 'NONE' and day):
+        raise ValueError()
+    return values
+
 # Catalogue interne : périmètres documentés, sans promesse de disponibilité commerciale.
 CATALOGUE = [
     {
@@ -64,6 +81,8 @@ def schema(db):
     db.execute("""CREATE TABLE IF NOT EXISTS opportunity_events (
       id INTEGER PRIMARY KEY, opportunity_id TEXT NOT NULL, status TEXT NOT NULL,
       version INTEGER NOT NULL, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)""")
+    db.execute("""CREATE TABLE IF NOT EXISTS opportunity_qualification (
+      opportunity_id TEXT PRIMARY KEY REFERENCES opportunities(id), payload TEXT NOT NULL)""")
 
 def validate(data):
     if not isinstance(data,dict) or set(data)!=set(FIELDS): raise ValueError()
@@ -102,12 +121,17 @@ def handle(h,connect,method):
             db.row_factory=sqlite3.Row
             total=db.execute("SELECT count(*) FROM opportunities o"+where,args).fetchone()[0]
             rows=[dict(r) for r in db.execute("SELECT o.*, c.name consultant_name,c.status consultant_status, coalesce(l.organization_id,'') organization_id, g.name organization_name FROM opportunities o LEFT JOIN consultants c ON c.id=o.consultant_id LEFT JOIN organization_links l ON l.opportunity_id=o.id LEFT JOIN organizations g ON g.id=l.organization_id"+where+" ORDER BY (o.followup=''),o.followup,o.id LIMIT ? OFFSET ?",(*args,page_size, (page-1)*page_size))]
+            for row in rows:
+                qualification = db.execute('SELECT payload FROM opportunity_qualification WHERE opportunity_id=?', (row['id'],)).fetchone()
+                row['qualification'] = json.loads(qualification[0]) if qualification else QUALIFICATION_DEFAULT.copy()
+                row['qualification_score'] = sum(row['qualification'][key] == 'YES' for key in CRITERIA)
             counts=dict(db.execute("SELECT status,count(*) FROM opportunities GROUP BY status").fetchall())
         return h.json_response(200,{"items":rows,"counts":counts,"total":total})
     try:
         length=int(h.headers.get("Content-Length","0"))
         if not 0<length<=16000 or h.headers.get_content_type()!="application/json": raise ValueError()
         data=json.loads(h.rfile.read(length))
+        qualification = validate_qualification(data.pop('qualification')) if isinstance(data, dict) and 'qualification' in data else None
         version=data.pop("version",None) if isinstance(data,dict) else None
         organization_id=data.pop('organization_id',None) if isinstance(data,dict) else None
         if organization_id is not None and (not isinstance(organization_id,str) or (organization_id and str(uuid.UUID(organization_id))!=organization_id)): raise ValueError()
@@ -135,6 +159,8 @@ def handle(h,connect,method):
             if row[0]!=version: return h.json_response(409,{"error":"Dossier modifié. Actualisez."})
             version+=1
             db.execute("UPDATE opportunities SET "+",".join(k+"=?" for k in keys)+",version=? WHERE id=?",(*values.values(),version,oid))
+        if qualification is not None:
+            db.execute('INSERT INTO opportunity_qualification(opportunity_id,payload) VALUES(?,?) ON CONFLICT(opportunity_id) DO UPDATE SET payload=excluded.payload', (oid, json.dumps(qualification)))
         if organization_id is not None:
             db.execute('DELETE FROM organization_links WHERE opportunity_id=?',(oid,))
             if organization_id: db.execute('INSERT INTO organization_links VALUES(?,?)',(oid,organization_id))

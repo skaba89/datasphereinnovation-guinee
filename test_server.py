@@ -1250,6 +1250,28 @@ class IntakeTests(unittest.TestCase):
             self.assertEqual(db.execute("SELECT status FROM opportunity_events WHERE opportunity_id=? ORDER BY id",(oid,)).fetchall(),[("PROSPECT",),("EN_MISSION",)])
         self.assertEqual(self.request("GET","/crm.html")[0],200)
 
+    def test_crm_qualification(self):
+        path = '/api/admin/crm'
+        auth = {'Authorization':'Bearer '+server.ADMIN_TOKEN, 'Content-Type':'application/json'}
+        data = {'company':'Prospect fictif','contact':'','email':'','title':'Démo','mode':'CONSEIL','skills':'','consultant_id':'','next_action':'','followup':'','notes':'','status':'PROSPECT'}
+        status, body, _ = self.request('POST', path, data, auth)
+        self.assertEqual(status, 201)
+        oid = json.loads(body)['id']
+        def current():
+            return json.loads(self.request('GET', path, headers=auth)[1])['items'][0]
+        self.assertEqual(current()['qualification_score'], 0)
+        qualification = {'need':'YES','budget':'UNKNOWN','decision_maker':'YES','timeline':'NO','demo_status':'SCHEDULED','demo_date':'2027-01-15'}
+        payload = data | {'version':1,'qualification':qualification}
+        self.assertEqual(self.request('PATCH', path+'/'+oid, payload, auth|{'Origin':'https://other.invalid'})[0],403)
+        self.assertEqual(self.request('PATCH', path+'/'+oid, payload|{'qualification':qualification|{'demo_date':''}}, auth)[0],400)
+        self.assertEqual(self.request('PATCH', path+'/'+oid, payload|{'qualification':qualification|{'budget':'MAYBE'}}, auth)[0],400)
+        self.assertEqual(self.request('PATCH', path+'/'+oid, payload, auth)[0],200)
+        self.assertEqual(current()['qualification'], qualification)
+        self.assertEqual(current()['qualification_score'],2)
+        self.assertEqual(self.request('PATCH', path+'/'+oid, payload, auth)[0],409)
+        self.assertEqual(self.request('PATCH', path+'/'+oid, data|{'version':2}, auth)[0],200)
+        self.assertEqual(current()['qualification'], qualification)
+
     def test_consultant_lifecycle(self):
         path = "/api/admin/consultants"
         auth = {"Authorization": "Bearer " + server.ADMIN_TOKEN, "Content-Type": "application/json"}
