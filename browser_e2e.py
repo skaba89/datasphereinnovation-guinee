@@ -232,6 +232,13 @@ class BrowserTests(unittest.TestCase):
         self.page.get_by_label('Statut des créances').select_option('')
         self.page.get_by_role('form',name='Filtres des créances').get_by_role('button',name='Rechercher').click()
         expect(invoice).to_be_visible()
+        payment_choice = self.page.locator('#payment-invoice')
+        payment_choice.select_option(index=1)
+        selected_invoice = payment_choice.input_value()
+        with self.page.expect_response(lambda r: '/api/admin/billing?' in r.url and r.status==200):
+            self.page.get_by_role('form',name='Filtres des créances').get_by_role('button',name='Rechercher').click()
+        expect(invoice).to_be_visible()
+        expect(payment_choice).to_have_value(selected_invoice)
 
         def payment(reference, amount):
             self.page.locator('#payment-invoice').select_option(index=1)

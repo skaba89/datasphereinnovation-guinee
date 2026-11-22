@@ -24,11 +24,15 @@ def handle(h,connect,method):
     if not h.admin_authorized():return
     if (h.headers.get('Origin') and h.headers['Origin']!=h.expected_origin()) or h.headers.get('Sec-Fetch-Site')=='cross-site':return h.json_response(403,{'error':'Origine non autorisée.'})
     if method=='GET':
-        try:page=max(1,min(10000,int(parse_qs(urlsplit(h.path).query).get('page',['1'])[0])))
+        try:
+            query=parse_qs(urlsplit(h.path).query)
+            page=max(1,min(10000,int(query.get('page',['1'])[0])))
+            page_size=int(query.get('page_size',['25'])[0])
+            if page_size not in (10,25,50):raise ValueError()
         except ValueError:return h.json_response(400,{'error':'Page invalide.'})
         with connect() as db:
             db.row_factory=sqlite3.Row;db.execute('BEGIN')
-            items=[dict(r) for r in db.execute('SELECT e.*,q.title AS mission_title FROM expenses e LEFT JOIN missions m ON m.id=e.mission_id LEFT JOIN quotes q ON q.id=m.quote_id ORDER BY paid_date DESC,e.id LIMIT 25 OFFSET ?',((page-1)*25,))]
+            items=[dict(r) for r in db.execute('SELECT e.*,q.title AS mission_title FROM expenses e LEFT JOIN missions m ON m.id=e.mission_id LEFT JOIN quotes q ON q.id=m.quote_id ORDER BY paid_date DESC,e.id LIMIT ? OFFSET ?',(page_size,(page-1)*page_size))]
             return h.json_response(200,{'items':items,'total':db.execute('SELECT count(*) FROM expenses').fetchone()[0],'cash':cash(db)})
     try:
         size=int(h.headers.get('Content-Length','0'))
