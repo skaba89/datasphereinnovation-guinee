@@ -1439,6 +1439,23 @@ class IntakeTests(unittest.TestCase):
         self.assertEqual(historic[0]['invoiced_ht'],'0')
         with server.connect() as db:
             db.execute("UPDATE saas_receipts SET paid_on=? WHERE reference='VIR-TEST-135'",(day,))
+        budget='/api/admin/billing/saas-budget'
+        target={'month':month,'product_id':inputs['product_id'],'currency':'EUR','revenue_target':'200','cost_budget':'50'}
+        self.assertEqual(self.request('POST',budget,target,commercial)[0],403)
+        self.assertEqual(self.request('POST',budget,target|{'revenue_target':'-1'},finance)[0],400)
+        self.assertEqual(self.request('POST',budget,target,finance)[0],201)
+        self.assertEqual(self.request('POST',budget,target|{'revenue_target':'250'},finance)[0],201)
+        report=json.loads(self.request('GET',monthly+query,headers=finance)[1])
+        self.assertEqual(report['items'][0]['achievement_pct'],'100.00')
+        self.assertTrue(report['items'][0]['over_budget'])
+        self.assertEqual(report['items'][0]['cost_remaining'],'-30.00')
+        self.assertEqual(report['budget_totals'][0]['months_planned'],1)
+        self.assertEqual(self.request('POST',budget,target|{'month':'2099-01','revenue_target':'0','cost_budget':'0'},finance)[0],201)
+        planned=json.loads(self.request('GET',monthly+'?start=2099-01&end=2099-12',headers=finance)[1])
+        self.assertEqual(planned['items'][0]['invoiced_ht'],'0')
+        self.assertIsNone(planned['items'][0]['achievement_pct'])
+        with server.connect() as db:
+            self.assertEqual(db.execute('SELECT count(*) FROM saas_budget_revisions').fetchone()[0],3)
         self.assertEqual(self.request('GET',cost,headers=commercial)[0],403)
         self.assertEqual(json.loads(self.request('GET',cost+'?q=absent',headers=finance)[1])['total'],0)
         self.assertEqual(self.request('POST',collection_path+'/reminder',{'channel':'EMAIL','note':'Relance fictive'},finance)[0],409)

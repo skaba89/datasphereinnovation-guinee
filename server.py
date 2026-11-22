@@ -405,7 +405,7 @@ class Handler(SimpleHTTPRequestHandler):
         if self.path in ('/api/auth/activate','/api/auth/login','/api/auth/logout','/api/auth/mfa-setup','/api/auth/mfa-confirm','/api/auth/revoke-others','/api/auth/change-password'):return authentication.handle(self,connect)
         if self.path=='/api/admin/my-activity':return own_activity.handle(self,connect,'POST')
         if self.path=='/api/admin/accounts':return accounts.handle(self,connect,'POST')
-        if re.fullmatch(r'/api/admin/billing/(?:milestones|invoices|payments|schedule|reminders|planned-expenses|saas-profitability)',self.path): return billing.handle(self,connect,'POST')
+        if re.fullmatch(r'/api/admin/billing/(?:milestones|invoices|payments|schedule|reminders|planned-expenses|saas-profitability|saas-budget)',self.path): return billing.handle(self,connect,'POST')
         if re.fullmatch(r'/api/admin/billing/saas-receivables/[0-9]{1,18}/(?:receipt|reminder)',self.path):return billing.handle(self,connect,'POST')
         if re.fullmatch(r'/api/admin/missions(?:/[0-9a-f-]{36}/(?:activity|team))?',self.path):
             return missions.handle(self,connect,'POST')
