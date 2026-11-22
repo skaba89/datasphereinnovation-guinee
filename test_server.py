@@ -1302,10 +1302,28 @@ class IntakeTests(unittest.TestCase):
         report=json.loads(self.request('GET',path+'?q=conv-1',headers=auth)[1])
         self.assertEqual(report['referrals'][0]['commission'],'12.51')
         self.assertEqual(report['partners'][0]['commission']['EUR']['pipeline'],'12.51')
+        finance='/api/admin/billing/partner-commissions'
+        approval={'action':'approve','opportunity_id':oid,'reference':'JUST-1'}
+        payment={'action':'payment','opportunity_id':oid,'reference':'VIR-1','amount':'5.00','paid_on':today}
+        self.assertEqual(self.request('GET',finance)[0],401)
+        self.assertEqual(self.request('POST',finance,approval,auth)[0],409)
+        self.assertEqual(self.request('POST',finance,payment,auth)[0],409)
         with server.connect() as db:db.execute("UPDATE opportunities SET status='GAGNE' WHERE id=?",(oid,))
         report=json.loads(self.request('GET','/api/admin/direction/partners',headers=auth)[1])
         self.assertEqual(report['partners'][0]['commission']['EUR']['won'],'12.51')
         self.assertNotIn('referrals',report)
+        self.assertEqual(self.request('POST',finance,approval,auth)[0],201)
+        self.assertEqual(self.request('POST',finance,approval,auth)[0],409)
+        self.assertEqual(self.request('POST',finance,payment|{'amount':'12.52'},auth)[0],409)
+        self.assertEqual(self.request('POST',finance,payment,auth)[0],201)
+        self.assertEqual(self.request('POST',finance,payment,auth)[0],409)
+        result=json.loads(self.request('GET',finance+'?q=VIR-1',headers=auth)[1])['items'][0]
+        self.assertEqual((result['state'],result['balance']),('PARTIELLE','7.51'))
+        self.assertEqual(self.request('POST',finance,payment|{'reference':'VIR-2','amount':'7.51'},auth)[0],201)
+        result=json.loads(self.request('GET',finance,headers=auth)[1])['items'][0]
+        self.assertEqual((result['state'],result['balance']),('REGLEE','0.00'))
+        result=json.loads(self.request('GET','/api/admin/direction/partner-commissions',headers=auth)[1])['items'][0]
+        self.assertEqual(result['paid'],'12.51');self.assertNotIn('payments',result)
 
     def test_customer_growth(self):
         from datetime import date,timedelta
