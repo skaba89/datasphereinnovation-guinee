@@ -91,3 +91,42 @@ maquette SVG. Ces budgets sont des tailles locales, pas des mesures réseau.
 Après publication, activer la compression sur le vhost public uniquement et
 mesurer les Core Web Vitals (LCP, INP, CLS) sur mobile avec PageSpeed Insights
 et Search Console. Ne pas déclarer de score réel avant la mesure publique.
+
+## V120 — Contrôle de publication et moteurs de recherche
+
+Après publication HTTPS approuvée, depuis un réseau **non autorisé en REC** :
+
+```bash
+node scripts/check-public-indexing.mjs
+```
+
+Ce contrôle en lecture seule vérifie robots.txt, le sitemap (au moins 84 URL),
+chaque réponse HTML et canonical, les directives d'indexation, le refus des
+routes privées et la restriction REC. Il ne soumet aucun contenu à un moteur,
+ne modifie ni DNS ni proxy et ne prouve pas l'indexation effective. En CI,
+`node scripts/test-public-indexing.mjs` utilise uniquement des réponses simulées.
+
+### Comptes propriétaires
+
+1. Dans [Google Search Console](https://search.google.com/search-console/),
+   ajouter la propriété Domaine `dsig-consulting.com`. Ajouter uniquement le
+   TXT fourni par Google à la zone DNS après validation du propriétaire ; ne
+   remplacer aucune entrée existante ni modifier le MX. Voir la [documentation
+   de vérification](https://support.google.com/webmasters/answer/9008080).
+2. Après contrôle de publication PASS, soumettre
+   `https://dsig-consulting.com/sitemap.xml` dans la propriété publique ;
+   vérifier l'état du sitemap et inspecter quelques URL FR/EN. Ne pas soumettre
+   d'URL REC. Voir le [rapport Sitemaps](https://support.google.com/webmasters/answer/7451001).
+3. Dans [Bing Webmaster Tools](https://www.bing.com/webmasters/), importer la
+   propriété publique Google vérifiée ou utiliser la vérification manuelle.
+   Soumettre le sitemap si nécessaire, puis contrôler sa lecture.
+   [Guide Bing](https://www.bing.com/webmasters/help/add-and-verify-site-12184f8b).
+
+### Suivi hebdomadaire (valeurs réelles uniquement)
+
+Conserver hors Git les exports des consoles avec date, moteur, URL et période.
+Suivre les pages indexées/exclues, clics, impressions, CTR, position moyenne,
+requêtes par langue et pays, erreurs d'exploration et Core Web Vitals.
+Comparer des périodes de 28 jours équivalentes. Si une métrique est indisponible,
+indiquer « non mesurée » et non zéro. Aucun identifiant, jeton ni secret dans Git.
+Google et Bing peuvent découvrir les pages sans garantir leur indexation.
