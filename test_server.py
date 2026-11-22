@@ -1497,6 +1497,12 @@ class IntakeTests(unittest.TestCase):
         predecessor=records['items'][0]['id']
         with server.connect() as db:
             db.execute('UPDATE saas_subscriptions SET starts_on=?,ends_on=? WHERE id=?',(today.isoformat(),end,predecessor))
+        decision=subscriptions+'/'+predecessor+'/decision'
+        payload={'version':0,'action':'SUSPENSION','effective_on':today.isoformat(),'evidence':'Incident fictif'}
+        self.assertEqual(self.request('POST',decision,payload,commercial)[0],403)
+        self.assertEqual(self.request('POST',decision,payload,auth)[0],200)
+        self.assertEqual(self.request('POST',decision,payload,auth)[0],409)
+        self.assertEqual(self.request('POST',decision,payload|{'version':1,'action':'REACTIVATION'},auth)[0],200)
         metrics=json.loads(self.request('GET',subscriptions+'?status=ECHEANCE_30J',headers=auth)[1])
         self.assertEqual(metrics['total'],1)
         self.assertEqual(metrics['metrics']['counts']['ECHEANCE_30J'],1)
@@ -1525,6 +1531,30 @@ class IntakeTests(unittest.TestCase):
             self.assertEqual(report['renewed_30'],1)
             self.assertEqual(report['unrenewed_30'],0)
             self.assertEqual(report['active'],1)
+        successor_id=snapshot['items'][1]['id']
+        with server.connect() as db:
+            db.execute("UPDATE saas_subscriptions SET starts_on='2099-01-01',ends_on='2099-04-01' WHERE id=?",(successor_id,))
+        decision=subscriptions+'/'+successor_id+'/decision'
+        cancellation={'version':0,'action':'RESILIATION','effective_on':'2099-02-01','evidence':'Avenant fictif'}
+        self.assertEqual(self.request('POST',decision,cancellation|{'effective_on':'2099-01-15'},auth)[0],409)
+        future_billing=subscriptions+'/'+successor_id+'/billing'
+        self.assertEqual(self.request('POST',future_billing,{'period_start':'2099-03-01'},auth)[0],201)
+        self.assertEqual(self.request('POST',decision,cancellation,auth)[0],409)
+        self.assertEqual(self.request('POST',decision,cancellation|{'effective_on':'2099-04-01'},auth)[0],200)
+        with server.connect() as db:
+            self.assertEqual(db.execute('SELECT count(*) FROM saas_subscription_events').fetchone()[0],3)
+        status,body,_=self.request('POST',subscriptions,registration|{'offer_id':accepted_offer(),'ends_on':'2099-04-01'},auth)
+        self.assertEqual(status,201)
+        new_id=json.loads(body)['id']
+        self.assertEqual(self.request('POST',subscriptions+'/'+new_id+'/decision',cancellation,auth)[0],200)
+        with server.connect() as db:
+            self.assertEqual(db.execute('SELECT ends_on FROM saas_subscriptions WHERE id=?',(new_id,)).fetchone()[0],'2099-02-01')
+            self.assertEqual(saas_commercial_report(db,'2099-02-01')['items'][0]['terminated_30'],1)
+        listed=json.loads(self.request('GET',subscriptions,headers=commercial)[1])
+        terminated=next(r for r in listed['items'] if r['id']==new_id)
+        self.assertEqual(terminated['lifecycle']['actions'],[])
+        self.assertEqual(terminated['lifecycle']['events'][0]['previous_end'],'2099-04-01')
+        self.assertEqual(self.request('POST',subscriptions+'/'+new_id+'/billing',{'period_start':'2099-03-01'},auth)[0],400)
 
     def test_saas_billing_boundaries(self):
         from crm import subscription_schedule
