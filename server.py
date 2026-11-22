@@ -226,7 +226,7 @@ class Handler(SimpleHTTPRequestHandler):
                 return self.json_response(200, direction.snapshot(db))
         if urlsplit(self.path).path == "/api/admin/quotes":
             return quotes.handle(self, connect, "GET")
-        if urlsplit(self.path).path in ("/api/admin/crm","/api/admin/crm/catalogue"):
+        if urlsplit(self.path).path in ("/api/admin/crm","/api/admin/crm/catalogue","/api/admin/crm/saas-offers"):
             return crm.handle(self, connect, "GET")
         if urlsplit(self.path).path == "/api/admin/consultants":
             return consultants.handle(self, connect, "GET")
@@ -407,7 +407,7 @@ class Handler(SimpleHTTPRequestHandler):
             return missions.handle(self,connect,'POST')
         if self.path == "/api/admin/quotes":
             return quotes.handle(self, connect, "POST")
-        if self.path in ("/api/admin/crm","/api/admin/crm/saas-simulation"):
+        if self.path in ("/api/admin/crm","/api/admin/crm/saas-simulation","/api/admin/crm/saas-offers"):
             return crm.handle(self, connect, "POST")
         if self.path == "/api/admin/consultants":
             return consultants.handle(self, connect, "POST")

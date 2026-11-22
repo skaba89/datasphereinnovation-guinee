@@ -1298,6 +1298,37 @@ class IntakeTests(unittest.TestCase):
             self.assertEqual(db.execute("SELECT status FROM opportunity_events WHERE opportunity_id=? ORDER BY id",(oid,)).fetchall(),[("PROSPECT",),("EN_MISSION",)])
         self.assertEqual(self.request("GET","/crm.html")[0],200)
 
+    def test_saas_offer_drafts(self):
+        path='/api/admin/crm/saas-offers'
+        auth={'Authorization':'Bearer '+server.ADMIN_TOKEN,'Content-Type':'application/json'}
+        opp={'company':'Prospect SaaS fictif','contact':'','email':'','title':'Cadrage','mode':'CONSEIL','skills':'','consultant_id':'','next_action':'','followup':'','notes':'','status':'PROSPECT'}
+        status,body,_=self.request('POST','/api/admin/crm',opp,auth)
+        self.assertEqual(status,201)
+        oid=json.loads(body)['id']
+        inputs={'product_id':'minefleet360','currency':'EUR','cycle':'MONTHLY','quantity':10,'unit_price':'25.50','options':'10','setup':'200','training':'100'}
+        data={'opportunity_id':oid,'title':'Offre fictive','valid_until':'2099-01-01','inputs':inputs}
+        self.assertEqual(self.request('GET',path)[0],401)
+        self.assertEqual(self.request('POST',path,data)[0],401)
+        self.assertEqual(self.request('POST',path,data,auth|{'Origin':'https://invalid.example'})[0],403)
+        self.assertEqual(self.request('POST',path,data|{'valid_until':'2000-01-01'},auth)[0],400)
+        self.assertEqual(self.request('POST',path,data|{'estimate':{'arr':'1'}},auth)[0],400)
+        self.assertEqual(self.request('POST',path,data|{'opportunity_id':'00000000-0000-0000-0000-000000000000'},auth)[0],404)
+        status,body,_=self.request('POST',path,data,auth)
+        self.assertEqual(status,201)
+        created=json.loads(body)
+        self.assertEqual(created['estimate']['first_year'],'3480.00')
+        self.assertEqual(created['status'],'BROUILLON')
+        self.assertEqual(self.request('POST',path,data|{'inputs':inputs|{'unit_price':'50'}},auth)[0],201)
+        items=json.loads(self.request('GET',path,headers=auth)[1])
+        self.assertEqual(items['total'],2)
+        first=next(x for x in items['items'] if x['id']==created['id'])
+        self.assertEqual((first['inputs'],first['estimate'],first['opportunity_id'],first['actor']),(inputs,created['estimate'],oid,'bootstrap'))
+        self.assertEqual(self.request('GET',path+'?page=0',headers=auth)[0],400)
+        with server.connect() as db:
+            self.assertEqual(db.execute('SELECT count(*) FROM quotes').fetchone()[0],0)
+            self.assertEqual(db.execute('SELECT status FROM opportunities WHERE id=?',(oid,)).fetchone()[0],'PROSPECT')
+            self.assertEqual(db.execute("SELECT count(*) FROM access_events WHERE action='OFFRE_SAAS_BROUILLON'").fetchone()[0],2)
+
     def test_saas_simulation(self):
         path='/api/admin/crm/saas-simulation'
         auth={'Authorization':'Bearer '+server.ADMIN_TOKEN,'Content-Type':'application/json'}
