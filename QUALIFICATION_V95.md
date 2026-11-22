@@ -13,7 +13,7 @@ python3 scripts/rec-preflight.py "$sha" > /chemin/prive/preflight.json
 python3 release_evidence.py "$sha" --template > /chemin/prive/register.json
 ```
 
-Compléter les 18 déclarations du registre selon RELEASE_GATE_V79.md et les 10 gates selon PREPARATION_PROD_V39.md dans un fichier privé `gates.json` (modèle release-gates.example.json). Utiliser uniquement les preuves réelles, datées et expurgées du SHA concerné, notamment CI exacte, recette métier, MFA, refus d'accès, sauvegarde hors site, restauration, sécurité indépendante et décision humaine. Une copie locale seule ne valide pas G04. Ne pas réutiliser les résultats d'un autre SHA.
+Compléter les 25 déclarations du registre (schéma 2, V156) selon RELEASE_GATE_V79.md et QUALIFICATION_FINAL_V156.md et les 10 gates selon PREPARATION_PROD_V39.md dans un fichier privé `gates.json` (modèle release-gates.example.json). Utiliser uniquement les preuves réelles, datées et expurgées du SHA concerné, notamment CI exacte, recette métier, MFA, refus d'accès, sauvegarde hors site, restauration, sécurité indépendante et décision humaine. Une copie locale seule ne valide pas G04. Ne pas réutiliser les résultats d'un autre SHA.
 
 ```bash
 python3 scripts/qualify-release.py "$sha" \

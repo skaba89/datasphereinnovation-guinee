@@ -28,7 +28,9 @@ class QualificationTests(unittest.TestCase):
         self.assertEqual(report['status'],'REVIEW_REQUIRED')
         self.assertFalse(report['production_authorized'])
         self.assertEqual(len(report['gates']),10)
-        self.assertEqual(len(report['register']),18)
+        self.assertEqual(len(report['register']),25)
+        self.assertEqual(report['declared_pass_count'],25)
+        self.assertEqual(report['blocking_checks'],[])
         self.assertNotIn('private-',str(report))
 
     def test_reject_missing_stale_or_failed_evidence(self):
@@ -41,6 +43,8 @@ class QualificationTests(unittest.TestCase):
             lambda p,r,g:p['checks'].update(antivirus='FAIL'),
             lambda p,r,g:p['checks'].pop('monitor'),
             lambda p,r,g:r['checks']['backup_offsite_restore'].update(status='NOT_RUN'),
+            lambda p,r,g:r['checks']['client_portal_isolation'].update(status='NOT_RUN'),
+            lambda p,r,g:r.update(schema=1),
             lambda p,r,g:g['gates']['G04'].update(status='NOT_RUN'),
             lambda p,r,g:g['gates'].update(extra={}),
             lambda p,r,g:g.update(commit='b'*40),
@@ -48,5 +52,7 @@ class QualificationTests(unittest.TestCase):
             args = fixtures()
             change(*args)
             with self.subTest(change=change):
-                self.assertEqual(module.qualify(SHA,*args,now=NOW)['status'],'NO_GO')
+                report=module.qualify(SHA,*args,now=NOW)
+                self.assertEqual(report['status'],'NO_GO')
+                self.assertTrue(report['blocking_checks'])
         self.assertEqual(module.qualify(SHA,None,None,None,now=NOW)['status'],'NO_GO')

@@ -8,7 +8,7 @@ Le registre complète les rapports techniques existants (scripts/release-evidenc
 
 | Domaine | Pièce attendue |
 |---|---|
-| CI et isolation | Quatre jobs CI du SHA exact, rapport suite isolée |
+| CI et isolation | Tous les jobs CI du SHA exact, rapport suite isolée |
 | Infrastructure | V78, V76 du conteneur réel, accès TLS restreint |
 | Vitrine | Parcours FR/EN, formulaire et mobile |
 | CRM | Organisations, opportunités, catalogue privé, diagnostic Supply Chain |
@@ -29,7 +29,7 @@ sha=$(git rev-parse HEAD)
 python3 release_evidence.py "$sha" --template
 ```
 
-Enregistrer la sortie dans un fichier de recette privé neuf, compléter les 18 contrôles avec PASS, FAIL ou NOT_RUN, le SHA exact, la date UTC ISO (terminée par Z), le responsable et une référence de preuve expurgée. Ne mettre ni secrets ni données personnelles dans les références. Puis :
+Enregistrer la sortie dans un fichier de recette privé neuf, compléter les 25 contrôles (schéma 2, voir QUALIFICATION_FINAL_V156.md) avec PASS, FAIL ou NOT_RUN, le SHA exact, la date UTC ISO (terminée par Z), le responsable et une référence de preuve expurgée. Ne mettre ni secrets ni données personnelles dans les références. Puis :
 
 ```bash
 python3 release_evidence.py "$sha" < /chemin/prive/recette.json
