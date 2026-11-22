@@ -6,6 +6,7 @@ import {createHash} from 'node:crypto';
 import {fileURLToPath} from 'node:url';
 import {posts} from './blog-content.mjs';
 import {sectors} from './sector-content.mjs';
+import {offers} from './offer-content.mjs';
 
 const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'..');
 const source=path.join(root,'dist');
@@ -89,6 +90,20 @@ function structuredData(html,lang,url,title,description,contact,service=null,art
 }
 const blogPath=(lang,slug='')=>'/blog'+(lang==='en'?'-en':'')+(slug?'-'+slug:'')+'.html';
 const sectorPath=(lang,slug='')=>(lang==='en'?'/sectors':'/secteurs')+(slug?'-'+slug:'')+'.html';
+const offerPath=(lang,slug='')=>(lang==='en'?'/offers':'/offres')+(slug?'-'+slug:'')+'.html';
+function buildOffers(out,contact){
+ for(const lang of ['fr','en']){
+  const en=lang==='en',index=offerPath(lang),title=en?'Digital consulting and SaaS offers | DSIG':'Offres de conseil et SaaS en Guinée | DSIG',description=en?'Explore consulting, project delivery, training and business application options.':'Découvrez nos prestations de conseil, régie, forfait, formation et solutions métiers.';
+  const request=(label,subject)=>'<a class="btn" href="mailto:'+esc(contact)+'?subject='+encodeURIComponent(subject)+'">'+esc(label)+'</a>';
+  const note=en?'Scope, availability, price and timing are confirmed after review. Please do not send personal or sensitive data.':'Périmètre, disponibilité, prix et délais à confirmer après étude. Ne transmettez aucune donnée personnelle ou sensible.';
+  const save=(slug,t,d,body)=>{const url=offerPath(lang,slug),fr=offerPath('fr',slug),english=offerPath('en',slug);put(out,url.slice(1),structuredData(metadata(blogTemplate(lang,body,en?fr:english),t,d,fr,english,lang),lang,url,t,d,contact));pages.push(url);};
+  for(const offer of offers){const [name,desc,deliverables]=offer[lang];
+   const body='<nav aria-label="'+(en?'Breadcrumb':'Fil d’Ariane')+'"><a href="'+index+'">'+(en?'Offers':'Offres')+'</a> / <span aria-current="page">'+esc(name)+'</span></nav><article class="policy"><h1>'+esc(name)+'</h1><p>'+esc(desc)+'</p><h2>'+(en?'Possible deliverables':'Livrables possibles')+'</h2><p>'+esc(deliverables)+'</p><h2>'+(en?'Discuss your requirements':'Parlons de votre besoin')+'</h2><p>'+esc(note)+'</p><p>'+request(en?'Request a quote':'Demander un devis',(en?'Quote request: ':'Demande de devis : ')+name)+'</p>'+(offer.slug==='saas'?'<p>'+request(en?'Request a demonstration':'Demander une démonstration',(en?'Demonstration request: ':'Demande de démonstration : ')+name)+'</p>':'')+'</article>';
+   save(offer.slug,name+' | DSIG',desc,body);
+  }
+  save('',title,description,'<h1>'+esc(title)+'</h1><p>'+esc(description)+'</p><div class="expertise-grid">'+offers.map(o=>'<article><h2><a href="'+offerPath(lang,o.slug)+'">'+esc(o[lang][0])+'</a></h2><p>'+esc(o[lang][1])+'</p></article>').join('')+'</div><p>'+esc(note)+'</p><p>'+request(en?'Discuss your project':'Parlons de votre projet',en?'Project enquiry':'Demande de projet')+'</p>');
+ }
+}
 function blogTemplate(lang,body,alternate){
  const en=lang==='en';
  return '<!doctype html><html lang="'+lang+'"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Blog | DSIG</title><link rel="icon" href="/favicon.svg">'+
@@ -202,6 +217,7 @@ export function build(out,contact){
    .replace('<small>Final commercial contact details to be confirmed.</small>','')
    .replace(/<form id="request">[\s\S]*?<\/form>/,'<div class="contact-public"><p>'+(english?'Contact our team by email. Do not send sensitive information.':'Contactez notre équipe par e-mail. Ne transmettez pas de données sensibles.')+'</p><a class="btn" href="mailto:'+esc(contact)+'">'+esc(contact)+'</a></div>')
    .replace('<script src="expertise.js"></script>','').replace('<script src="app.js"></script>','<script src="public-menu.js"></script>')
+   .replace('<a href="#offres">'+(english?'Our services':'Nos offres')+'</a>','<a href="'+offerPath(lang)+'">'+(english?'Our services':'Nos offres')+'</a>')
    .replace('</nav>','<a href="'+sectorPath(lang)+'">'+(english?'Industries':'Secteurs')+'</a><a href="'+blogPath(lang)+'">Blog</a><a href="'+home(english?'fr':'en')+'" hreflang="'+(english?'fr':'en')+'">'+(english?'Français':'English')+'</a></nav>')
    .replaceAll('href="index.html','href="/');
   const title=english?'DataSphere Innovation Guinea | Data, AI & digital consulting':'DataSphere Innovation Guinée | Conseil Data, IA et transformation digitale';
@@ -216,6 +232,7 @@ export function build(out,contact){
  }
  buildBlog(out,contact);
  buildSectors(out,contact);
+ buildOffers(out,contact);
  optimizePublicPages(out);
  put(out,'public-menu.js',`const menu=document.querySelector('#menu'),nav=document.querySelector('#links');function closeMenu(){nav.classList.remove('open');menu.setAttribute('aria-expanded','false')}menu.onclick=()=>menu.setAttribute('aria-expanded',String(nav.classList.toggle('open')));nav.addEventListener('click',e=>{if(e.target.closest('a'))closeMenu()});document.addEventListener('keydown',e=>{if(e.key==='Escape'){closeMenu();menu.focus()}});`);
  put(out,'robots.txt','User-agent: *\nAllow: /\nSitemap: '+origin+'/sitemap.xml\n');

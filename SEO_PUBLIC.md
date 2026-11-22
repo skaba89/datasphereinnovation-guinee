@@ -211,3 +211,13 @@ un mail, y compris les échecs répétés toutes les cinq minutes. Prévoir une
 supervision externe indépendante pour détecter une panne totale du VPS.
 Pour arrêter le monitoring public : `sudo systemctl disable --now dsig-public-monitor.timer`.
 Aucun redémarrage automatique de la vitrine, aucune modification des timers REC.
+
+## V124 — Offres commerciales bilingues
+
+Le catalogue public présente cinq familles de prestations : conseil/audit,
+régie, forfait, solutions SaaS et formation. Les deux index et dix fiches
+portent le total à 96 pages indexables. Les demandes de devis et de démonstration
+ouvrent la messagerie, avec un objet prérempli et sans collecte serveur.
+Le catalogue nominatif des produits reste réservé au CRM conformément à V4 ;
+aucun accès aux prototypes, prix, engagements de disponibilité ou références
+client ne sont publiés. Toute démonstration ou pilote est qualifié au préalable.
