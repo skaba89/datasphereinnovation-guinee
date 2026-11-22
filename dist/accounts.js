@@ -12,7 +12,43 @@ $('consultant-find').onclick=()=>{consultantPage=1;loadProfiles()};
 $('consultant-prev').onclick=()=>{if(consultantPage>1){consultantPage--;loadProfiles()}};
 $('consultant-next').onclick=()=>{if(consultantPage*25<consultantTotal){consultantPage++;loadProfiles()}};
 function key(value=''){$('key').value=value;$('key-wrap').hidden=!value;$('clear-key').hidden=!value}
-async function load(){const t=token,[a,b]=await Promise.all([api('accounts'),api('audit')]);if(!token||t!==token)return;for(const id of ['rows','events'])$(id).replaceChildren();for(const x of a.items){const r=row($('rows'),[x.username,x.role,x.archived?'Archivé':x.enabled?'Actif':'Désactivé',x.archived?'—':x.activated?'Activé':'À activer',x.archived?'—':x.mfa_enabled?'Activé':'Non activé',({NONE:'Non envoyée',PENDING:'En attente',ACCEPTED:'Acceptée par Resend',FAILED:'Échec',CANCELLED:'Annulée'})[x.invitation_state]||'—','']);if(x.archived){r.lastChild.textContent='Historique conservé';continue}for(const [action,label] of [['DISABLE','Désactiver'],['ROTATE','Renouveler / réactiver'],['INVITE','Invitation REC'],['ARCHIVE','Archiver'],['DELETE','Supprimer']]){const btn=document.createElement('button');btn.textContent=label;btn.disabled=Boolean(x.self)||(action!=='INVITE'&&x.protected)||(action==='DELETE'&&!x.deletable)||(action==='INVITE'&&(!x.enabled||x.activated||x.invitation_state!=='NONE'));if(x.self)btn.title='Votre propre compte';else if(x.protected&&action!=='INVITE')btn.title='Administrateur protégé';else if(action==='DELETE'&&!x.deletable)btn.title='Historique ou lien métier : utiliser Archiver';btn.onclick=()=>safe(async()=>{const warning=action==='DELETE'?' Suppression définitive du compte.':action==='ARCHIVE'?' Archivage définitif : accès et secrets révoqués, historique conservé.':'';if(!confirm(label+' '+x.username+' ?'+warning))return;if(action!=='INVITE')key();btn.disabled=true;try{const d=await api('accounts/'+x.id,'PATCH',{action});if(action!=='INVITE')key(d.key);await load();if(action==='INVITE')notice('Invitation de test planifiée. Aucune clé envoyée par e-mail.');if(action==='DELETE')notice('Compte supprimé.');if(action==='ARCHIVE')notice('Compte archivé. Historique conservé.')}finally{btn.disabled=false}});r.lastChild.append(btn)}}for(const e of b.items)row($('events'),[e.created_at,e.actor,e.action,e.resource])}
+const accountActions=[['DISABLE','Désactiver'],['ROTATE','Renouveler / réactiver'],['INVITE','Invitation REC'],['ARCHIVE','Archiver'],['DELETE','Supprimer']];
+function actionMenu(cell,x){
+ if(x.archived){cell.textContent='Historique conservé';return}
+ const menu=document.createElement('div'),select=document.createElement('select'),apply=document.createElement('button');
+ menu.className='account-actions';select.setAttribute('aria-label','Actions pour '+x.username);
+ select.append(new Option('Choisir une action…',''));apply.type='button';apply.textContent='Appliquer';apply.setAttribute('aria-label','Appliquer l’action pour '+x.username);apply.disabled=true;
+ for(const [action,label] of accountActions){
+  const option=new Option(label,action);
+  option.disabled=Boolean(x.self)||(action!=='INVITE'&&x.protected)||(action==='DELETE'&&!x.deletable)||(action==='INVITE'&&(!x.enabled||x.activated||x.invitation_state!=='NONE'));
+  if(x.self)option.title='Votre propre compte';else if(x.protected&&action!=='INVITE')option.title='Administrateur protégé';else if(action==='DELETE'&&!x.deletable)option.title='Historique ou lien métier : utiliser Archiver';
+  select.append(option);
+ }
+ select.disabled=Array.from(select.options).slice(1).every(o=>o.disabled);
+ select.onchange=()=>{apply.disabled=!select.value||select.selectedOptions[0].disabled};
+ apply.onclick=()=>safe(async()=>{
+  const action=select.value,option=select.selectedOptions[0],t=token;
+  if(!t||!action||option.disabled||select.disabled)return;
+  const warning=action==='DELETE'?' Suppression définitive du compte.':action==='ARCHIVE'?' Archivage définitif : accès et secrets révoqués, historique conservé.':'';
+  if(!confirm(option.textContent+' '+x.username+' ?'+warning))return;
+  if(action!=='INVITE')key();select.disabled=apply.disabled=true;
+  try{const d=await api('accounts/'+x.id,'PATCH',{action});if(token!==t)return;if(action!=='INVITE')key(d.key);await load();if(token!==t)return;
+   if(action==='INVITE')notice('Invitation de test planifiée. Aucune clé envoyée par e-mail.');
+   if(action==='DELETE')notice('Compte supprimé.');
+   if(action==='ARCHIVE')notice('Compte archivé. Historique conservé.');
+  }finally{select.disabled=false;apply.disabled=false}
+ });
+ menu.append(select,apply);cell.append(menu);
+}
+async function load(){
+ const t=token,[a,b]=await Promise.all([api('accounts'),api('audit')]);if(!token||t!==token)return;
+ for(const id of ['rows','events'])$(id).replaceChildren();
+ for(const x of a.items){
+  const values=[x.username,x.role,x.archived?'Archivé':x.enabled?'Actif':'Désactivé',x.archived?'—':x.activated?'Activé':'À activer',x.archived?'—':x.mfa_enabled?'Activé':'Non activé',({NONE:'Non envoyée',PENDING:'En attente',ACCEPTED:'Acceptée par Resend',FAILED:'Échec',CANCELLED:'Annulée'})[x.invitation_state]||'—'];
+  const r=row($('rows'),[...values,'']);r.dataset.searchText=values.join(' ');actionMenu(r.lastChild,x);
+ }
+ for(const e of b.items)row($('events'),[e.created_at,e.actor,e.action,e.resource]);
+}
 $('login-form').onsubmit=async e=>{e.preventDefault();token=$('token').value;$('token').value='';try{await load();$('login').hidden=true;$('workspace').hidden=false}catch(e){token='';notice(e.message)}};
 $('logout').onclick=()=>{token='';key();$('rows').replaceChildren();$('events').replaceChildren();$('create').reset();resetPicker();$('workspace').hidden=true;$('login').hidden=false;notice('Déconnecté.')};$('clear-key').onclick=()=>key();
 $('create').onsubmit=e=>{e.preventDefault();safe(async()=>{const b=e.submitter;b.disabled=true;try{key();const d=await api('accounts','POST',Object.fromEntries(new FormData(e.target)));key(d.key);e.target.reset();resetPicker();await load();notice('Compte créé.')}finally{b.disabled=false}})};
