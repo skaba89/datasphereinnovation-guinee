@@ -12,10 +12,13 @@ GATES = (
     'tls_access_restriction','backup_offsite_restore','monitoring_alerts',
     'migration_rollback_review','independent_security_review','retention_policy',
     'business_acceptance','human_decision',
+    'public_site_seo_isolation','saas_subscription_billing_renewal',
+    'partner_commissions_targets','client_portal_isolation',
+    'commercial_automation','strategic_dashboard','audit_governance',
 )
 
 def template(sha):
-    return {'schema':1,'commit':sha,'environment':'REC','checks':{
+    return {'schema':2,'commit':sha,'environment':'REC','checks':{
         name:{'status':'NOT_RUN','commit':sha,'date_utc':'','reviewer':'','evidence_ref':''} for name in GATES}}
 
 def valid_date(value, now):
@@ -29,7 +32,7 @@ def valid_date(value, now):
 
 def evaluate(data, sha, now=None):
     now = now or datetime.now(timezone.utc)
-    valid = isinstance(data,dict) and data.get('schema') == 1 and data.get('commit') == sha and data.get('environment') == 'REC'
+    valid = isinstance(data,dict) and type(data.get('schema')) is int and data.get('schema') == 2 and data.get('commit') == sha and data.get('environment') == 'REC'
     checks = data.get('checks') if valid else None
     exact = isinstance(checks,dict) and set(checks) == set(GATES)
     results = {}

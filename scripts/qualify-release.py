@@ -46,9 +46,12 @@ def qualify(sha, preflight, register, gate_data, now=None):
         else:
             gate_status[name] = 'INVALID'
     complete = technical and declared['status'] == 'REVIEW_REQUIRED' and gates.inspect(gate_data,sha)
+    blockers = (['technical_preflight'] if not technical else []) + [f'register:{name}' for name,status in declared['checks'].items() if status!='DECLARED_PASS'] + [f'gate:{name}' for name,status in gate_status.items() if status!='DECLARED_PASS']
+    if not blockers and not complete:blockers.append('evidence_structure')
     return {'commit':sha,'environment':'REC','technical_preflight':'PASS' if technical else 'FAIL',
             'register':declared['checks'],'gates':gate_status,
-            'status':'REVIEW_REQUIRED' if complete else 'NO_GO', 'production_authorized':False}
+            'blocking_checks':blockers,'declared_pass_count':declared['declared_pass_count'],
+            'register_total':declared['total'], 'status':'REVIEW_REQUIRED' if complete else 'NO_GO', 'production_authorized':False}
 
 
 def read(path):
