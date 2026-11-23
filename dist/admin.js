@@ -11,8 +11,11 @@ function communicationCell(row,items){const td=cell(row,'');if(!items.length){td
 function conversionEditor(container,item){
  if(!item.workflow)return;
  if(item.conversion){const p=document.createElement('p');const a=document.createElement('a');a.href='crm.html';a.textContent='Opportunité CRM : '+item.conversion.title;p.append(a,document.createTextNode(' · '+item.conversion.status+' · '+item.conversion.quotes+' devis · '+item.conversion.missions+' mission(s)'));container.append(p);return}
+ const lead=item.lead;
+ if(lead){const p=document.createElement('p'),a=document.createElement('a');a.href='crm.html#kanban';a.textContent=(lead.outcome==='CREATED'?'Prospect CRM automatique : ':'Prospect CRM existant (même e-mail) : ')+lead.title;p.append(a,document.createTextNode(' · '+lead.status));container.append(p)}
  if(item.status!=='QUALIFIEE'||item.besoin==='Candidature spontanée')return;
- const button=document.createElement('button');button.type='button';button.textContent='Créer une opportunité CRM';button.onclick=async()=>{button.disabled=true;try{await api('/api/admin/requests/'+encodeURIComponent(item.id)+'/convert',{method:'POST'});await load();notice('Opportunité CRM liée.')}catch(e){notice(e.message);button.disabled=false}};container.append(button);
+ const promote=lead&&lead.outcome==='CREATED'&&lead.status==='PROSPECT';
+ const button=document.createElement('button');button.type='button';button.textContent=promote?'Qualifier le prospect CRM':'Créer une opportunité CRM';button.onclick=async()=>{button.disabled=true;try{await api('/api/admin/requests/'+encodeURIComponent(item.id)+'/convert',{method:'POST'});await load();notice('Opportunité CRM liée.')}catch(e){notice(e.message);button.disabled=false}};container.append(button);
 }
 function workflowEditor(container,item,owners){
  const w=item.workflow;if(!w)return;
