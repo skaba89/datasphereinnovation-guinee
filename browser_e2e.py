@@ -21,7 +21,7 @@ class PublicExportBrowserTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             site = Path(tmp) / 'public'
             subprocess.run(['node', 'scripts/build-public-site.mjs', str(site),
-                            'test@dsig-consulting.com'], check=True,
+                            'contact@datasphere-innovation.net'], check=True,
                            cwd=Path(__file__).resolve().parent)
             http = ThreadingHTTPServer(('127.0.0.1', 0), partial(SimpleHTTPRequestHandler, directory=site))
             thread = threading.Thread(target=http.serve_forever, daemon=True)
