@@ -1,0 +1,26 @@
+# DSIG PROD contact service (V174). Not deployed automatically.
+# Secrets come from a private env file outside Git (DSIG_CONTACT_KEY, DSIG_CONTACT_ENABLED, ...).
+name: dsig-contact
+services:
+  contact:
+    image: "${DSIG_CONTACT_IMAGE:?Set verified contact image}"
+    restart: unless-stopped
+    env_file: ["${DSIG_CONTACT_ENV_FILE:?Set private env file}"]
+    read_only: true
+    user: "10001:10001"
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    tmpfs:
+      - /tmp:rw,nosuid,nodev,noexec,size=16m
+    volumes:
+      - dsig-contact-data:/data
+    mem_limit: 128m
+    cpus: 0.5
+    networks:
+      edge:
+        aliases: [dsig-contact]
+volumes:
+  dsig-contact-data:
+networks:
+  edge:
+    external: true
