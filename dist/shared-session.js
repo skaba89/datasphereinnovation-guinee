@@ -12,7 +12,21 @@ function renderSidebar(me){
  const add=(url,label,home=false)=>{const a=document.createElement('a');a.href=url;a.textContent=label;if(home)a.className='sidebar-home';if(location.pathname.endsWith('/'+url))a.setAttribute('aria-current','page');nav.append(a)};
  add('connexion.html','← Mon espace',true);
  for(const [resource,url,label] of items){const mode=me.permissions[resource]??me.permissions['*'];if(mode)add(url,label)}
- sidebar.append(nav);document.querySelector('header').after(sidebar);document.body.classList.add('app-shell');
+ // Phones: modules behind a "Menu" button, plus a bottom bar with the main shortcuts.
+ nav.id='app-modules';
+ const toggle=document.createElement('button');toggle.type='button';toggle.className='sidebar-toggle';toggle.textContent='Menu';
+ toggle.setAttribute('aria-expanded','false');toggle.setAttribute('aria-controls','app-modules');
+ const setOpen=open=>{sidebar.classList.toggle('open',open);toggle.setAttribute('aria-expanded',String(open))};
+ toggle.onclick=()=>setOpen(!sidebar.classList.contains('open'));
+ sidebar.addEventListener('keydown',e=>{if(e.key==='Escape'&&sidebar.classList.contains('open')){setOpen(false);toggle.focus()}});
+ sidebar.append(toggle,nav);document.querySelector('header').after(sidebar);document.body.classList.add('app-shell');
+ const can=r=>!!(me.permissions[r]??me.permissions['*']);
+ const shortcuts=[['connexion.html','Accueil',true],['taches.html','Tâches',can('crm')],['crm.html','CRM',can('crm')],['notifications.html','Notifications',can('notifications')]].filter(x=>x[2]);
+ if(shortcuts.length>1&&!document.querySelector('.app-bottombar')){
+  const bar=document.createElement('nav');bar.className='app-bottombar';bar.setAttribute('aria-label','Raccourcis');
+  for(const [url,label] of shortcuts){const a=document.createElement('a');a.href=url;a.textContent=label;if(location.pathname.endsWith('/'+url))a.setAttribute('aria-current','page');bar.append(a)}
+  document.body.append(bar);document.body.classList.add('has-bottombar');
+ }
  renderTopbar(me);
 }
 
