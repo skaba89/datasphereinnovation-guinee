@@ -8,6 +8,7 @@ import {posts} from './blog-content.mjs';
 import {sectors} from './sector-content.mjs';
 import {offers} from './offer-content.mjs';
 import {loadReferenceLogos,renderReferenceLogos} from './reference-logos.mjs';
+import {renderLegalMain,renderPrivacyMain,legalPaths} from './legal-content.mjs';
 
 const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'..');
 const source=path.join(root,'dist');
@@ -109,7 +110,7 @@ function blogTemplate(lang,body,alternate){
  const en=lang==='en';
  return '<!doctype html><html lang="'+lang+'"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Blog | DSIG</title><link rel="icon" href="/favicon.svg">'+
  ['style.css','brand.css','premium.css','studio.css','identity.css','expertise.css','accessibility.css'].map(css=>'<link rel="stylesheet" href="/'+css+'">').join('')+
- '</head><body><a class="skip-link" href="#main">'+(en?'Skip to content':'Aller au contenu')+'</a><header class="nav"><a class="brand" href="'+home(lang)+'"><img class="dsig-logo" src="/dsig-mark.svg" width="100" height="40" alt="DSIG"></a><a href="'+blogPath(lang)+'">Blog</a><a href="'+alternate+'" hreflang="'+(en?'fr':'en')+'">'+(en?'Français':'English')+'</a></header><main class="section" id="main" tabindex="-1">'+body+'</main><footer><p>DataSphere Innovation Guinée</p><a href="'+(en?'/privacy-en.html':'/confidentialite.html')+'">'+(en?'Privacy':'Confidentialité')+'</a></footer></body></html>';
+ '</head><body><a class="skip-link" href="#main">'+(en?'Skip to content':'Aller au contenu')+'</a><header class="nav"><a class="brand" href="'+home(lang)+'"><img class="dsig-logo" src="/dsig-mark.svg" width="100" height="40" alt="DSIG"></a><a href="'+blogPath(lang)+'">Blog</a><a href="'+alternate+'" hreflang="'+(en?'fr':'en')+'">'+(en?'Français':'English')+'</a></header><main class="section" id="main" tabindex="-1">'+body+'</main><footer><p>DataSphere Innovation Guinée</p><a href="'+legalPaths[lang].legal+'">'+(en?'Legal notice':'Mentions légales')+'</a> <a href="'+legalPaths[lang].privacy+'">'+(en?'Privacy':'Confidentialité')+'</a></footer></body></html>';
 }
 function buildSectors(out,contact){
  const slugs=new Set();
@@ -232,9 +233,13 @@ export function build(out,contact){
   html=structuredData(html,lang,home(lang),title,description,contact);
   // Keep the public presentation separate from the REC contact collection.
   put(out,filename,html);pages.push(home(lang));
-  const privacy=read(english?'privacy-en.html':'confidentialite.html').replace(/<main[\s\S]*?<\/main>/,
-   '<main class="policy" id="main"><h1>'+(english?'Privacy':'Confidentialité')+'</h1><p>'+(english?'This static website contains no contact form. Email links open your own email application. Do not send sensitive information.':'Ce site statique ne contient aucun formulaire de contact. Les liens e-mail ouvrent votre messagerie. Ne transmettez pas de données sensibles.')+'</p><p>'+(english?'Contact: ':'Contact : ')+esc(contact)+'</p><a href="'+home(lang)+'">'+(english?'Back to website':'Retour au site')+'</a></main>');
-  put(out,english?'privacy-en.html':'confidentialite.html',privacy);
+  // Legal and privacy notices: noindex, outside the sitemap, rendered from the validated legal source only.
+  for(const kind of ['privacy','legal']){
+   const file=legalPaths[lang][kind].slice(1),main=kind==='legal'?renderLegalMain(lang,contact):renderPrivacyMain(lang,contact);
+   const html=read(file);
+   if(!/<main[\s\S]*?<\/main>/.test(html)||!html.includes('content="noindex,nofollow"'))throw Error('Invalid notice source: '+file);
+   put(out,file,html.replace(/<main[\s\S]*?<\/main>/,()=>main));
+  }
  }
  buildBlog(out,contact);
  buildSectors(out,contact);

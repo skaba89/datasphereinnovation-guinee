@@ -45,6 +45,21 @@ class PublicExportBrowserTests(unittest.TestCase):
                                 expect(page.locator('#menu')).to_have_attribute('aria-expanded', 'true')
                                 page.keyboard.press('Escape')
                                 expect(page.locator('#menu')).to_have_attribute('aria-expanded', 'false')
+                    # V161: legal and privacy notices reachable from the footer, responsive, explicit pending state.
+                    for home, label, route in (('/', 'Mentions légales', '/mentions-legales.html'), ('/en.html', 'Legal notice', '/legal-en.html'),
+                                               ('/', 'Confidentialité', '/confidentialite.html'), ('/en.html', 'Privacy notice', '/privacy-en.html')):
+                        with self.subTest(route=route):
+                            page.goto(f'http://127.0.0.1:{http.server_port}{home}')
+                            page.locator('footer').get_by_role('link', name=label, exact=True).click()
+                            page.wait_for_url(f'**{route}')
+                            expect(page.locator('h1')).to_have_count(1)
+                            expect(page.locator('[role=note]')).to_be_visible()
+                            self.assertEqual(page.locator('meta[name=robots]').get_attribute('content'), 'noindex,nofollow')
+                            self.assertEqual(page.evaluate('document.styleSheets.length'), 1)
+                            for width in (360, 768, 1280):
+                                page.set_viewport_size({'width':width,'height':900})
+                                self.assertTrue(page.evaluate('document.documentElement.scrollWidth <= innerWidth + 1'), f'{route} overflow at {width}px')
+                            page.set_viewport_size({'width':390,'height':844})
                     self.assertEqual(errors, [])
                     browser.close()
             finally:
@@ -107,7 +122,7 @@ class BrowserTests(unittest.TestCase):
         self.page.set_viewport_size({'width':1280,'height':900})
 
     def test_public_pages_responsive(self):
-        for path in ('/', '/en.html', '/expertise.html?id=logistique-transport', '/expertise-en.html?id=logistique-transport', '/confidentialite.html', '/privacy-en.html', '/connexion.html'):
+        for path in ('/', '/en.html', '/expertise.html?id=logistique-transport', '/expertise-en.html?id=logistique-transport', '/confidentialite.html', '/privacy-en.html', '/mentions-legales.html', '/legal-en.html', '/connexion.html'):
             with self.subTest(path=path):
                 response = self.page.goto(path)
                 self.assertEqual(response.status, 200)

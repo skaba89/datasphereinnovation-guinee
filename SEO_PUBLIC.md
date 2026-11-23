@@ -221,3 +221,7 @@ ouvrent la messagerie, avec un objet prérempli et sans collecte serveur.
 Le catalogue nominatif des produits reste réservé au CRM conformément à V4 ;
 aucun accès aux prototypes, prix, engagements de disponibilité ou références
 client ne sont publiés. Toute démonstration ou pilote est qualifié au préalable.
+
+## V161 — Mentions légales et confidentialité
+
+`/mentions-legales.html`, `/legal-en.html` et les notices de confidentialité restent `noindex,nofollow` et hors sitemap : le total reste de 96 pages indexables. Identité juridique non validée : publication bloquée par le contrôle `legal_identity`. Voir `LEGAL_COMPLIANCE_V161.md`.
