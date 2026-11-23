@@ -19,7 +19,7 @@ class AutomationTests(unittest.TestCase):
         db.execute("INSERT INTO saas_invoice_register(subscription_id,period_start,reference,issued_on,due_on,tax,actor) VALUES('s','2026-11-01','INV','2026-11-01','2026-11-20','10','test')")
         db.commit()
         today=date(2026,11,22)
-        with patch('notifications.alerts.snapshot',return_value=[]),patch('notifications.commercial_reminders',return_value=[]),patch('notifications.billing_automation.reminders',return_value=[]):
+        with patch('notifications.alerts.snapshot',return_value=[]),patch('notifications.commercial_reminders',return_value=[]),patch('notifications.billing_automation.reminders',return_value=[]),patch('notifications.crm_tasks.reminders',return_value=[]):
             self.assertEqual(notifications.run(db,today),2)
             self.assertEqual(notifications.run(db,today),0)
             self.assertEqual(db.execute('SELECT count(*) FROM notifications WHERE active=1').fetchone()[0],2)

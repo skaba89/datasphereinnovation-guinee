@@ -13,6 +13,7 @@ import tenders
 import consultants
 import recruitment
 import appointments
+import crm_tasks
 import crm
 import organizations
 import quotes
@@ -85,6 +86,7 @@ def connect():
     consultants.schema(db)
     recruitment.schema(db)
     appointments.schema(db)
+    crm_tasks.schema(db)
     crm.schema(db)
     organizations.schema(db)
     quotes.schema(db)
@@ -211,6 +213,7 @@ class Handler(SimpleHTTPRequestHandler):
 
     def do_GET(self):
         if urlsplit(self.path).path=='/api/admin/crm/appointments':return appointments.handle(self,connect,'GET')
+        if urlsplit(self.path).path=='/api/admin/crm/tasks':return crm_tasks.handle(self,connect,'GET')
         if urlsplit(self.path).path=='/api/admin/recruitment':return recruitment.handle(self,connect,'GET')
         if urlsplit(self.path).path=='/api/admin/notifications':return notifications.handle(self,connect,'GET')
         if urlsplit(self.path).path=='/api/admin/alerts':return alerts.handle(self,connect)
@@ -358,6 +361,7 @@ class Handler(SimpleHTTPRequestHandler):
         if workflow_match:
             return request_workflow.handle(self,connect,workflow_match.group(1))
         if re.fullmatch(r'/api/admin/crm/appointments/[0-9a-f-]{36}',self.path):return appointments.handle(self,connect,'PATCH')
+        if re.fullmatch(r'/api/admin/crm/tasks/[0-9a-f-]{36}',self.path):return crm_tasks.handle(self,connect,'PATCH')
         if re.fullmatch(r'/api/admin/missions/[0-9a-f-]{36}/renewals/[0-9a-f-]{36}',self.path):return contracts.handle(self,connect,'PATCH')
         if re.fullmatch(r'/api/admin/crm/organizations/[0-9a-f-]{36}',self.path):
             return organizations.handle(self,connect,'PATCH')
@@ -413,6 +417,7 @@ class Handler(SimpleHTTPRequestHandler):
         if conversion:
             return request_conversion.handle(self,connect,conversion.group(1))
         if self.path=='/api/admin/crm/appointments':return appointments.handle(self,connect,'POST')
+        if self.path=='/api/admin/crm/tasks':return crm_tasks.handle(self,connect,'POST')
         if self.path=='/api/admin/recruitment':return recruitment.handle(self,connect,'POST')
         if self.path=='/api/admin/notifications':return notifications.handle(self,connect,'POST')
         if self.path=='/api/admin/documents':return documents.handle(self,connect,'POST')
