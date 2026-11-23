@@ -6,7 +6,7 @@
 - Erasure on request: ADMIN can anonymize one request immediately (right to erasure).
 
 Anonymization keeps the non-personal facts used by statistics (id, date, type of need, status)
-and removes names, organisation, email, message and free-text notes, plus the copies held in the
+and removes names, organisation, email, phone, message and free-text notes, plus the copies held in the
 auto-created CRM prospect while it is still an unworked prospect. Every action is audited
 without personal data. Dry-run by default on the command line.
 """
@@ -43,7 +43,7 @@ def anonymize(db, rid, actor, reason):
     """Remove personal data of one request. Returns False if already anonymized or absent."""
     if not db.execute("SELECT 1 FROM requests WHERE id=? AND email<>''", (rid,)).fetchone():
         return False
-    db.execute("UPDATE requests SET nom=?,org=?,email='',message=?,solution='' WHERE id=?", (ERASED, ERASED, ERASED, rid))
+    db.execute("UPDATE requests SET nom=?,org=?,email='',message=?,solution='',telephone='' WHERE id=?", (ERASED, ERASED, ERASED, rid))
     db.execute("UPDATE request_workflow_events SET note=? WHERE request_id=? AND note<>''", (ERASED, rid))
     db.execute('DELETE FROM contact_mail_recipient WHERE request_id=?', (rid,))
     db.execute("UPDATE contact_mail SET state='FAILED' WHERE request_id=? AND state='PENDING'", (rid,))
