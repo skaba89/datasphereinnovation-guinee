@@ -164,7 +164,7 @@ function buildBlog(out,contact){
 }
 
 export function build(out,contact){
- if(!/^[a-zA-Z0-9._+-]+@dsig-consulting\.com$/.test(contact))throw Error('Provide an approved DSIG business email.');
+ if(contact!=='contact@datasphere-innovation.net')throw Error('Provide the approved DSIG contact mailbox.');
  const logos=loadReferenceLogos(source);
  // mkdir fails if destination exists: no overwrite of an existing release.
  fs.mkdirSync(out,{mode:0o755});
