@@ -112,6 +112,8 @@ jobs:
           curl -fsS http://127.0.0.1:8080/healthz
           curl -fsS http://127.0.0.1:8080/ | grep 'rel="canonical" href="https://dsig-consulting.com/"'
           curl -fsS http://127.0.0.1:8080/sitemap.xml | grep 'https://dsig-consulting.com/en.html'
+          curl -fsSI http://127.0.0.1:8080/ | grep -i "^content-security-policy: default-src 'self'; script-src 'self'; style-src 'self'"
+          curl -fsSI http://127.0.0.1:8080/ | grep -i '^permissions-policy: '
           for route in /mentions-legales.html /legal-en.html /confidentialite.html /privacy-en.html; do
             curl -fsS "http://127.0.0.1:8080$route" | grep 'content="noindex,nofollow"'
           done
