@@ -125,3 +125,59 @@ def send(connect, raw_cfg, today=None, deliver=deliver):
         db.execute("""INSERT INTO weekly_reports(week,state,provider_id) VALUES (?,'ACCEPTED',?)
             ON CONFLICT(week) DO UPDATE SET state='ACCEPTED',provider_id=excluded.provider_id""", (week, identifier))
     return 'SENT'
+
+
+def csv_rows(r):
+    rows = [('Période', 'Semaine', r['week']), ('Période', 'Début', r['start']), ('Période', 'Fin (exclue)', r['end']),
+            ('Activité', 'Demandes reçues', r['requests'])]
+    rows += [('Demandes par besoin', need, n) for need, n in r['requests_by_need']]
+    rows += [('Activité', 'Prospects CRM créés automatiquement', r['auto_leads']),
+             ('Activité', 'Rattachés à un prospect existant', r['duplicates']),
+             ('Activité', 'Demandes qualifiées en opportunité', r['qualified']),
+             ('Activité', 'Devis transmis', r['quotes_sent']),
+             ('Activité', 'Opportunités gagnées', r['won']), ('Activité', 'Opportunités perdues', r['lost'])]
+    rows += [('Pipeline actuel', label, r['pipeline'].get(key, 0)) for key, label in STAGES]
+    rows += [('Points d’attention', 'Demandes sans traitement depuis plus de 48 h', r['untreated_48h']),
+             ('Points d’attention', 'Relances commerciales en retard', r['overdue_followups_total'])]
+    rows += [('Relance en retard', f'{company} — {title}', day) for company, title, day in r['overdue_followups']]
+    rows += [('Créances échues non encaissées', currency, value) for currency, value in r['overdue_receivables'].items()]
+    return rows
+
+
+def handle(h, connect):
+    """GET /api/admin/direction/weekly-report?date=YYYY-MM-DD[&format=csv] (direction read permission)."""
+    import accounts
+    import csv
+    import io
+    from urllib.parse import parse_qs, urlsplit
+    if not h.admin_authorized():
+        return
+    query = parse_qs(urlsplit(h.path).query)
+    try:
+        if set(query) - {'date', 'format'} or any(len(v) != 1 for v in query.values()):
+            raise ValueError()
+        raw, fmt = query.get('date', [''])[0], query.get('format', ['json'])[0]
+        day = date.fromisoformat(raw) if raw else date.today()
+        if (raw and day.isoformat() != raw) or not 2000 <= day.year <= 2099 or fmt not in ('json', 'csv'):
+            raise ValueError()
+    except ValueError:
+        return h.json_response(400, {'error': 'Date ou format invalide.'})
+    with connect() as db:
+        report = compute(db, day)
+    if not accounts.allowed(h.role, 'crm', 'GET'):
+        report['overdue_followups'] = []  # company names only for roles that may read the CRM
+    if fmt == 'json':
+        return h.json_response(200, report)
+    output = io.StringIO()
+    writer = csv.writer(output, delimiter=';')
+    writer.writerow(('Section', 'Indicateur', 'Valeur'))
+    for row in csv_rows(report):
+        writer.writerow(["'" + c if isinstance(c, str) and c[:1] in ('=', '+', '-', '@', '\t', '\r') else c for c in row])
+    body = output.getvalue().encode('utf-8-sig')
+    h.send_response(200)
+    h.send_header('Content-Type', 'text/csv; charset=utf-8')
+    h.send_header('Content-Disposition', f'attachment; filename="rapport-direction-{report["week"]}.csv"')
+    h.send_header('Cache-Control', 'no-store')
+    h.send_header('Content-Length', str(len(body)))
+    h.end_headers()
+    h.wfile.write(body)

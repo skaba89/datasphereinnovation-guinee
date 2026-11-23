@@ -1,6 +1,9 @@
 """Weekly management report: period boundaries, aggregates, privacy, idempotent sending."""
+import json
 import tempfile
+import threading
 import unittest
+from http.client import HTTPConnection
 from datetime import date
 from pathlib import Path
 
@@ -88,6 +91,74 @@ class WeeklyReportTests(unittest.TestCase):
         with self.assertRaises(OSError):
             weekly_report.send(server.connect, CFG, TODAY, broken)
         self.assertEqual(weekly_report.send(server.connect, CFG, TODAY, lambda *a: 'provider-2'), 'SENT')
+
+
+class WeeklyReportPageTests(WeeklyReportTests):
+    """Online report: GET /api/admin/direction/weekly-report (JSON / CSV), role filtering."""
+    def setUp(self):
+        super().setUp()
+        self.original_token = server.ADMIN_TOKEN
+        server.ADMIN_TOKEN = 'test-token-only-' + 'x' * 32
+        self.http = server.ThreadingHTTPServer(('127.0.0.1', 0), server.Handler)
+        self.thread = threading.Thread(target=self.http.serve_forever, daemon=True)
+        self.thread.start()
+
+    def tearDown(self):
+        self.http.shutdown()
+        self.http.server_close()
+        self.thread.join()
+        server.ADMIN_TOKEN = self.original_token
+        super().tearDown()
+
+    def get(self, query, auth=True):
+        conn = HTTPConnection('127.0.0.1', self.http.server_address[1], timeout=5)
+        conn.request('GET', '/api/admin/direction/weekly-report' + query, headers={'Authorization': 'Bearer ' + server.ADMIN_TOKEN} if auth else {})
+        res = conn.getresponse()
+        body, headers = res.read(), dict(res.getheaders())
+        conn.close()
+        return res.status, body, headers
+
+    def test_json_csv_and_validation(self):
+        self.assertEqual(self.get('?date=2026-11-23', auth=False)[0], 401)
+        for bad in ('?date=2026-13-01', '?date=23/11/2026', '?date=1999-01-01', '?format=pdf', '?date=2026-11-23&date=2026-11-24', '?other=1'):
+            self.assertEqual(self.get(bad)[0], 400, bad)
+        status, body, _ = self.get('?date=2026-11-23')
+        self.assertEqual(status, 200)
+        data = json.loads(body)
+        self.assertEqual((data['week'], data['requests'], data['overdue_receivables']), ('2026-W48', 2, {'EUR': '750'}))
+        self.assertEqual(data['overdue_followups'], [['Client retard fictif', 'Audit en retard', '2026-11-20']])
+        status, body, headers = self.get('?date=2026-11-23&format=csv')
+        self.assertEqual(status, 200)
+        self.assertEqual(headers['Content-Disposition'], 'attachment; filename="rapport-direction-2026-W48.csv"')
+        self.assertEqual(headers['Cache-Control'], 'no-store')
+        text = body.decode('utf-8-sig')
+        self.assertTrue(text.startswith('Section;Indicateur;Valeur'))
+        self.assertIn('Activité;Demandes reçues;2', text)
+        self.assertIn('Créances échues non encaissées;EUR;750', text)
+        for private in ('Nom privé', 'prive@example.invalid', 'Message privé', 'Contact privé'):
+            self.assertNotIn(private, text)
+
+    def test_roles_without_crm_get_totals_only(self):
+        class Fake:
+            role, path = 'AUDITEUR', '/api/admin/direction/weekly-report?date=2026-11-23'
+            def admin_authorized(self):
+                return True
+            def json_response(self, status, body):
+                self.result = (status, body)
+        fake = Fake()
+        weekly_report.handle(fake, server.connect)
+        status, body = fake.result
+        self.assertEqual((status, body['overdue_followups'], body['overdue_followups_total']), (200, [], 1))
+
+    def test_csv_neutralizes_formulas(self):
+        with server.connect() as db:
+            db.execute("UPDATE opportunities SET company='=HYPERLINK(1)' WHERE id='o1'")
+        text = self.get('?date=2026-11-23&format=csv')[1].decode('utf-8-sig')
+        self.assertIn("'=HYPERLINK(1) — Audit en retard", text)
+
+    # Inherited tests are already run by WeeklyReportTests.
+    test_compute_respects_period_and_aggregates = test_render_contains_no_private_contact_data = None
+    test_send_once_per_iso_week_and_recipients = test_failed_delivery_is_retried_next_run = None
 
 
 if __name__ == '__main__':

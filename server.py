@@ -216,6 +216,7 @@ class Handler(SimpleHTTPRequestHandler):
         if urlsplit(self.path).path=='/api/admin/alerts':return alerts.handle(self,connect)
         if re.fullmatch(r'/api/admin/documents(?:/[0-9a-f-]{36})?',urlsplit(self.path).path):return documents.handle(self,connect,'GET')
         if urlsplit(self.path).path=='/api/admin/direction/reporting':return reporting.handle(self,connect)
+        if urlsplit(self.path).path=='/api/admin/direction/weekly-report':return weekly_report.handle(self,connect)
         if urlsplit(self.path).path=='/api/admin/direction/financial-consolidation':return reporting.consolidation(self,connect)
         if urlsplit(self.path).path in ('/api/admin/billing/reconciliation','/api/admin/direction/reconciliation'):return reconciliation.handle(self,connect,'GET')
         if urlsplit(self.path).path=='/api/admin/direction/saas-monthly':return billing.handle(self,connect,'GET')

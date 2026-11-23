@@ -1,0 +1,14 @@
+.report-toolbar{flex-wrap:wrap;gap:8px}
+.report-period{font-weight:700;margin:8px 0}
+.report-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(320px,100%),1fr));gap:16px}
+.report-grid section{margin:0}
+.report-attention{margin:0;padding-left:20px;display:flex;flex-direction:column;gap:6px;overflow-wrap:anywhere}
+.report-attention .due{color:#8a1c12;font-weight:700}
+@media print{
+ .app-sidebar,header,.skip-link,#login,#notice,.report-toolbar,.topbar,main>p.muted{display:none!important}
+ body.app-shell{display:block}
+ main{padding:0;max-width:none}
+ .kpi{box-shadow:none;break-inside:avoid}
+ .report-grid section,.report-attention li{break-inside:avoid}
+ .table-wrap{overflow:visible}
+}

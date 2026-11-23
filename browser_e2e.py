@@ -1350,6 +1350,33 @@ class BrowserTests(unittest.TestCase):
         expect(cockpit.locator('.kpi')).to_have_count(0)
         self.assertEqual(self.errors, [])
 
+    def test_weekly_report_page(self):
+        server.RATE.clear()
+        self.assertEqual(self.context.request.post('/api/requests',data={'nom':'Contact rapport','org':'Rapport fictif','email':'rapport@example.invalid','besoin':'Projet au forfait','solution':'','message':'Fictif','consent':True,'website':''}).status,201)
+        self.page.goto('/direction.html')
+        self.page.locator('#token').fill(server.ADMIN_TOKEN)
+        self.page.locator('#login-form button').click()
+        self.page.get_by_role('link',name='Rapport hebdomadaire (CSV / PDF)').click()
+        self.page.locator('#token').fill(server.ADMIN_TOKEN)
+        self.page.locator('#login-form button').click()
+        expect(self.page.locator('#report-kpis .kpi').filter(has_text='Demandes reçues')).to_contain_text('1')
+        expect(self.page.locator('#need-rows')).to_contain_text('Projet au forfait')
+        expect(self.page.locator('#next')).to_be_disabled()
+        with self.page.expect_download() as download:
+            self.page.locator('#export-csv').click()
+        self.assertRegex(download.value.suggested_filename, r'^rapport-direction-\d{4}-W\d{2}\.csv$')
+        self.assertIn('Demandes reçues;1', Path(download.value.path()).read_text(encoding='utf-8-sig'))
+        self.page.locator('#previous').click()
+        expect(self.page.locator('#report-kpis .kpi').filter(has_text='Demandes reçues')).to_contain_text('0')
+        expect(self.page.locator('#next')).to_be_enabled()
+        self.page.emulate_media(media='print')
+        expect(self.page.locator('.report-toolbar')).to_be_hidden()
+        expect(self.page.locator('#report-kpis')).to_be_visible()
+        self.page.emulate_media(media='screen')
+        self.assert_responsive('/rapport.html')
+        self.assertNotIn('rapport@example.invalid', self.page.content())
+        self.assertEqual(self.errors, [])
+
     def test_client_360_sheet(self):
         admin={'Authorization':'Bearer '+server.ADMIN_TOKEN}
         server.RATE.clear()
