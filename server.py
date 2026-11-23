@@ -33,6 +33,7 @@ import request_conversion
 import lead_automation
 import client_overview
 import global_search
+import weekly_report
 import contact_delivery
 import accounts
 import own_activity
@@ -526,8 +527,10 @@ def main():
     parser.add_argument('--send-contact-notifications', action='store_true', help='REC: traiter la file de mails avec configuration JSON sur stdin')
     parser.add_argument('--send-account-invitations', action='store_true', help='REC: traiter invitations de test')
     parser.add_argument('--contact-mail-status', action='store_true', help='Compteurs de la file de mails')
+    parser.add_argument('--weekly-report', action='store_true', help='Aperçu du rapport hebdomadaire de direction, sans envoi')
+    parser.add_argument('--send-weekly-report', action='store_true', help='REC: envoyer le rapport hebdomadaire (configuration JSON sur stdin), une fois par semaine ISO')
     args = parser.parse_args()
-    if sum(bool(x) for x in (args.export,args.backup,args.backup_encrypted,args.restore_isolated,args.check_db,args.rotate_documents,args.refresh_notifications,args.send_contact_notifications,args.send_account_invitations,args.contact_mail_status))>1:
+    if sum(bool(x) for x in (args.export,args.backup,args.backup_encrypted,args.restore_isolated,args.check_db,args.rotate_documents,args.refresh_notifications,args.send_contact_notifications,args.send_account_invitations,args.contact_mail_status,args.weekly_report,args.send_weekly_report))>1:
         parser.error('Une seule opération à la fois.')
     if args.send_contact_notifications or args.send_account_invitations or args.contact_mail_status:
         if os.environ.get('DSIG_ENV','REC') != 'REC':raise SystemExit('REC uniquement.')
@@ -536,6 +539,15 @@ def main():
         else:
             try:print(json.dumps(contact_mail.run(connect,json.loads(sys.stdin.read(8192)),invitations=args.send_account_invitations)))
             except (ValueError, OSError, sqlite3.Error):raise SystemExit('Configuration ou traitement indisponible.')
+        return
+    if args.weekly_report or args.send_weekly_report:
+        if os.environ.get('DSIG_ENV','REC') not in ('DEV','REC'):raise SystemExit('Production bloquée.')
+        from datetime import date
+        if args.weekly_report:
+            with connect() as db:print(weekly_report.render(weekly_report.compute(db,date.today()))[1])
+            return
+        try:print(weekly_report.send(connect,json.loads(sys.stdin.read(8192))))
+        except (ValueError, OSError, sqlite3.Error, AttributeError):raise SystemExit('Configuration ou envoi du rapport indisponible.')
         return
     if args.refresh_notifications:
         if os.environ.get('DSIG_ENV','REC') not in ('DEV','REC'):raise SystemExit('Production bloquée.')
