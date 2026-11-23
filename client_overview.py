@@ -8,10 +8,11 @@ import sqlite3
 from decimal import Decimal
 
 import accounts
+import crm_emails
 import quotes
 
 TIMELINE_LIMIT = 60
-ORDER = ('DEMANDE', 'OPPORTUNITE', 'RENDEZ_VOUS', 'DEVIS', 'MISSION', 'FACTURE', 'PAIEMENT')
+ORDER = ('DEMANDE', 'OPPORTUNITE', 'RENDEZ_VOUS', 'EMAIL', 'DEVIS', 'MISSION', 'FACTURE', 'PAIEMENT')
 
 
 def _rows(db, sql, args=()):
@@ -37,6 +38,11 @@ def overview(db, oid, can):
     appointments = _rows(db, f'''SELECT a.title,a.starts,a.status FROM appointments a
         WHERE a.opportunity_id IN ({marks}) ORDER BY a.starts DESC''', ids)
     result['appointments'] = appointments
+    emails = crm_emails.history(db, ids)
+    db.row_factory = sqlite3.Row
+    result['emails'] = emails
+    for m in emails:
+        timeline.append({'at': m['created_at'], 'kind': 'EMAIL', 'label': 'E-mail préparé : ' + m['subject'] + ' (' + m['actor'] + ')'})
     for a in appointments:
         timeline.append({'at': a['starts'], 'kind': 'RENDEZ_VOUS', 'label': a['title'] + ' · ' + a['status']})
     if can['requests']:

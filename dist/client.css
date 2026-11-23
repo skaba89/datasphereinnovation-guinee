@@ -13,3 +13,8 @@
 .timeline small{display:block;color:var(--app-muted,#5d586c)}
 .client-empty{color:var(--app-muted,#5d586c);margin:0}
 @media(max-width:850px){.client-grid{grid-template-columns:1fr}}
+.composer{margin-top:16px}
+.composer-form{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(240px,100%),1fr));gap:10px;align-items:end}
+.composer-message{margin-top:12px}
+.composer-body{grid-column:1/-1}
+.composer textarea{width:100%;box-sizing:border-box;font:inherit}
