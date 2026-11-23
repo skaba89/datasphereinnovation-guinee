@@ -15,3 +15,4 @@
 .kanban-move select{padding:4px 6px;font-size:12px;flex:1;min-width:0}
 .kanban-empty{font-size:13px;color:var(--app-muted,#5d586c);margin:4px}
 @media(max-width:650px){.kanban{grid-auto-columns:minmax(78vw,1fr)}}
+.kanban-link{font-size:12px;align-self:flex-start}

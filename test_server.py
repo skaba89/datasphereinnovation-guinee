@@ -111,6 +111,29 @@ class IntakeTests(unittest.TestCase):
             self.assertEqual(Decimal(row[field]),Decimal(amount),field)
         client=next(x for x in control['clients'] if x['organization_id']==row['organization_id'])
         self.assertEqual(Decimal(client['validated_margin']),Decimal('175'))
+        # 360° client view: sections follow the caller's existing module permissions.
+        sheet='/api/admin/crm/organizations/'+row['organization_id']+'/overview'
+        full=call('GET',sheet,headers=admin)
+        self.assertEqual(full['sections'],['billing','missions','quotes','requests'])
+        self.assertEqual([o['id'] for o in full['opportunities']],[oid])
+        self.assertEqual(len(full['requests']),1)
+        self.assertEqual((full['quotes'][0]['title'],full['quotes'][0]['revenue']),('Audit fictif','6000.00'))
+        self.assertEqual(full['missions'][0]['contract_ref'],'JOURNEY-001')
+        self.assertEqual((full['invoices'][0]['reference'],Decimal(full['invoices'][0]['balance'])),('JOURNEY-INV',Decimal('0')))
+        self.assertEqual(Decimal(full['billing_totals']['EUR']['invoiced']),Decimal('600'))
+        kinds={e['kind'] for e in full['timeline']}
+        self.assertTrue({'DEMANDE','OPPORTUNITE','DEVIS','MISSION','FACTURE','PAIEMENT'}<=kinds,kinds)
+        order=[e['kind'] for e in full['timeline']]
+        self.assertGreater(order.index('DEMANDE'),max(i for i,k in enumerate(order) if k=='OPPORTUNITE'))
+        sales=call('GET',sheet,headers=commercial)
+        self.assertEqual(sales['sections'],['quotes','requests'])
+        self.assertNotIn('invoices',sales);self.assertNotIn('missions',sales)
+        self.assertFalse({'MISSION','FACTURE','PAIEMENT'}&{e['kind'] for e in sales['timeline']})
+        board=call('GET',sheet,headers=direction)
+        self.assertNotIn('requests',board);self.assertIn('invoices',board)
+        call('GET',sheet,headers=project,status=403)
+        call('GET','/api/admin/crm/organizations/00000000-0000-0000-0000-000000000000/overview',headers=admin,status=404)
+        self.assertEqual(self.request('GET',sheet)[0],401)
         lead=call('GET','/api/admin/requests',headers=commercial)['items'][0]['conversion']
         self.assertEqual((lead['opportunity_id'],lead['quotes'],lead['missions']),(oid,1,1))
         # Imported fictional ledger rows exercise searches beyond the first page.
