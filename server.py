@@ -35,6 +35,7 @@ import client_overview
 import global_search
 import weekly_report
 import quote_followups
+import billing_automation
 import contact_delivery
 import accounts
 import own_activity
@@ -100,6 +101,7 @@ def connect():
     request_workflow.schema(db)
     request_conversion.schema(db)
     lead_automation.schema(db)
+    billing_automation.schema(db)
     return db
 
 
@@ -560,6 +562,9 @@ def main():
             with connect() as db:
                 db.execute('BEGIN IMMEDIATE');queued=quote_followups.schedule(db,date.today())
             print(f'{queued} relance(s) de devis planifiée(s).')
+            with connect() as db:
+                db.execute('BEGIN IMMEDIATE');dunning=billing_automation.schedule(db,date.today())
+            print(f'{dunning} relance(s) de facture planifiée(s).')
         return
     if args.rotate_documents:
         path=operations.safe_target(args.rotate_documents,DB,ROOT/'dist');operations.verify(path)
