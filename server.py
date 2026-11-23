@@ -30,6 +30,7 @@ import notifications
 import contact_mail
 import request_workflow
 import request_conversion
+import lead_automation
 import contact_delivery
 import accounts
 import own_activity
@@ -94,6 +95,7 @@ def connect():
     contact_mail.schema(db)
     request_workflow.schema(db)
     request_conversion.schema(db)
+    lead_automation.schema(db)
     return db
 
 
@@ -331,6 +333,7 @@ class Handler(SimpleHTTPRequestHandler):
                     if can_manage:
                         row["workflow"] = request_workflow.read(db, row["id"])
                         row["conversion"] = request_conversion.read(db, row["id"])
+                        row["lead"] = lead_automation.read(db, row["id"])
             self.json_response(200, {"items": rows, "total": total, "page": page, "counts": counts, "commercial_metrics": metrics, "workflow_owners": owners, "workload": workload, "can_manage_workflow": can_manage, "can_filter_mine": self.role == "COMMERCIAL"})
         else:
             super().do_GET()
@@ -461,6 +464,7 @@ class Handler(SimpleHTTPRequestHandler):
             with connect() as db:
                 db.execute("INSERT INTO requests (id,nom,org,email,besoin,solution,message) VALUES (?,?,?,?,?,?,?)",
                            (request_id, *(values[k] for k in SIZES)))
+                lead_automation.on_request(db, request_id, values)
                 if os.environ.get('DSIG_ENV','REC') == 'REC':
                     contact_mail.enqueue(db, request_id, payload.get('language','fr'), values['besoin'])
         except sqlite3.Error:

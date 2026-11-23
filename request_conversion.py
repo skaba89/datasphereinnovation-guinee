@@ -2,6 +2,7 @@
 import uuid
 import crm
 import accounts
+import lead_automation
 
 
 def schema(db):
@@ -30,14 +31,22 @@ def convert(db, rid, actor):
     name,company,email,need,solution,status=row
     if status!='QUALIFIEE' or need=='Candidature spontanée':
         raise ValueError()
-    values=crm.validate(dict(company=company,contact=name,email=email,
-        title=(need+(' — '+solution if solution else ''))[:180],
-        mode={'Mission en régie':'REGIE','Projet au forfait':'FORFAIT'}.get(need,'CONSEIL'),
-        skills='',consultant_id='',next_action='Prendre contact et cadrer le besoin',
-        followup='',notes='Demande source : '+rid,status='QUALIFIE'))
-    oid=str(uuid.uuid4())
-    db.execute("INSERT INTO opportunities(id,"+",".join(values)+") VALUES("+",".join("?" for _ in range(len(values)+1))+")",(oid,*values.values()))
-    db.execute("INSERT INTO opportunity_events(opportunity_id,status,version) VALUES (?,?,1)",(oid,'QUALIFIE'))
+    lead=lead_automation.read(db,rid)
+    if lead and lead['outcome']=='CREATED' and lead['status']=='PROSPECT':
+        # Promote the automatic lead instead of creating a second opportunity.
+        oid=lead['opportunity_id']
+        version=db.execute("SELECT version FROM opportunities WHERE id=?",(oid,)).fetchone()[0]+1
+        db.execute("UPDATE opportunities SET status='QUALIFIE',next_action=?,version=? WHERE id=?",
+                   ('Prendre contact et cadrer le besoin',version,oid))
+        db.execute("INSERT INTO opportunity_events(opportunity_id,status,version) VALUES (?,?,?)",(oid,'QUALIFIE',version))
+    else:
+        values=crm.validate(dict(company=company,contact=name,email=email,
+            title=lead_automation.title(need,solution),mode=lead_automation.mode(need),
+            skills='',consultant_id='',next_action='Prendre contact et cadrer le besoin',
+            followup='',notes='Demande source : '+rid,status='QUALIFIE'))
+        oid=str(uuid.uuid4())
+        db.execute("INSERT INTO opportunities(id,"+",".join(values)+") VALUES("+",".join("?" for _ in range(len(values)+1))+")",(oid,*values.values()))
+        db.execute("INSERT INTO opportunity_events(opportunity_id,status,version) VALUES (?,?,1)",(oid,'QUALIFIE'))
     # Reuse exact normalized organization names; never overwrite existing records.
     key=' '.join(company.casefold().split())
     org=db.execute('SELECT id FROM organizations WHERE name_key=?',(key,)).fetchone()
@@ -46,6 +55,7 @@ def convert(db, rid, actor):
     else:
         org_id=str(uuid.uuid4())
         db.execute("INSERT INTO organizations(id,name,name_key,kind,country,notes) VALUES (?,?,?,'PROSPECT','','')",(org_id,company,key))
+    db.execute("DELETE FROM organization_links WHERE opportunity_id=?",(oid,))
     db.execute("INSERT INTO organization_links VALUES (?,?)",(oid,org_id))
     db.execute("INSERT INTO request_opportunities(request_id,opportunity_id,actor) VALUES (?,?,?)",(rid,oid,actor))
     accounts.event(db,actor,'DEMANDE_CONVERTIE',rid)
