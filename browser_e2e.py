@@ -400,6 +400,8 @@ class BrowserTests(unittest.TestCase):
         self.page.locator('#milestone button').click()
         milestone=self.page.locator('#milestone-rows tr').filter(has_text='Livrable initial V83')
         expect(milestone).to_contain_text('PREVU')
+        # The success notice is written after the list reload: wait for it so it cannot overwrite the next refusal.
+        expect(self.page.locator('#notice')).to_contain_text('Enregistrement effectué')
 
         select_mission('#invoice-mission')
         fill('#invoice',{'reference':'V83-CREANCE','amount':'600','due_date':due})
@@ -1374,6 +1376,38 @@ class BrowserTests(unittest.TestCase):
         self.page.locator('#login-form button').click()
         expect(self.page.locator('#notice')).to_contain_text('Organisation non précisée')
         expect(self.page.locator('#workspace')).to_be_hidden()
+        self.assertEqual(self.errors, [])
+
+    def test_topbar_global_search(self):
+        admin={'Authorization':'Bearer '+server.ADMIN_TOKEN}
+        server.RATE.clear()
+        rid=self.context.request.post('/api/requests',data={'nom':'Contact recherche','org':'Énergie Recherche fictive','email':'search@example.invalid','besoin':'Data & IA','solution':'','message':'Fictif','consent':True,'website':''}).json()['id']
+        self.context.request.patch('/api/admin/requests/'+rid,data={'status':'QUALIFIEE','previous':'NOUVELLE'},headers=admin)
+        self.assertEqual(self.context.request.post('/api/admin/requests/'+rid+'/convert',headers=admin).status,201)
+        self.activate('commercial.search','COMMERCIAL')
+        self.page.locator('#modules a[href="crm.html"]').click()
+        expect(self.page.locator('#workspace')).to_be_visible()
+        expect(self.page.locator('header .topbar-role')).to_have_text('COMMERCIAL')
+        search=self.page.get_by_role('searchbox',name='Recherche globale')
+        self.page.keyboard.press('Control+k')
+        expect(search).to_be_focused()
+        search.fill('energie recherche')
+        results=self.page.locator('#global-results')
+        expect(results.get_by_role('link')).to_have_count(3)
+        expect(results).to_contain_text('Organisation')
+        expect(results).to_contain_text('Demande')
+        self.page.keyboard.press('ArrowDown')
+        expect(results.get_by_role('link').first).to_be_focused()
+        self.page.keyboard.press('Escape')
+        expect(results).to_be_hidden()
+        expect(search).to_be_focused()
+        search.fill('zz-introuvable')
+        expect(results).to_contain_text('Aucun résultat')
+        search.fill('energie recherche')
+        results.get_by_role('link').filter(has_text='Organisation').click()
+        expect(self.page.locator('h1')).to_have_text('Énergie Recherche fictive')
+        expect(self.page.get_by_role('searchbox',name='Recherche globale')).to_be_visible()
+        self.assert_responsive('/client.html topbar')
         self.assertEqual(self.errors, [])
 
     def test_crm_kanban_pipeline(self):
