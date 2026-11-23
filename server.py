@@ -180,7 +180,7 @@ class Handler(SimpleHTTPRequestHandler):
             'fonts/open-sans-ExtraBold.woff',
             'fonts/LICENSE.txt',
         }
-        if not font_asset and not re.fullmatch(r'[A-Za-z0-9_-]+\.(?:html|css|js|svg|webp|txt)',name):
+        if not font_asset and not re.fullmatch(r'[A-Za-z0-9_-]+\.(?:html|css|js|svg|webp|txt|png|webmanifest)',name):
             self.send_error(404);return None
         target=ROOT/'dist'/name
         if (font_asset and target.parent.is_symlink()) or target.is_symlink() or not target.is_file():
@@ -190,6 +190,8 @@ class Handler(SimpleHTTPRequestHandler):
     def guess_type(self, path):
         if path.endswith('.woff'):
             return 'font/woff'
+        if path.endswith('.webmanifest'):
+            return 'application/manifest+json'
         return super().guess_type(path)
 
     def end_headers(self):

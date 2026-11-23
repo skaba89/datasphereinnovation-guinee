@@ -251,13 +251,27 @@ class IntakeTests(unittest.TestCase):
         self.assertEqual(json.loads(body)['commercial_metrics'][0]['won'],0)
 
     def test_accessibility_assets_and_local_csp(self):
-        for name in ('index','en','expertise','confidentialite','privacy-en','mentions-legales','legal-en','connexion','admin','accounts','audit','billing','consultants','crm','direction','missions','my-activity','quotes','tenders','documents','alerts','notifications','rapport','client','taches','modeles-email'):
+        for name in ('index','en','expertise','confidentialite','privacy-en','mentions-legales','legal-en','connexion','admin','accounts','audit','billing','consultants','crm','direction','missions','my-activity','quotes','tenders','documents','alerts','notifications','rapport','client','taches','modeles-email','offline'):
             with self.subTest(page=name):
                 s,b,h=self.request('GET','/'+name+'.html');self.assertEqual(s,200)
                 self.assertIn(b'class="skip-link"',b);self.assertIn(b'accessibility.css',b);self.assertIn(b'tabindex="-1"',b)
                 self.assertNotIn('fonts.googleapis.com',h['Content-Security-Policy'])
         self.assertEqual(self.request('GET','/accessibility.css')[0],200)
         self.assertNotIn(b'fonts.googleapis.com',self.request('GET','/studio.css')[1])
+
+    def test_installable_app_assets(self):
+        s,b,h=self.request('GET','/app.webmanifest');self.assertEqual(s,200);self.assertEqual({k.lower():v for k,v in h.items()}['content-type'],'application/manifest+json')
+        manifest=json.loads(b);self.assertEqual((manifest['start_url'],manifest['display']),('/connexion.html','standalone'))
+        for icon in manifest['icons']:
+            s,b,h=self.request('GET',icon['src']);self.assertEqual(s,200);self.assertEqual({k.lower():v for k,v in h.items()}['content-type'],'image/png');self.assertTrue(b.startswith(bytes([0x89])+b'PNG'))
+        s,b,_=self.request('GET','/sw.js');self.assertEqual(s,200);self.assertIn(b"startsWith('/api/')",b)
+        self.assertEqual(self.request('GET','/apple-touch-icon.png')[0],200)
+        for name in ('connexion','crm','taches','client'):
+            page=self.request('GET','/'+name+'.html')[1]
+            self.assertIn(b'<link rel="manifest" href="app.webmanifest">',page);self.assertIn(b'<script src="pwa.js" defer></script>',page)
+        # Public pages are not turned into the installable private app.
+        self.assertNotIn(b'app.webmanifest',self.request('GET','/index.html')[1])
+        self.assertEqual(self.request('GET','/../server.py.png')[0],404)
 
     def test_local_font_assets_are_strictly_allowlisted(self):
         for weight in ('Regular','Semibold','Bold','ExtraBold'):
