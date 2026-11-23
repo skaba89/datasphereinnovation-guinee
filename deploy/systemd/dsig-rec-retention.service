@@ -1,0 +1,10 @@
+[Unit]
+Description=DSIG REC contact-request retention (anonymize inactive, unqualified requests)
+After=docker.service
+Requires=docker.service
+
+[Service]
+Type=oneshot
+User=ubuntu
+ExecStart=/usr/bin/docker exec dsig-rec-dsig-1 python server.py --purge-requests --apply
+TimeoutStartSec=180
