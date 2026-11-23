@@ -1,6 +1,7 @@
 """Durable REC-only notifications; optional fictional contact details to the test mailbox."""
 import json
 import contact_ack
+import quote_followups
 import re
 import time
 import urllib.request
@@ -72,6 +73,8 @@ def send(cfg, rid, kind, language, *, details=None, category=None, recipient=Non
             body += '\n\nTraiter dans le CRM REC : https://rec.dsig-consulting.com/admin.html'
     elif kind.startswith('status-'):
         subject,body,html=contact_ack.render_status(rid,kind.rsplit('-',1)[-1],language)
+    elif kind.startswith('followup-'):
+        subject,body,html=quote_followups.render(rid,language)
     elif kind == 'ack' and category in contact_ack.TYPES:
         subject, body, html = contact_ack.render(rid, category, language)
     elif language == 'en':
@@ -79,7 +82,7 @@ def send(cfg, rid, kind, language, *, details=None, category=None, recipient=Non
     else:
         subject, body = '[REC TEST] DSIG demande reçue', f'Merci pour votre demande. Référence : {rid}. Notre équipe va l’étudier.'
     destination=cfg['test_recipient']
-    if recipient is not None and (kind=='ack' or kind.startswith('status-')):
+    if recipient is not None and (kind=='ack' or kind.startswith(('status-','followup-'))):
         if recipient.casefold() not in {x.casefold() for x in cfg.get('rec_customer_recipients',[])} and recipient!=destination:raise ValueError('Recipient not authorised')
         destination=recipient
     message = {'from':cfg['sender'],'to':[destination],'subject':subject,'text':body}
@@ -112,7 +115,7 @@ def run(connect, cfg, deliver=send, limit=10, *, invitations=False):
             details = None
             category = None
             recipient = None
-            if not invitations and (kind=='ack' or kind.startswith('status-')):
+            if not invitations and (kind=='ack' or kind.startswith(('status-','followup-'))):
                 allowed=cfg.get('rec_customer_recipients',[])
                 saved=db.execute('SELECT recipient FROM contact_mail_recipient WHERE request_id=? AND kind=?',(rid,kind)).fetchone()
                 if saved:recipient=saved[0]

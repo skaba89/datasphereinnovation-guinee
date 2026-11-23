@@ -34,6 +34,7 @@ import lead_automation
 import client_overview
 import global_search
 import weekly_report
+import quote_followups
 import contact_delivery
 import accounts
 import own_activity
@@ -553,7 +554,13 @@ def main():
         if os.environ.get('DSIG_ENV','REC') not in ('DEV','REC'):raise SystemExit('Production bloquée.')
         from datetime import date
         with connect() as db:count=notifications.run(db,date.today())
-        print(f'{count} nouvelle(s) notification(s).');return
+        print(f'{count} nouvelle(s) notification(s).')
+        # Customer follow-ups use the REC contact_mail queue only (same recipient rules as acknowledgements).
+        if os.environ.get('DSIG_ENV','REC')=='REC':
+            with connect() as db:
+                db.execute('BEGIN IMMEDIATE');queued=quote_followups.schedule(db,date.today())
+            print(f'{queued} relance(s) de devis planifiée(s).')
+        return
     if args.rotate_documents:
         path=operations.safe_target(args.rotate_documents,DB,ROOT/'dist');operations.verify(path)
         if DB.exists() and path.samefile(DB):raise ValueError('Copie isolée obligatoire.')
