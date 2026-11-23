@@ -18,6 +18,7 @@ import crm_emails
 import crm
 import organizations
 import quotes
+import quote_pdf
 import direction
 import missions
 import contracts
@@ -251,6 +252,8 @@ class Handler(SimpleHTTPRequestHandler):
             with connect() as db:
                 db.execute('BEGIN')
                 return self.json_response(200, direction.snapshot(db))
+        pdf_match=re.fullmatch(r'/api/admin/quotes/([0-9a-f-]{36})/pdf',urlsplit(self.path).path)
+        if pdf_match:return quote_pdf.handle(self,connect,pdf_match.group(1))
         if urlsplit(self.path).path == "/api/admin/quotes":
             return quotes.handle(self, connect, "GET")
         if urlsplit(self.path).path in ("/api/admin/crm","/api/admin/crm/catalogue","/api/admin/crm/saas-offers","/api/admin/crm/saas-subscriptions"):

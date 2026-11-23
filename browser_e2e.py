@@ -208,6 +208,15 @@ class BrowserTests(unittest.TestCase):
         quote.get_by_role('button',name='Aperçu PDF').click()
         expect(self.page.locator('#proposal-document')).to_contain_text('Audit navigateur V81')
         self.page.locator('#close-proposal').click()
+        if quote.locator('.row-actions').get_attribute('open') is None:
+            quote.locator('.row-actions summary').click()
+        with self.page.expect_download() as download:
+            quote.get_by_role('button',name='Télécharger le PDF',exact=True).click()
+        self.assertRegex(download.value.suggested_filename, r'^DSIG-\d{4}-[0-9A-F]{8}-v1\.pdf$')
+        self.assertTrue(Path(download.value.path()).read_bytes().startswith(b'%PDF-1.4'))
+        expect(self.page.locator('#notice')).to_contain_text('téléchargé')
+        if quote.locator('.row-actions').get_attribute('open') is not None:
+            quote.locator('.row-actions summary').click()
         quote.get_by_label('Preuve de transmission ou décision').fill('Transmission fictive V81')
         quote.get_by_role('button',name='Enregistrer le suivi').click()
         expect(self.page.locator('#notice')).to_contain_text('Suivi enregistré')
