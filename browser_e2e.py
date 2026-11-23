@@ -23,7 +23,14 @@ class PublicExportBrowserTests(unittest.TestCase):
             subprocess.run(['node', 'scripts/build-public-site.mjs', str(site),
                             'contact@datasphere-innovation.net'], check=True,
                            cwd=Path(__file__).resolve().parent)
-            http = ThreadingHTTPServer(('127.0.0.1', 0), partial(SimpleHTTPRequestHandler, directory=site))
+            # Serve the export with the exact CSP of the public image (deploy/public/Caddyfile).
+            caddyfile = (Path(__file__).resolve().parent / 'deploy' / 'public' / 'Caddyfile').read_text(encoding='utf-8')
+            policy = re.search(r'Content-Security-Policy "([^"]+)"', caddyfile).group(1)
+            class PublicHandler(SimpleHTTPRequestHandler):
+                def end_headers(self):
+                    self.send_header('Content-Security-Policy', policy)
+                    super().end_headers()
+            http = ThreadingHTTPServer(('127.0.0.1', 0), partial(PublicHandler, directory=site))
             thread = threading.Thread(target=http.serve_forever, daemon=True)
             thread.start()
             try:
@@ -32,6 +39,8 @@ class PublicExportBrowserTests(unittest.TestCase):
                     page = browser.new_page(viewport={'width':390,'height':844})
                     errors = []
                     page.on('pageerror', lambda error: errors.append(str(error)))
+                    violations = []
+                    page.on('console', lambda message: violations.append(message.text) if 'Content Security Policy' in message.text else None)
                     for route in ('/', '/en.html', '/secteurs-mines.html', '/blog.html', '/expertise-data-engineering.html'):
                         with self.subTest(route=route):
                             response = page.goto(f'http://127.0.0.1:{http.server_port}{route}')
@@ -61,6 +70,7 @@ class PublicExportBrowserTests(unittest.TestCase):
                                 self.assertTrue(page.evaluate('document.documentElement.scrollWidth <= innerWidth + 1'), f'{route} overflow at {width}px')
                             page.set_viewport_size({'width':390,'height':844})
                     self.assertEqual(errors, [])
+                    self.assertEqual(violations, [])
                     browser.close()
             finally:
                 http.shutdown()
