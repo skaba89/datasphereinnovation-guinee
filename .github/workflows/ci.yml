@@ -121,6 +121,21 @@ jobs:
           for route in /accounts.html /connexion.html /api/admin/requests /.env /server.py; do
             test "$(curl -sS -o /dev/null -w '%{http_code}' "http://127.0.0.1:8080$route")" = 404
           done
+      - name: Test isolated PROD contact service image
+        run: |
+          docker build -f Dockerfile.contact -t dsig-contact:ci .
+          ! docker run --rm dsig-contact:ci ls /app/server.py
+          key=$(docker run --rm dsig-contact:ci python -c "from cryptography.fernet import Fernet;print(Fernet.generate_key().decode())")
+          docker run -d --name dsig-contact-ci --read-only --cap-drop ALL --security-opt no-new-privileges:true --tmpfs /tmp -v dsig-contact-ci:/data -e DSIG_CONTACT_KEY="$key" -p 127.0.0.1:8090:8090 dsig-contact:ci
+          for i in $(seq 1 30); do curl -fsS http://127.0.0.1:8090/healthz && break; sleep 1; done
+          curl -fsS http://127.0.0.1:8090/healthz | grep '"accepting": false'
+          test "$(curl -sS -o /dev/null -w '%{http_code}' -X POST -H 'Content-Type: application/json' -H 'Origin: https://dsig-consulting.com' -d '{}' http://127.0.0.1:8090/api/contact)" = 503
+          test "$(curl -sS -o /dev/null -w '%{http_code}' http://127.0.0.1:8090/api/admin/requests)" = 404
+          docker run --rm -v dsig-contact-ci:/data -e DSIG_CONTACT_KEY="$key" dsig-contact:ci python contact_service.py --purge
+          DSIG_CONTACT_IMAGE=dsig-contact:ci DSIG_CONTACT_ENV_FILE=/dev/null docker compose -f compose.contact.yaml config --quiet
+      - name: Cleanup contact container
+        if: always()
+        run: docker rm -f dsig-contact-ci || true; docker volume rm dsig-contact-ci || true
       - name: Cleanup public container
         if: always()
         run: docker rm -f dsig-public-ci || true
