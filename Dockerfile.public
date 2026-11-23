@@ -2,19 +2,28 @@ FROM node:22-alpine AS build
 WORKDIR /build
 COPY dist/ dist/
 COPY scripts/*.mjs scripts/
+COPY deploy/public/Caddyfile deploy/public/Caddyfile
 ARG DSIG_PUBLIC_EMAIL
-RUN node scripts/test-public-site.mjs \
+# disabled (default): email link only. enabled: public contact form + /api/contact route (V175);
+# the build fails while any legal field is missing (scripts/legal-content.mjs).
+ARG DSIG_PUBLIC_FORM=disabled
+RUN case "$DSIG_PUBLIC_FORM" in disabled|enabled) ;; *) echo "DSIG_PUBLIC_FORM must be disabled or enabled" >&2; exit 1;; esac \
+    && node scripts/test-public-site.mjs \
     && node scripts/test-public-indexing.mjs \
     && node scripts/test-legal-compliance.mjs \
-    && node scripts/build-public-site.mjs /public "$DSIG_PUBLIC_EMAIL" \
+    && node scripts/test-public-form.mjs \
+    && if [ "$DSIG_PUBLIC_FORM" = enabled ]; then node scripts/build-public-site.mjs /public "$DSIG_PUBLIC_EMAIL" --form; \
+       else node scripts/build-public-site.mjs /public "$DSIG_PUBLIC_EMAIL"; fi \
+    && node scripts/public-caddyfile.mjs deploy/public/Caddyfile "$DSIG_PUBLIC_FORM" > /Caddyfile \
     && find /public -type d -exec chmod 0755 {} + \
     && find /public -type f -exec chmod 0644 {} +
 
 FROM caddy:2-alpine
 ARG DSIG_PUBLIC_EMAIL
-LABEL com.dsig.public.email=$DSIG_PUBLIC_EMAIL
+ARG DSIG_PUBLIC_FORM=disabled
+LABEL com.dsig.public.email=$DSIG_PUBLIC_EMAIL com.dsig.public.form=$DSIG_PUBLIC_FORM
 COPY --from=build /public/ /srv/public/
-COPY --chmod=0644 deploy/public/Caddyfile /etc/caddy/Caddyfile
+COPY --from=build --chmod=0644 /Caddyfile /etc/caddy/Caddyfile
 USER 10001:10001
 EXPOSE 8080
 HEALTHCHECK --interval=10s --timeout=3s --retries=3 CMD wget -q -O /dev/null http://127.0.0.1:8080/healthz || exit 1

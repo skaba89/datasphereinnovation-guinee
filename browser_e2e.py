@@ -1,4 +1,5 @@
 """Browser acceptance tests: isolated loopback server and fictitious records."""
+import json
 import os
 import re
 import tempfile
@@ -76,6 +77,85 @@ class PublicExportBrowserTests(unittest.TestCase):
                 http.shutdown()
                 thread.join()
                 http.server_close()
+
+
+class PublicContactFormBrowserTests(unittest.TestCase):
+    """V175: public form (built with test-only validated legal data) against a mocked /api/contact."""
+    def test_public_form_submission_states(self):
+        root = Path(__file__).resolve().parent
+        with tempfile.TemporaryDirectory() as tmp:
+            site = Path(tmp) / 'public'
+            helper = Path(tmp) / 'build-form.mjs'
+            helper.write_text('\n'.join((
+                "import {build} from " + json.dumps((root / 'scripts' / 'build-public-site.mjs').as_uri()) + ";",
+                "import {legalFields} from " + json.dumps((root / 'scripts' / 'legal-content.mjs').as_uri()) + ";",
+                "const fields=legalFields.map(f=>({...f,value:'Valeur validée '+f.id,confirmed:true,source:'Pièce de recette',validatedBy:'Validateur de recette'}));",
+                "build(process.argv[2],'contact@datasphere-innovation.net',{form:true,fields});",
+            )), encoding='utf-8')
+            subprocess.run(['node', str(helper), str(site)], check=True, cwd=root)
+            caddy = subprocess.run(['node', 'scripts/public-caddyfile.mjs', 'deploy/public/Caddyfile', 'enabled'], check=True, cwd=root,
+                                   capture_output=True, text=True).stdout
+            policy = re.search(r'Content-Security-Policy "([^"]+)"', caddy).group(1)
+            class PublicHandler(SimpleHTTPRequestHandler):
+                def end_headers(self):
+                    self.send_header('Content-Security-Policy', policy)
+                    super().end_headers()
+            http = ThreadingHTTPServer(('127.0.0.1', 0), partial(PublicHandler, directory=site))
+            thread = threading.Thread(target=http.serve_forever, daemon=True)
+            thread.start()
+            try:
+                with sync_playwright() as pw:
+                    browser = pw.chromium.launch()
+                    page = browser.new_page(viewport={'width':390,'height':844})
+                    errors, violations, calls = [], [], []
+                    page.on('pageerror', lambda error: errors.append(str(error)))
+                    page.on('console', lambda m: violations.append(m.text) if 'Content Security Policy' in m.text else None)
+                    replies = []
+                    def api(route):
+                        calls.append(json.loads(route.request.post_data))
+                        status, body = replies.pop(0)
+                        route.fulfill(status=status, content_type='application/json', body=json.dumps(body))
+                    page.route('**/api/contact', api)
+                    page.goto(f'http://127.0.0.1:{http.server_port}/')
+                    form = page.locator('#request')
+                    status = page.locator('#request-status')
+                    # Client-side validation: nothing is sent.
+                    form.locator('[type=submit]').click()
+                    expect(status).to_have_text('Vérifiez les champs signalés.')
+                    self.assertEqual(calls, [])
+                    for name, value in {'nom':'Visiteur fictif','org':'Org fictive','email':'visiteur@example.invalid','telephone':'+224 620 00 00 00','message':'Demande fictive'}.items():
+                        form.locator(f'[name={name}]').fill(value)
+                    form.locator('[name=besoin]').select_option('Formation')
+                    form.locator('[name=consent]').check()
+                    replies.append((201, {'id':'ref-1', 'message':'Votre demande a bien été reçue. Référence : ref-1'}))
+                    # Double click in the same tick: only one request leaves the browser.
+                    page.evaluate("() => { const b = document.querySelector('#request [type=submit]'); b.click(); b.click(); }")
+                    expect(status).to_have_text('Votre demande a bien été reçue. Référence : ref-1')
+                    self.assertEqual(len(calls), 1)
+                    self.assertEqual({k: calls[0][k] for k in ('besoin','telephone','consent','language','website')},
+                                     {'besoin':'Formation','telephone':'+224 620 00 00 00','consent':True,'language':'fr','website':''})
+                    expect(form.locator('[name=nom]')).to_have_value('')  # reset after success
+                    # Server-side refusal and outage: explicit messages, email fallback.
+                    for name, value in {'nom':'Visiteur','org':'Org','email':'v@example.invalid','message':'Encore'}.items():
+                        form.locator(f'[name={name}]').fill(value)
+                    form.locator('[name=consent]').check()
+                    replies.append((400, {'error':'Adresse e-mail invalide.'}))
+                    form.locator('[type=submit]').click()
+                    expect(status).to_have_text('Adresse e-mail invalide.')
+                    replies.append((503, {'error':'Le formulaire n’est pas encore ouvert.'}))
+                    form.locator('[type=submit]').click()
+                    expect(status).to_contain_text('contact@datasphere-innovation.net')
+                    expect(form.locator('[type=submit]')).to_be_enabled()
+                    self.assertTrue(page.evaluate('document.documentElement.scrollWidth <= innerWidth + 1'))
+                    page.goto(f'http://127.0.0.1:{http.server_port}/en.html')
+                    expect(page.locator('#request [type=submit]')).to_have_text('Send my request')
+                    self.assertEqual(errors, [])
+                    self.assertEqual(violations, [])
+                    browser.close()
+            finally:
+                http.shutdown()
+                http.server_close()
+                thread.join()
 
 
 class BrowserTests(unittest.TestCase):
