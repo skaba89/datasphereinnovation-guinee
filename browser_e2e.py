@@ -1320,6 +1320,37 @@ class BrowserTests(unittest.TestCase):
         self.assertEqual(self.errors, [])
 
 
+    def test_crm_kanban_pipeline(self):
+        base={'contact':'Contact fictif','email':'kanban@example.invalid','mode':'CONSEIL','skills':'Python','consultant_id':'','next_action':'Relancer','notes':''}
+        first=self.seed('/api/admin/crm',{**base,'company':'Kanban A fictif','title':'Opportunité Kanban A','followup':'2020-01-01','status':'PROSPECT'})
+        self.seed('/api/admin/crm',{**base,'company':'Kanban B fictif','title':'Opportunité Kanban B','followup':'','status':'QUALIFIE'})
+        self.page.goto('/crm.html')
+        self.page.locator('#token').fill(server.ADMIN_TOKEN)
+        self.page.locator('#login-form button').click()
+        board=self.page.locator('#kanban')
+        expect(board.locator('.kanban-col')).to_have_count(8)
+        prospect=board.locator('.kanban-col[data-status=PROSPECT]')
+        card=prospect.locator('.kanban-card').filter(has_text='Opportunité Kanban A')
+        expect(card).to_contain_text('En retard · 2020-01-01')
+        # Keyboard-accessible move through the select.
+        card.get_by_label('Déplacer Opportunité Kanban A vers une autre étape').select_option('PROPOSITION')
+        expect(self.page.locator('#kanban-notice')).to_contain_text('déplacé vers Proposition')
+        moved=board.locator('.kanban-col[data-status=PROPOSITION] .kanban-card').filter(has_text='Opportunité Kanban A')
+        expect(moved).to_be_visible()
+        expect(prospect.locator('.kanban-card')).to_have_count(0)
+        # Drag and drop to another column.
+        source=board.locator('.kanban-col[data-status=QUALIFIE] .kanban-card').filter(has_text='Opportunité Kanban B')
+        source.drag_to(board.locator('.kanban-col[data-status=NEGOCIATION]'))
+        expect(board.locator('.kanban-col[data-status=NEGOCIATION] .kanban-card').filter(has_text='Opportunité Kanban B')).to_be_visible()
+        response=self.context.request.get('/api/admin/crm?status=PROPOSITION',headers={'Authorization':'Bearer '+server.ADMIN_TOKEN})
+        item=next(x for x in response.json()['items'] if x['id']==first['id'])
+        self.assertEqual((item['status'],item['version'],item['company'],item['followup']),('PROPOSITION',2,'Kanban A fictif','2020-01-01'))
+        # Stale version is refused by the server and reported.
+        stale=self.context.request.patch('/api/admin/crm/'+first['id'],data={**base,'company':'Kanban A fictif','title':'Opportunité Kanban A','followup':'2020-01-01','status':'GAGNE','version':1},headers={'Authorization':'Bearer '+server.ADMIN_TOKEN})
+        self.assertEqual(stale.status,409)
+        self.assert_responsive('/crm.html kanban')
+        self.assertEqual(self.errors, [])
+
     def test_contract_renewal_alerts_and_notifications(self):
         from datetime import date, timedelta
         import notifications
