@@ -8,7 +8,7 @@ import {posts} from './blog-content.mjs';
 import {sectors} from './sector-content.mjs';
 import {offers} from './offer-content.mjs';
 import {loadReferenceLogos,renderReferenceLogos} from './reference-logos.mjs';
-import {renderLegalMain,renderPrivacyMain,legalPaths} from './legal-content.mjs';
+import {renderLegalMain,renderPrivacyMain,legalPaths,legalFields,legalReadiness} from './legal-content.mjs';
 
 const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'..');
 const source=path.join(root,'dist');
@@ -164,8 +164,49 @@ function buildBlog(out,contact){
  }
 }
 
-export function build(out,contact){
+// Public contact form (issue #156, V175): request types offered to visitors (values = server types).
+const publicNeeds=[['Demande de devis','Demande de devis','Quote request'],['Demande de démonstration','Démonstration SaaS','SaaS demonstration'],
+ ['Partenariat','Partenariat','Partnership'],['Conseil & expertise','Conseil et expertise','Consulting and expertise'],
+ ['Formation','Formation','Training'],['Autre demande','Autre demande','Other request']];
+function publicForm(lang,contact){
+ const en=lang==='en',t=(fr,english)=>en?english:fr;
+ const field=(label,input)=>'<label>'+label+input+'</label>';
+ return '<form id="request" data-fallback="'+esc(contact)+'" novalidate>'+
+  field(t('Nom et prénom','Full name'),'<input name="nom" required maxlength="120" autocomplete="name">')+
+  field(t('Entreprise / organisation','Company / organisation'),'<input name="org" required maxlength="180" autocomplete="organization">')+
+  field(t('E-mail','Email'),'<input name="email" type="email" required maxlength="254" autocomplete="email">')+
+  field(t('Téléphone / WhatsApp <small>(facultatif)</small>','Phone / WhatsApp <small>(optional)</small>'),'<input name="telephone" type="tel" maxlength="30" autocomplete="tel" inputmode="tel" pattern="\\+?[0-9][0-9 \\(\\)\\.\\-]{5,28}">')+
+  field(t('Type de demande','Type of request'),'<select name="besoin" required>'+publicNeeds.map(([value,fr,english])=>'<option value="'+esc(value)+'">'+esc(en?english:fr)+'</option>').join('')+'</select>')+
+  field('Message','<textarea name="message" rows="5" required maxlength="4000"></textarea>')+
+  '<p class="footnote">'+t('Ne transmettez ni données sensibles, ni CV, ni document personnel. Vos données servent uniquement à répondre à votre demande : ','Do not send sensitive data, CVs or personal documents. Your data is only used to answer your request: ')+'<a href="'+legalPaths[lang].privacy+'">'+t('notice de confidentialité','privacy notice')+'</a>.</p>'+
+  '<label class="consent-label"><input type="checkbox" name="consent" required> '+t('J’ai lu la notice de confidentialité.','I have read the privacy notice.')+'</label>'+
+  '<label class="request-honeypot" aria-hidden="true">Website<input name="website" tabindex="-1" autocomplete="off"></label>'+
+  '<button class="btn" type="submit">'+t('Envoyer ma demande','Send my request')+'</button>'+
+  '<p id="request-status" role="status" aria-live="polite"></p></form>';
+}
+const publicContactScript=`// Public contact form: same-origin API only, double-submit protection, accessible status messages.
+(()=>{const form=document.getElementById('request');if(!form)return;
+const status=document.getElementById('request-status'),button=form.querySelector('[type=submit]'),en=document.documentElement.lang==='en';
+const mail=form.dataset.fallback,fallback=(en?'Sending is unavailable right now. Please email ':'Envoi momentanément indisponible. Écrivez-nous à ')+mail+'.';
+let busy=false;
+form.addEventListener('submit',async e=>{e.preventDefault();if(busy)return;
+ if(!form.checkValidity()){form.reportValidity();status.textContent=en?'Please check the highlighted fields.':'Vérifiez les champs signalés.';return}
+ busy=true;button.disabled=true;status.textContent=en?'Sending…':'Envoi en cours…';
+ const data=Object.fromEntries(new FormData(form).entries());data.consent=data.consent==='on';data.language=en?'en':'fr';
+ try{const response=await fetch('/api/contact',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data),credentials:'omit'});
+  const body=await response.json().catch(()=>({}));
+  if(response.ok){form.reset();status.textContent=body.message||(en?'Your request has been received.':'Votre demande a bien été reçue.')}
+  else status.textContent=response.status>=500||!body.error?fallback:body.error;
+ }catch{status.textContent=fallback}
+ finally{busy=false;button.disabled=false;status.focus?.()}
+});})();
+`;
+
+export function build(out,contact,options={}){
  if(contact!=='contact@datasphere-innovation.net')throw Error('Provide the approved DSIG contact mailbox.');
+ const form=options.form===true,fields=options.fields??legalFields;
+ // The public form can only be published once every legal field is officially validated (V161).
+ if(form&&!legalReadiness(fields).complete)throw Error('Public contact form refused: legal information is incomplete ('+legalReadiness(fields).missing.length+' missing).');
  const logos=loadReferenceLogos(source);
  // mkdir fails if destination exists: no overwrite of an existing release.
  fs.mkdirSync(out,{mode:0o755});
@@ -222,8 +263,8 @@ export function build(out,contact){
    .replace('In the test environment, use fictitious data without CVs or personal documents.','Do not send CVs or personal documents during initial contact.')
    .replace('<small>Coordonnées commerciales définitives à confirmer.</small>','')
    .replace('<small>Final commercial contact details to be confirmed.</small>','')
-   .replace(/<form id="request">[\s\S]*?<\/form>/,'<div class="contact-public"><p>'+(english?'Contact our team by email. Do not send sensitive information.':'Contactez notre équipe par e-mail. Ne transmettez pas de données sensibles.')+'</p><a class="btn" href="mailto:'+esc(contact)+'">'+esc(contact)+'</a></div>')
-   .replace('<script src="expertise.js"></script>','').replace('<script src="app.js"></script>','<script src="public-menu.js"></script>')
+   .replace(/<form id="request">[\s\S]*?<\/form>/,form?publicForm(lang,contact):'<div class="contact-public"><p>'+(english?'Contact our team by email. Do not send sensitive information.':'Contactez notre équipe par e-mail. Ne transmettez pas de données sensibles.')+'</p><a class="btn" href="mailto:'+esc(contact)+'">'+esc(contact)+'</a></div>')
+   .replace('<script src="expertise.js"></script>','').replace('<script src="app.js"></script>','<script src="public-menu.js"></script>'+(form?'<script defer src="public-contact.js"></script>':''))
    .replace('<a href="#offres">'+(english?'Our services':'Nos offres')+'</a>','<a href="'+offerPath(lang)+'">'+(english?'Our services':'Nos offres')+'</a>')
    .replace('</nav>','<a href="'+sectorPath(lang)+'">'+(english?'Industries':'Secteurs')+'</a><a href="'+blogPath(lang)+'">Blog</a><a href="'+home(english?'fr':'en')+'" hreflang="'+(english?'fr':'en')+'">'+(english?'Français':'English')+'</a></nav>')
    .replaceAll('href="index.html','href="/');
@@ -235,7 +276,7 @@ export function build(out,contact){
   put(out,filename,html);pages.push(home(lang));
   // Legal and privacy notices: noindex, outside the sitemap, rendered from the validated legal source only.
   for(const kind of ['privacy','legal']){
-   const file=legalPaths[lang][kind].slice(1),main=kind==='legal'?renderLegalMain(lang,contact):renderPrivacyMain(lang,contact);
+   const file=legalPaths[lang][kind].slice(1),main=kind==='legal'?renderLegalMain(lang,contact,fields):renderPrivacyMain(lang,contact,fields,{form});
    const html=read(file);
    if(!/<main[\s\S]*?<\/main>/.test(html)||!html.includes('content="noindex,nofollow"'))throw Error('Invalid notice source: '+file);
    put(out,file,html.replace(/<main[\s\S]*?<\/main>/,()=>main));
@@ -246,11 +287,14 @@ export function build(out,contact){
  buildOffers(out,contact);
  optimizePublicPages(out);
  put(out,'public-menu.js',`const menu=document.querySelector('#menu'),nav=document.querySelector('#links');function closeMenu(){nav.classList.remove('open');menu.setAttribute('aria-expanded','false')}menu.onclick=()=>menu.setAttribute('aria-expanded',String(nav.classList.toggle('open')));nav.addEventListener('click',e=>{if(e.target.closest('a'))closeMenu()});document.addEventListener('keydown',e=>{if(e.key==='Escape'){closeMenu();menu.focus()}});`);
+ if(form)put(out,'public-contact.js',publicContactScript);
  put(out,'robots.txt','User-agent: *\nAllow: /\nSitemap: '+origin+'/sitemap.xml\n');
  put(out,'sitemap.xml','<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n'+pages.sort().map(u=>'<url><loc>'+origin+u+'</loc></url>').join('\n')+'\n</urlset>\n');
  return pages.length;
 }
 if(process.argv[1]&&path.resolve(process.argv[1])===fileURLToPath(import.meta.url)){
- if(process.argv.length!==4)throw Error('Usage: node scripts/build-public-site.mjs NEW_DIRECTORY APPROVED_EMAIL');
- console.log('Indexable public pages: '+build(path.resolve(process.argv[2]),process.argv[3]));
+ const form=process.argv[4]==='--form';
+ if(process.argv.length!==(form?5:4))throw Error('Usage: node scripts/build-public-site.mjs NEW_DIRECTORY APPROVED_EMAIL [--form]');
+ // --form always uses the real legal data: it fails until every legal field is validated.
+ console.log('Indexable public pages: '+build(path.resolve(process.argv[2]),process.argv[3],{form}));
 }
