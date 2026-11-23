@@ -1383,9 +1383,14 @@ class BrowserTests(unittest.TestCase):
         self.page.locator('#kind').select_option('RELANCE')
         self.page.locator('#filter button').click()
         expect(self.page.locator('#rows tr').filter(has_text='Relance commerciale V84')).to_be_visible()
+        # CONTRAT and RENOUVELLEMENT alerts share the V84-CONTRAT label: wait for each filter to apply.
+        contract_rows=self.page.locator('#rows tr').filter(has_text='V84-CONTRAT')
+        expect(contract_rows).to_have_count(0)
         self.page.locator('#kind').select_option('RENOUVELLEMENT')
         self.page.locator('#filter button').click()
-        pending=self.page.locator('#rows tr').filter(has_text='V84-CONTRAT')
+        expect(contract_rows).to_have_count(1)
+        pending=contract_rows
+        expect(pending).to_contain_text('RENOUVELLEMENT')
         expect(pending).to_contain_text('Décision en attente')
         # Run the internal scheduler on this isolated database, twice.
         with server.connect() as db:
