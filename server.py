@@ -32,6 +32,7 @@ import request_workflow
 import request_conversion
 import lead_automation
 import client_overview
+import global_search
 import contact_delivery
 import accounts
 import own_activity
@@ -217,6 +218,7 @@ class Handler(SimpleHTTPRequestHandler):
         if urlsplit(self.path).path in ('/api/admin/direction/saas-commercial','/api/admin/crm/saas-commercial','/api/admin/crm/saas-renewals','/api/admin/direction/saas-renewals','/api/admin/crm/customer-success','/api/admin/direction/customer-success','/api/admin/crm/customer-growth','/api/admin/direction/customer-growth','/api/admin/crm/partners','/api/admin/direction/partners','/api/admin/billing/partner-commissions','/api/admin/direction/partner-commissions','/api/admin/direction/partner-profitability','/api/admin/billing/partner-targets','/api/admin/direction/partner-targets','/api/admin/billing/partner-costs'):return crm.handle(self,connect,'GET')
         if urlsplit(self.path).path=='/api/admin/billing/expenses':return treasury.handle(self,connect,'GET')
         if re.fullmatch(r'/api/admin/missions/[0-9a-f-]{36}/renewals',urlsplit(self.path).path):return contracts.handle(self,connect,'GET')
+        if urlsplit(self.path).path=='/api/admin/crm/search':return global_search.handle(self,connect)
         overview_match=re.fullmatch(r'/api/admin/crm/organizations/([0-9a-f-]{36})/overview',urlsplit(self.path).path)
         if overview_match:return client_overview.handle(self,connect,overview_match.group(1))
         if urlsplit(self.path).path == '/api/admin/crm/organizations':
