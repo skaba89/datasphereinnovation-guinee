@@ -3,7 +3,7 @@ import sqlite3,uuid,json
 from decimal import Decimal
 from datetime import date, timedelta
 from urllib.parse import urlsplit,parse_qs
-import alerts,accounts
+import alerts,accounts,billing_automation
 
 def schema(db):
     db.execute('''CREATE TABLE IF NOT EXISTS notifications(id TEXT PRIMARY KEY, kind TEXT NOT NULL, entity_id TEXT NOT NULL, due TEXT NOT NULL, priority TEXT NOT NULL, label TEXT NOT NULL, details TEXT NOT NULL, active INTEGER NOT NULL DEFAULT 1, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, UNIQUE(kind,entity_id,due,priority))''')
@@ -64,7 +64,7 @@ def saas_reminders(db,today):
 
 def _run(db,today):
     with db:
-        db.execute('BEGIN IMMEDIATE');items=alerts.snapshot(db,today)+commercial_reminders(db,today)+saas_reminders(db,today);created=0
+        db.execute('BEGIN IMMEDIATE');items=alerts.snapshot(db,today)+commercial_reminders(db,today)+saas_reminders(db,today)+billing_automation.reminders(db,today);created=0
         db.execute('UPDATE notifications SET active=0 WHERE active=1')
         for x in items:
             key=(x['kind'],x['id'],x['due'],x['priority'])

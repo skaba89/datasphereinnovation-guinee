@@ -2,6 +2,7 @@
 import json
 import contact_ack
 import quote_followups
+import billing_automation
 import re
 import time
 import urllib.request
@@ -75,6 +76,9 @@ def send(cfg, rid, kind, language, *, details=None, category=None, recipient=Non
         subject,body,html=contact_ack.render_status(rid,kind.rsplit('-',1)[-1],language)
     elif kind.startswith('followup-'):
         subject,body,html=quote_followups.render(rid,language)
+    elif kind.startswith('dunning-'):
+        if details is None:raise ValueError('Missing dunning details')
+        subject,body,html=billing_automation.render(rid,language,*details)
     elif kind == 'ack' and category in contact_ack.TYPES:
         subject, body, html = contact_ack.render(rid, category, language)
     elif language == 'en':
@@ -82,7 +86,7 @@ def send(cfg, rid, kind, language, *, details=None, category=None, recipient=Non
     else:
         subject, body = '[REC TEST] DSIG demande reçue', f'Merci pour votre demande. Référence : {rid}. Notre équipe va l’étudier.'
     destination=cfg['test_recipient']
-    if recipient is not None and (kind=='ack' or kind.startswith(('status-','followup-'))):
+    if recipient is not None and (kind=='ack' or kind.startswith(('status-','followup-','dunning-'))):
         if recipient.casefold() not in {x.casefold() for x in cfg.get('rec_customer_recipients',[])} and recipient!=destination:raise ValueError('Recipient not authorised')
         destination=recipient
     message = {'from':cfg['sender'],'to':[destination],'subject':subject,'text':body}
@@ -115,7 +119,7 @@ def run(connect, cfg, deliver=send, limit=10, *, invitations=False):
             details = None
             category = None
             recipient = None
-            if not invitations and (kind=='ack' or kind.startswith(('status-','followup-'))):
+            if not invitations and (kind=='ack' or kind.startswith(('status-','followup-','dunning-'))):
                 allowed=cfg.get('rec_customer_recipients',[])
                 saved=db.execute('SELECT recipient FROM contact_mail_recipient WHERE request_id=? AND kind=?',(rid,kind)).fetchone()
                 if saved:recipient=saved[0]
@@ -128,6 +132,10 @@ def run(connect, cfg, deliver=send, limit=10, *, invitations=False):
             if not invitations and kind=='ack':
                 template=db.execute('SELECT category FROM contact_ack_template WHERE request_id=?',(rid,)).fetchone()
                 if template:category=template[0]
+            if not invitations and kind.startswith('dunning-'):
+                details=billing_automation.details(db,kind)
+                if details is None:
+                    db.execute("UPDATE contact_mail SET state='FAILED' WHERE request_id=? AND kind=?",(rid,kind));counts['failed']+=1;continue
             if not invitations and kind=='internal':
                 db.execute('INSERT OR IGNORE INTO contact_mail_detail_mode VALUES (?,?)',(rid,int(attempts==0 and cfg.get('include_contact_details',False))))
                 mode=db.execute('SELECT enabled FROM contact_mail_detail_mode WHERE request_id=?',(rid,)).fetchone()[0]
