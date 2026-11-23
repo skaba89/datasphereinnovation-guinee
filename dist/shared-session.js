@@ -13,6 +13,51 @@ function renderSidebar(me){
  add('connexion.html','← Mon espace',true);
  for(const [resource,url,label] of items){const mode=me.permissions[resource]??me.permissions['*'];if(mode)add(url,label)}
  sidebar.append(nav);document.querySelector('header').after(sidebar);document.body.classList.add('app-shell');
+ renderTopbar(me);
+}
+
+/* Common top bar: logo, global search (CRM permission) and connected role. */
+function renderTopbar(me){
+ const header=document.querySelector('header');if(!header||header.querySelector('.topbar'))return;
+ if(!header.querySelector('img')){const logo=document.createElement('img');logo.src='dsig-mark.svg';logo.alt='DSIG';logo.width=100;header.prepend(logo)}
+ const bar=document.createElement('div');bar.className='topbar';
+ const can=r=>!!(me.permissions[r]??me.permissions['*']);
+ if(can('crm')){
+  const form=document.createElement('form'),label=document.createElement('label'),input=document.createElement('input'),panel=document.createElement('div');
+  form.className='global-search';form.setAttribute('role','search');
+  label.className='visually-hidden';label.textContent='Recherche globale';label.htmlFor='global-search';
+  input.id='global-search';input.type='search';input.placeholder='Rechercher un client, une opportunité… (Ctrl+K)';input.autocomplete='off';input.maxLength=80;
+  input.setAttribute('aria-controls','global-results');
+  panel.id='global-results';panel.className='global-results';panel.hidden=true;panel.setAttribute('aria-live','polite');
+  form.append(label,input,panel);bar.append(form);
+  const kinds={ORGANISATION:'Organisation',OPPORTUNITE:'Opportunité',DEMANDE:'Demande',DEVIS:'Devis'};
+  let timer=0,seq=0;
+  const close=()=>{panel.hidden=true;input.setAttribute('aria-expanded','false')};
+  async function run(){
+   const q=input.value.trim(),n=++seq;
+   if(q.length<2){panel.replaceChildren();close();return}
+   try{
+    const r=await fetch('/api/admin/crm/search?'+new URLSearchParams({q}),{headers:{Authorization:'Bearer session'}});const d=await r.json();
+    if(n!==seq)return;panel.replaceChildren();
+    if(!r.ok){panel.textContent=d.error||'Recherche indisponible.'}
+    else if(!d.items.length){const p=document.createElement('p');p.textContent='Aucun résultat pour « '+d.query+' ».';panel.append(p)}
+    else{const status=document.createElement('p');status.className='visually-hidden';status.textContent=d.items.length+' résultat(s)';const ul=document.createElement('ul');for(const x of d.items){const li=document.createElement('li'),a=document.createElement('a'),tag=document.createElement('span'),small=document.createElement('small');a.href=x.url;tag.className='result-kind';tag.textContent=kinds[x.kind]||x.kind;small.textContent=x.detail;a.append(tag,document.createTextNode(x.label),small);li.append(a);ul.append(li)}panel.append(status,ul)}
+    panel.hidden=false;input.setAttribute('aria-expanded','true');
+   }catch{if(n===seq){panel.textContent='Recherche indisponible.';panel.hidden=false}}
+  }
+  input.addEventListener('input',()=>{clearTimeout(timer);timer=setTimeout(run,250)});
+  form.addEventListener('submit',e=>{e.preventDefault();clearTimeout(timer);run()});
+  form.addEventListener('keydown',e=>{
+   const links=[...panel.querySelectorAll('a')],i=links.indexOf(document.activeElement);
+   if(e.key==='Escape'){close();input.focus()}
+   else if(e.key==='ArrowDown'&&links.length){e.preventDefault();links[Math.min(i+1,links.length-1)].focus()}
+   else if(e.key==='ArrowUp'&&links.length){e.preventDefault();i<=0?input.focus():links[i-1].focus()}
+  });
+  document.addEventListener('click',e=>{if(!form.contains(e.target))close()});
+  document.addEventListener('keydown',e=>{if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='k'){e.preventDefault();input.focus();input.select()}});
+ }
+ const who=document.createElement('span');who.className='topbar-role';who.textContent=me.role+(me.mfa_enabled?' · MFA active':'');
+ bar.append(who);header.append(bar);
 }
 
 
