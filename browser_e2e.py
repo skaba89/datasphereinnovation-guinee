@@ -1323,6 +1323,31 @@ class BrowserTests(unittest.TestCase):
         self.assertEqual(self.errors, [])
 
 
+    def test_cockpit_dashboard(self):
+        for i,need in enumerate(('Mission en régie','Data & IA')):
+            server.RATE.clear()
+            response=self.context.request.post('/api/requests',data={'nom':'Contact cockpit','org':f'Cockpit {i} fictif','email':f'cockpit{i}@example.invalid','besoin':need,'solution':'','message':'Fictif','consent':True,'website':''})
+            self.assertEqual(response.status,201)
+        self.seed('/api/admin/crm',{'company':'Cockpit gagné fictif','contact':'Contact fictif','email':'won@example.invalid','title':'Mission gagnée','mode':'CONSEIL','skills':'','consultant_id':'','next_action':'','followup':'','notes':'','status':'GAGNE'})
+        self.activate('commercial.cockpit','COMMERCIAL')
+        cockpit=self.page.locator('#cockpit')
+        expect(cockpit.get_by_role('heading',name='Tableau de bord')).to_be_visible()
+        expect(cockpit.locator('.kpi').filter(has_text='Demandes nouvelles')).to_contain_text('2')
+        expect(cockpit.locator('.kpi').filter(has_text='Opportunités ouvertes')).to_contain_text('2')
+        expect(cockpit.locator('.kpi').filter(has_text='Gagnées / en mission')).to_contain_text('1')
+        expect(cockpit.get_by_role('img',name='Pipeline commercial',exact=False)).to_have_attribute('aria-label','Pipeline commercial : Prospect 2, Qualifié 0, Proposition 0, Négociation 0, Gagné 1, En mission 0, Terminé 0, Perdu 0')
+        expect(cockpit.locator('.cockpit-list').first).to_contain_text('Cockpit 1 fictif · Data & IA')
+        expect(cockpit.locator('.kpi').filter(has_text='Alertes')).to_have_count(0)
+        self.assert_responsive('/connexion.html cockpit')
+        cockpit.locator('.kpi').filter(has_text='Opportunités ouvertes').click()
+        expect(self.page.locator('#kanban .kanban-card')).to_have_count(3)
+        self.page.goto('/connexion.html')
+        expect(cockpit.locator('.kpi').first).to_be_visible()
+        self.page.locator('#logout').click()
+        expect(self.page.locator('#login')).to_be_visible()
+        expect(cockpit.locator('.kpi')).to_have_count(0)
+        self.assertEqual(self.errors, [])
+
     def test_crm_kanban_pipeline(self):
         base={'contact':'Contact fictif','email':'kanban@example.invalid','mode':'CONSEIL','skills':'Python','consultant_id':'','next_action':'Relancer','notes':''}
         first=self.seed('/api/admin/crm',{**base,'company':'Kanban A fictif','title':'Opportunité Kanban A','followup':'2020-01-01','status':'PROSPECT'})
