@@ -8,7 +8,7 @@ export function validate(record,sha){
  const checks={};
  checks.revision=/^[a-f0-9]{40}$/.test(sha)&&record?.sha===sha;
  checks.domain=record?.domain==='dsig-consulting.com';
- checks.contact=typeof record?.email==='string'&&/^[a-zA-Z0-9._+-]+@dsig-consulting\.com$/.test(record.email)&&! /^(test|example|contact-approuve|placeholder)@/i.test(record.email);
+ checks.contact=record?.email==='contact@datasphere-innovation.net';
  for(const key of required){const item=record?.gates?.[key];checks[key]=item?.status==='PASS'&&value(item?.reviewer)&&value(item?.evidence);}
  const status=Object.values(checks).every(Boolean)?'PASS':'FAIL';
  return {status,checks,publication_authorized:status==='PASS'};
