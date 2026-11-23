@@ -495,6 +495,18 @@ class Handler(SimpleHTTPRequestHandler):
         self.json_response(201, {"id": request_id, "status": "NOUVELLE"})
 
 
+def automation_preview(today):
+    """Dry run of the REC customer follow-ups: counts only, the transaction is always rolled back."""
+    db = connect()
+    try:
+        db.execute('BEGIN IMMEDIATE')
+        counts = {'quote_followups': quote_followups.schedule(db, today), 'invoice_reminders': billing_automation.schedule(db, today)}
+    finally:
+        db.rollback()
+        db.close()
+    return counts
+
+
 def export_requests():
     with connect() as db:
         cursor = db.execute("SELECT * FROM requests ORDER BY created_at DESC")
@@ -544,10 +556,11 @@ def main():
     parser.add_argument('--send-contact-notifications', action='store_true', help='REC: traiter la file de mails avec configuration JSON sur stdin')
     parser.add_argument('--send-account-invitations', action='store_true', help='REC: traiter invitations de test')
     parser.add_argument('--contact-mail-status', action='store_true', help='Compteurs de la file de mails')
+    parser.add_argument('--automation-preview', action='store_true', help='Compter les relances (devis, factures) que la prochaine planification mettrait en file, sans rien écrire')
     parser.add_argument('--weekly-report', action='store_true', help='Aperçu du rapport hebdomadaire de direction, sans envoi')
     parser.add_argument('--send-weekly-report', action='store_true', help='REC: envoyer le rapport hebdomadaire (configuration JSON sur stdin), une fois par semaine ISO')
     args = parser.parse_args()
-    if sum(bool(x) for x in (args.export,args.backup,args.backup_encrypted,args.restore_isolated,args.check_db,args.rotate_documents,args.refresh_notifications,args.send_contact_notifications,args.send_account_invitations,args.contact_mail_status,args.weekly_report,args.send_weekly_report))>1:
+    if sum(bool(x) for x in (args.export,args.backup,args.backup_encrypted,args.restore_isolated,args.check_db,args.rotate_documents,args.refresh_notifications,args.send_contact_notifications,args.send_account_invitations,args.contact_mail_status,args.weekly_report,args.send_weekly_report,args.automation_preview))>1:
         parser.error('Une seule opération à la fois.')
     if args.send_contact_notifications or args.send_account_invitations or args.contact_mail_status:
         if os.environ.get('DSIG_ENV','REC') != 'REC':raise SystemExit('REC uniquement.')
@@ -565,6 +578,10 @@ def main():
             return
         try:print(weekly_report.send(connect,json.loads(sys.stdin.read(8192))))
         except (ValueError, OSError, sqlite3.Error, AttributeError):raise SystemExit('Configuration ou envoi du rapport indisponible.')
+        return
+    if args.automation_preview:
+        from datetime import date
+        print(json.dumps(automation_preview(date.today())))
         return
     if args.refresh_notifications:
         if os.environ.get('DSIG_ENV','REC') not in ('DEV','REC'):raise SystemExit('Production bloquée.')

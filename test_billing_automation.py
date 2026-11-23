@@ -116,6 +116,16 @@ class BillingAutomationTests(unittest.TestCase):
         contact_mail.run(server.connect, CFG | {'rec_customer_recipients': ['someone-else@example.invalid']}, deliver=fake)
         self.assertEqual(delivered[0][0], 'test@example.invalid')
 
+    def test_automation_preview_counts_without_writing(self):
+        with server.connect() as db:
+            before = db.execute('SELECT count(*) FROM contact_mail').fetchone()[0]
+        self.assertEqual(server.automation_preview(TODAY), {'quote_followups': 0, 'invoice_reminders': 1})
+        self.assertEqual(server.automation_preview(TODAY), {'quote_followups': 0, 'invoice_reminders': 1})
+        with server.connect() as db:
+            self.assertEqual(db.execute('SELECT count(*) FROM contact_mail').fetchone()[0], before)
+            self.assertEqual(db.execute('SELECT count(*) FROM billing_reminders').fetchone()[0], 0)
+            self.assertEqual(db.execute("SELECT count(*) FROM access_events WHERE actor=?", (billing_automation.ACTOR,)).fetchone()[0], 0)
+
     def test_render_bilingual_and_escaped(self):
         subject, plain, markup = billing_automation.render('ref', 'fr', 'FAC-<b>', '2026-11-10', 2)
         self.assertEqual(subject, '[REC TEST] DSIG — Rappel de règlement (second rappel)')
