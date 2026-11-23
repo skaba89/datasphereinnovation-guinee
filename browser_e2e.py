@@ -1022,8 +1022,8 @@ class BrowserTests(unittest.TestCase):
         code = self.page.locator('#recovery-codes').inner_text().splitlines()[0]
         self.page.locator('#dismiss-recovery').click()
         self.login('admin.e2e', code)
-        expect(self.page.locator('#modules a')).to_have_count(15)
-        for module in ('admin','crm','appointments','quotes','tenders','consultants','recruitment','missions','billing','direction','accounts','audit','documents','alerts','notifications'):
+        expect(self.page.locator('#modules a')).to_have_count(16)
+        for module in ('admin','crm','taches','appointments','quotes','tenders','consultants','recruitment','missions','billing','direction','accounts','audit','documents','alerts','notifications'):
             with self.subTest(module=module):
                 self.page.goto('/'+module+'.html')
                 if module=='audit':
@@ -1187,7 +1187,7 @@ class BrowserTests(unittest.TestCase):
             'notifications':'notifications.html',
         }
         nested = {
-            'crm': ('crm/catalogue','crm/organizations','crm/appointments','crm/saas-commercial','crm/saas-renewals','crm/customer-success','crm/customer-growth','crm/partners'),
+            'crm': ('crm/tasks','crm/catalogue','crm/organizations','crm/appointments','crm/saas-commercial','crm/saas-renewals','crm/customer-success','crm/customer-growth','crm/partners'),
             'billing': ('billing/expenses','billing/milestones','billing/contracts','billing/schedule','billing/receivables','billing/forecast','billing/planned-expenses','billing/saas-monthly','billing/partner-commissions','billing/partner-targets','billing/partner-costs','billing/reconciliation'),
             'direction': ('direction/saas-monthly','direction/saas-commercial','direction/saas-renewals','direction/customer-success','direction/customer-growth','direction/partners','direction/partner-commissions','direction/partner-profitability','direction/partner-targets','direction/financial-consolidation','direction/reconciliation'),
             'missions': ('missions/eligible',),
@@ -1214,7 +1214,7 @@ class BrowserTests(unittest.TestCase):
                 allowed = read | write
                 expected = {pages[resource] for resource in allowed}
                 if 'crm' in allowed:
-                    expected.add('appointments.html')
+                    expected.update({'appointments.html','taches.html'})
                 expect(self.page.locator('#modules a')).to_have_count(len(expected))
                 self.assertEqual(set(self.page.locator('#modules a').evaluate_all('(nodes) => nodes.map(a => a.getAttribute("href"))')), expected)
                 for resource in allowed:
@@ -1348,6 +1348,34 @@ class BrowserTests(unittest.TestCase):
         self.page.locator('#logout').click()
         expect(self.page.locator('#login')).to_be_visible()
         expect(cockpit.locator('.kpi')).to_have_count(0)
+        self.assertEqual(self.errors, [])
+
+    def test_commercial_tasks_from_kanban(self):
+        admin={'Authorization':'Bearer '+server.ADMIN_TOKEN}
+        opp={'company':'Tâches fictives','contact':'','email':'','title':'Projet tâches','mode':'CONSEIL','skills':'','consultant_id':'','next_action':'','followup':'','notes':'','status':'PROSPECT'}
+        self.assertEqual(self.context.request.post('/api/admin/crm',data=opp,headers=admin).status,201)
+        self.page.goto('/crm.html')
+        self.page.locator('#token').fill(server.ADMIN_TOKEN)
+        self.page.locator('#login-form button').click()
+        self.page.locator('#kanban').get_by_role('link',name='Nouvelle tâche pour Projet tâches').click()
+        self.page.locator('#token').fill(server.ADMIN_TOKEN)
+        self.page.locator('#login-form button').click()
+        expect(self.page.locator('#task-opportunity option:checked')).to_have_text('Tâches fictives · Projet tâches')
+        expect(self.page.locator('#task-form [name=title]')).to_be_focused()
+        self.page.locator('#task-form [name=title]').fill('Appeler pour cadrage')
+        self.page.locator('#task-form button').click()
+        expect(self.page.locator('#notice')).to_have_text('Tâche ajoutée.')
+        self.page.locator('#view').select_option('team')
+        item=self.page.locator('.task-list li').filter(has_text='Appeler pour cadrage')
+        expect(item).to_contain_text('Tâches fictives · Projet tâches')
+        expect(self.page.get_by_role('heading',name='Aujourd’hui (1)')).to_be_visible()
+        self.assert_responsive('/taches.html')
+        item.get_by_role('button',name='Reporter à demain : Appeler pour cadrage').click()
+        expect(self.page.get_by_role('heading',name='À venir (1)')).to_be_visible()
+        self.page.locator('.task-list li').filter(has_text='Appeler pour cadrage').get_by_role('button',name='Marquer comme faite : Appeler pour cadrage').click()
+        expect(self.page.locator('#task-groups')).to_contain_text('Aucune tâche à faire')
+        self.page.locator('#state').select_option('done')
+        expect(self.page.get_by_role('heading',name='Terminées (1)')).to_be_visible()
         self.assertEqual(self.errors, [])
 
     def test_weekly_report_page(self):
