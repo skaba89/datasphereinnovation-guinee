@@ -34,6 +34,7 @@
   if(item.followup){const late=item.followup<today()&&!['GAGNE','EN_MISSION','TERMINE','PERDU'].includes(item.status);const d=el('span','kanban-date'+(late?' late':''),(late?'En retard · ':'Relance ')+item.followup);meta.append(d)}
   if(item.qualification){const score=Object.entries(item.qualification).filter(([k,v])=>!k.startsWith('demo')&&v==='YES').length;meta.append(el('span','kanban-tag','Qualif. '+score+'/4'))}
   c.append(meta);
+  if(item.organization_id){const a=el('a','kanban-link','Fiche client');a.href='client.html?id='+encodeURIComponent(item.organization_id);a.setAttribute('aria-label','Fiche client '+(item.organization_name||item.company));c.append(a)}
   const label=el('label','kanban-move'),select=el('select');label.append(el('span','','Déplacer vers'),select);
   select.setAttribute('aria-label','Déplacer '+item.title+' vers une autre étape');
   for(const [v,t] of Object.entries(statuses)){const o=el('option','',t);o.value=v;o.selected=v===item.status;select.append(o)}

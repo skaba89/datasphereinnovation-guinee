@@ -1348,6 +1348,34 @@ class BrowserTests(unittest.TestCase):
         expect(cockpit.locator('.kpi')).to_have_count(0)
         self.assertEqual(self.errors, [])
 
+    def test_client_360_sheet(self):
+        admin={'Authorization':'Bearer '+server.ADMIN_TOKEN}
+        server.RATE.clear()
+        rid=self.context.request.post('/api/requests',data={'nom':'Contact fiche','org':'Fiche 360 fictive','email':'fiche@example.invalid','besoin':'Projet au forfait','solution':'','message':'Fictif','consent':True,'website':''}).json()['id']
+        self.assertEqual(self.context.request.patch('/api/admin/requests/'+rid,data={'status':'QUALIFIEE','previous':'NOUVELLE'},headers=admin).status,200)
+        self.assertEqual(self.context.request.post('/api/admin/requests/'+rid+'/convert',headers=admin).status,201)
+        self.page.goto('/crm.html')
+        self.page.locator('#token').fill(server.ADMIN_TOKEN)
+        self.page.locator('#login-form button').click()
+        expect(self.page.locator('#kanban').get_by_role('link',name='Fiche client Fiche 360 fictive')).to_be_visible()
+        self.page.locator('#org-rows').get_by_role('link',name='Fiche client Fiche 360 fictive').click()
+        self.page.locator('#token').fill(server.ADMIN_TOKEN)
+        self.page.locator('#login-form button').click()
+        expect(self.page.locator('h1')).to_have_text('Fiche 360 fictive')
+        expect(self.page.locator('#client-kpis .kpi').filter(has_text='Opportunités ouvertes')).to_contain_text('1')
+        expect(self.page.get_by_role('heading',name='Opportunités (1)')).to_be_visible()
+        expect(self.page.get_by_role('heading',name='Demandes reçues (1)')).to_be_visible()
+        timeline=self.page.locator('.timeline')
+        expect(timeline).to_contain_text('Demande web : Projet au forfait (Contact fiche)')
+        expect(timeline).to_contain_text('Projet au forfait → QUALIFIE')
+        self.assert_responsive('/client.html')
+        self.page.goto('/client.html?id=invalid')
+        self.page.locator('#token').fill(server.ADMIN_TOKEN)
+        self.page.locator('#login-form button').click()
+        expect(self.page.locator('#notice')).to_contain_text('Organisation non précisée')
+        expect(self.page.locator('#workspace')).to_be_hidden()
+        self.assertEqual(self.errors, [])
+
     def test_crm_kanban_pipeline(self):
         base={'contact':'Contact fictif','email':'kanban@example.invalid','mode':'CONSEIL','skills':'Python','consultant_id':'','next_action':'Relancer','notes':''}
         first=self.seed('/api/admin/crm',{**base,'company':'Kanban A fictif','title':'Opportunité Kanban A','followup':'2020-01-01','status':'PROSPECT'})
