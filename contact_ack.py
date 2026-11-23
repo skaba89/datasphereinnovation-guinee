@@ -3,6 +3,9 @@ from html import escape
 
 # Stable form values, translated labels and next step.
 TYPES = {
+    "Demande de devis": ("Demande de devis", "Quote request", "Nous analyserons votre besoin pour préparer une proposition chiffrée adaptée.", "We will review your needs to prepare a tailored, priced proposal."),
+    "Formation": ("Formation", "Training", "Nous étudierons les publics, les objectifs et le format de formation souhaités.", "We will review the audience, objectives and training format you need."),
+    "Autre demande": ("Autre demande", "Other request", "Nous orienterons votre demande vers l’interlocuteur approprié.", "We will route your request to the right contact."),
     "Mission en régie": ("Mission en régie", "Staff augmentation", "Nous analyserons les compétences, la disponibilité et la durée de la mission.", "We will review the skills, availability and duration required."),
     "Projet au forfait": ("Projet au forfait", "Fixed-price project", "Nous étudierons le périmètre, les livrables et les contraintes pour préparer un échange de cadrage.", "We will review the scope, deliverables and constraints to prepare a scoping discussion."),
     "Demande de démonstration": ("Demande de démonstration", "Product demonstration", "Notre équipe préparera une présentation de la solution demandée.", "Our team will prepare a presentation of the requested solution."),

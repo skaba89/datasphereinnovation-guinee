@@ -56,8 +56,11 @@ DB = Path(os.environ.get("DSIG_DB", ROOT / "data" / "requests.sqlite3"))
 NEEDS = {"Demande de démonstration", "Mission en régie", "Projet au forfait",
          "Plateforme Analytics / BI", "Transformation numérique", "Data & IA", "Partenariat",
          "Conseil & expertise", "Contrôle de gestion & finance", "Audit & contrôle interne",
-         "Avant-vente & appels d’offres", "Candidature spontanée", "Cybersécurité & résilience"}
+         "Avant-vente & appels d’offres", "Candidature spontanée", "Cybersécurité & résilience",
+         "Demande de devis", "Formation", "Autre demande"}
 SIZES = {"nom": 120, "org": 180, "email": 254, "besoin": 80, "solution": 160, "message": 4000}
+OPTIONAL = {"solution", "telephone"}
+PHONE = re.compile(r"\+?[0-9][0-9 ().-]{5,28}")
 RATE = defaultdict(list)
 RATE_LOCK = Lock()
 STATUSES = ("NOUVELLE", "QUALIFIEE", "EN_COURS", "GAGNEE", "PERDUE")
@@ -81,6 +84,9 @@ def connect():
         nom TEXT NOT NULL, org TEXT NOT NULL, email TEXT NOT NULL,
         besoin TEXT NOT NULL, solution TEXT NOT NULL, message TEXT NOT NULL,
         status TEXT NOT NULL DEFAULT 'NOUVELLE')""")
+    # V174: optional phone / WhatsApp (additive column; older images ignore it).
+    if 'telephone' not in {row[1] for row in db.execute('PRAGMA table_info(requests)')}:
+        db.execute("ALTER TABLE requests ADD COLUMN telephone TEXT NOT NULL DEFAULT ''")
     db.execute("""CREATE TABLE IF NOT EXISTS request_events (
         id INTEGER PRIMARY KEY, request_id TEXT NOT NULL REFERENCES requests(id),
         created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -118,7 +124,7 @@ def connect():
 def validate(payload):
     if not isinstance(payload, dict) or payload.get("website"):
         raise ValueError("Demande invalide.")
-    allowed = set(SIZES) | {"website", "consent", "language"}
+    allowed = set(SIZES) | {"website", "consent", "language", "telephone"}
     if set(payload) - allowed or payload.get("consent") is not True:
         raise ValueError("Veuillez confirmer la notice de confidentialité.")
     if payload.get('language','fr') not in ('fr','en'):
@@ -129,8 +135,12 @@ def validate(payload):
         if not isinstance(value, str) or len(value) > maximum or "\x00" in value:
             raise ValueError("Champ invalide : " + key)
         values[key] = value.strip()
-        if key != "solution" and not values[key]:
+        if key not in OPTIONAL and not values[key]:
             raise ValueError("Champ obligatoire : " + key)
+    phone = payload.get("telephone", "")
+    if not isinstance(phone, str) or len(phone) > 30 or (phone.strip() and not PHONE.fullmatch(phone.strip())):
+        raise ValueError("Numéro de téléphone invalide.")
+    values["telephone"] = phone.strip()
     if not re.fullmatch(r"[^\s@]+@[^\s@]+\.[^\s@]+", values["email"]):
         raise ValueError("Adresse e-mail invalide.")
     if values["besoin"] not in NEEDS:
@@ -494,8 +504,8 @@ class Handler(SimpleHTTPRequestHandler):
         request_id = str(uuid.uuid4())
         try:
             with connect() as db:
-                db.execute("INSERT INTO requests (id,nom,org,email,besoin,solution,message) VALUES (?,?,?,?,?,?,?)",
-                           (request_id, *(values[k] for k in SIZES)))
+                db.execute("INSERT INTO requests (id,nom,org,email,besoin,solution,message,telephone) VALUES (?,?,?,?,?,?,?,?)",
+                           (request_id, *(values[k] for k in SIZES), values.get("telephone", "")))
                 lead_automation.on_request(db, request_id, values)
                 if os.environ.get('DSIG_ENV','REC') == 'REC':
                     contact_mail.enqueue(db, request_id, payload.get('language','fr'), values['besoin'])
