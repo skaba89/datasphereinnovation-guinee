@@ -214,3 +214,7 @@ services:
 ### Retour arrière
 
 En cas d'échec, maintenir la REC fermée aux écritures. Examiner les migrations et la compatibilité descendante de la base avant de relancer l'ancienne image. Si compatible, remplacer uniquement la valeur image de l'overlay par le tag de rollback vérifié et relancer le même service avec les mêmes arguments Compose. Vérifier santé, intégrité et parcours métier. Si incompatible ou incertain, ne pas relancer l'ancienne image sur la base modifiée : restaurer d'abord dans une instance isolée avec les clés/version adéquates, réconcilier les changements depuis la sauvegarde et soumettre toute promotion à validation humaine. Aucune restauration automatique de la base active, aucun `down -v`, aucun nettoyage d'images automatique. Cette procédure ne déverrouille pas PROD.
+
+## V170 — Mise en recette des livraisons V162 à V169
+
+Procédure dédiée, contrôles et scénarios de recette : voir `REC_ROLLOUT_V170.md`. Nouvelle commande sans écriture `python server.py --automation-preview` : nombre de relances de devis et de factures que la prochaine planification mettrait en file. Aucune activation PROD.
