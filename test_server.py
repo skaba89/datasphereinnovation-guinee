@@ -251,7 +251,7 @@ class IntakeTests(unittest.TestCase):
         self.assertEqual(json.loads(body)['commercial_metrics'][0]['won'],0)
 
     def test_accessibility_assets_and_local_csp(self):
-        for name in ('index','en','expertise','confidentialite','privacy-en','mentions-legales','legal-en','connexion','admin','accounts','audit','billing','consultants','crm','direction','missions','my-activity','quotes','tenders','documents','alerts','notifications'):
+        for name in ('index','en','expertise','confidentialite','privacy-en','mentions-legales','legal-en','connexion','admin','accounts','audit','billing','consultants','crm','direction','missions','my-activity','quotes','tenders','documents','alerts','notifications','rapport','client'):
             with self.subTest(page=name):
                 s,b,h=self.request('GET','/'+name+'.html');self.assertEqual(s,200)
                 self.assertIn(b'class="skip-link"',b);self.assertIn(b'accessibility.css',b);self.assertIn(b'tabindex="-1"',b)
