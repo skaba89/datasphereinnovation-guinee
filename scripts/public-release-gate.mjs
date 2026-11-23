@@ -2,16 +2,19 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
+import {legalReadiness} from './legal-content.mjs';
 export const required=['ci_exact_sha','commercial_contact','legal_privacy_review','dns_proxy_review','rec_isolation','rollback_plan','owner_approval'];
 const value=s=>typeof s==='string'&&s.trim().length>=3&&!/^(todo|tbd|pending|example|placeholder|a confirmer|à confirmer|non validé)$/i.test(s.trim());
-export function validate(record,sha){
+// Publication stays blocked until every legal field is officially confirmed (V161).
+export function validate(record,sha,legal=legalReadiness()){
  const checks={};
+ checks.legal_identity=legal?.complete===true&&Array.isArray(legal.missing)&&legal.missing.length===0;
  checks.revision=/^[a-f0-9]{40}$/.test(sha)&&record?.sha===sha;
  checks.domain=record?.domain==='dsig-consulting.com';
  checks.contact=record?.email==='contact@datasphere-innovation.net';
  for(const key of required){const item=record?.gates?.[key];checks[key]=item?.status==='PASS'&&value(item?.reviewer)&&value(item?.evidence);}
  const status=Object.values(checks).every(Boolean)?'PASS':'FAIL';
- return {status,checks,publication_authorized:status==='PASS'};
+ return {status,checks,publication_authorized:status==='PASS',legal_missing:legal?.missing??null};
 }
 if(process.argv[1]&&path.resolve(process.argv[1])===fileURLToPath(import.meta.url)){
  try{

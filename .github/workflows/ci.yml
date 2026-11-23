@@ -33,6 +33,7 @@ jobs:
           node scripts/test-public-site.mjs
           node scripts/test-public-indexing.mjs
           node scripts/test-public-release-gate.mjs
+          node scripts/test-legal-compliance.mjs
           python scripts/test-monitor-public.py
   browser-acceptance:
     runs-on: ubuntu-latest
@@ -111,6 +112,10 @@ jobs:
           curl -fsS http://127.0.0.1:8080/healthz
           curl -fsS http://127.0.0.1:8080/ | grep 'rel="canonical" href="https://dsig-consulting.com/"'
           curl -fsS http://127.0.0.1:8080/sitemap.xml | grep 'https://dsig-consulting.com/en.html'
+          for route in /mentions-legales.html /legal-en.html /confidentialite.html /privacy-en.html; do
+            curl -fsS "http://127.0.0.1:8080$route" | grep 'content="noindex,nofollow"'
+          done
+          ! curl -fsS http://127.0.0.1:8080/sitemap.xml | grep -E 'mentions-legales|legal-en'
           for route in /accounts.html /connexion.html /api/admin/requests /.env /server.py; do
             test "$(curl -sS -o /dev/null -w '%{http_code}' "http://127.0.0.1:8080$route")" = 404
           done

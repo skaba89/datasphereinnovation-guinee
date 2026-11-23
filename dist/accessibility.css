@@ -61,3 +61,6 @@ button,input,select,textarea{font-family:inherit}
 .finance-search input{width:100%;min-height:44px}
 @media(max-width:850px){.dsig-pager{justify-content:flex-start}.table-wrap{width:100%}}
 @media(max-width:650px){#consultant-picker label{flex-basis:100%}.dsig-pager span{flex:1 1 100%;order:-1}.dsig-pager button,.dsig-pager select{flex:1 1 auto;min-width:0}.table-wrap td button{margin:3px 0}.app-sidebar nav a{overflow-wrap:anywhere}}
+/* V161 legal and privacy notices */
+.legal-list{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.4fr);gap:8px 20px;margin:0 0 24px}.legal-list dt{font-weight:600}.legal-list dd{margin:0;overflow-wrap:anywhere}.legal-pending{font-style:italic;color:#5b4a00}.policy .legal-status{border-left:4px solid #9a5b00;padding:12px 16px;background:#fff7e6;color:#3d2900}
+@media(max-width:600px){.legal-list{grid-template-columns:1fr;gap:2px}.legal-list dd{margin-bottom:10px}}
