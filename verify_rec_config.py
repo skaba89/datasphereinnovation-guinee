@@ -25,7 +25,10 @@ def validate(config, profile, expected_volume):
         checks['data_volume'] = (len(data) == 1 and data[0].get('type') == 'volume'
             and not data[0].get('read_only') and config.get('volumes',{}).get(data[0].get('source'),{}).get('name') == expected_volume)
         checks['scanner_mount'] = (len(mounts) == 2 and len(scanner) == 1 and scanner[0].get('type') == 'bind'
-            and scanner[0].get('read_only') is True and scanner[0].get('bind',{}).get('create_host_path') is False
+            # Docker Compose >= 2.40 omits boolean options set to false from its resolved JSON: an absent
+            # create_host_path means false. Only an explicit true (silent creation of an empty host
+            # directory in place of the clamd socket) is refused.
+            and scanner[0].get('read_only') is True and scanner[0].get('bind',{}).get('create_host_path',False) is False
             and env.get('DSIG_CLAMD_SOCKET') == '/run/dsig-clamav/clamd.ctl'
             and scanner[0].get('source','').startswith('/') and scanner[0].get('source') not in ('/','/var/run','/run','/etc'))
     except (KeyError, TypeError, AttributeError, IndexError):

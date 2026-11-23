@@ -35,6 +35,19 @@ class RecConfigTests(unittest.TestCase):
                 c=configuration()
                 change(c)
                 self.assertEqual(validate(c,'rec','dsig-rec_dsig-data')['status'],'FAIL')
+    def test_scanner_create_host_path(self):
+        # Compose 2.40 drops create_host_path=false from its JSON output: absent must be accepted.
+        c=configuration();del c['services']['dsig']['volumes'][1]['bind']
+        self.assertEqual(validate(c,'rec','dsig-rec_dsig-data')['status'],'PASS')
+        c=configuration();c['services']['dsig']['volumes'][1]['bind']={}
+        self.assertEqual(validate(c,'rec','dsig-rec_dsig-data')['status'],'PASS')
+        for unsafe in (True,'false',1,None):
+            with self.subTest(create_host_path=unsafe):
+                c=configuration();c['services']['dsig']['volumes'][1]['bind']={'create_host_path':unsafe}
+                result=validate(c,'rec','dsig-rec_dsig-data')
+                self.assertEqual((result['status'],result['checks']['scanner_mount']),('FAIL','FAIL'))
+        c=configuration();c['services']['dsig']['environment']['DSIG_CLAMD_SOCKET']='/tmp/clamd.ctl'
+        self.assertEqual(validate(c,'rec','dsig-rec_dsig-data')['checks']['scanner_mount'],'FAIL')
     def test_malformed(self):
         for c in (None,{},[],{'services':None}):
             self.assertEqual(validate(c,'rec','dsig-rec_dsig-data')['status'],'FAIL')
