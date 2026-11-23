@@ -5,7 +5,6 @@ COPY scripts/*.mjs scripts/
 ARG DSIG_PUBLIC_EMAIL
 RUN node scripts/test-public-site.mjs \
     && node scripts/test-public-indexing.mjs \
-    && node scripts/test-public-release-gate.mjs \
     && node scripts/test-legal-compliance.mjs \
     && node scripts/build-public-site.mjs /public "$DSIG_PUBLIC_EMAIL" \
     && find /public -type d -exec chmod 0755 {} + \

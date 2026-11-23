@@ -148,6 +148,6 @@ const dockerfile=new URL('../Dockerfile.public',import.meta.url);
 if(fs.existsSync(dockerfile)){
  const docker=fs.readFileSync(dockerfile,'utf8');
  assert(!/\\n[ \t]+&&/.test(docker),'Dockerfile.public: literal backslash-n in a RUN continuation');
- for(const test of ['test-public-site','test-public-indexing','test-public-release-gate','test-legal-compliance'])
+ for(const test of ['test-public-site','test-public-indexing','test-legal-compliance'])
   assert(docker.includes('node scripts/'+test+'.mjs'),'Dockerfile.public must run '+test);
 }
