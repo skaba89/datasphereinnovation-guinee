@@ -2,7 +2,7 @@
 const $=id=>document.getElementById(id);
 let token='',epoch=0;
 const STAGES={PROSPECT:'Prospect',QUALIFIE:'Qualifié',PROPOSITION:'Proposition',NEGOCIATION:'Négociation',GAGNE:'Gagné',EN_MISSION:'En mission',TERMINE:'Terminé',PERDU:'Perdu'};
-const KINDS={OPPORTUNITE:'Opportunité',RENDEZ_VOUS:'Rendez-vous',DEMANDE:'Demande',DEVIS:'Devis',MISSION:'Mission',FACTURE:'Facture',PAIEMENT:'Encaissement'};
+const KINDS={OPPORTUNITE:'Opportunité',RENDEZ_VOUS:'Rendez-vous',DEMANDE:'Demande',DEVIS:'Devis',MISSION:'Mission',FACTURE:'Facture',PAIEMENT:'Encaissement',EMAIL:'E-mail'};
 const el=(tag,cls,text)=>{const n=document.createElement(tag);if(cls)n.className=cls;if(text!==undefined&&text!==null)n.textContent=text;return n};
 const id=new URLSearchParams(location.search).get('id')||'';
 function notice(s){$('notice').textContent=s}
@@ -39,11 +39,13 @@ async function load(){
  if(d.missions)main.append(section('Missions',d.missions,(li,m)=>line(li,m.contract_ref,m.start_date+' → '+m.end_date,m.status),'Aucune mission.','missions.html'));
  if(d.invoices)main.append(section('Factures',d.invoices,(li,i)=>{const late=Number(i.balance)>0&&i.due_date<today;line(li,i.reference,i.amount+' '+i.currency+' · échéance '+i.due_date,Number(i.balance)>0?(late?'En retard · ':'Reste ')+i.balance+' '+i.currency:'Réglée',late)},'Aucune facture.','billing.html'));
  main.append(section('Rendez-vous',d.appointments,(li,a)=>line(li,a.title,a.starts.replace('T',' ').slice(0,16),a.status),'Aucun rendez-vous.','appointments.html'));
+ main.append(section('E-mails préparés',d.emails||[],(li,m)=>line(li,m.subject,m.recipient+' · '+m.actor+' · '+String(m.created_at).slice(0,16)),'Aucun e-mail préparé.'));
  side.append(el('h2','','Historique'));
  if(!d.timeline.length)side.append(el('p','client-empty','Aucun événement.'));
  else{const ul=el('ul','timeline');for(const e of d.timeline){const li=el('li');li.append(el('span','',e.label),el('small','',(KINDS[e.kind]||e.kind)+' · '+String(e.at).replace('T',' ').slice(0,16)));ul.append(li)}side.append(ul)}
  $('client-body').replaceChildren(main,side);
+ if(window.dsigClientEmail)window.dsigClientEmail(d.opportunities,token,()=>load().catch(err=>notice(err.message)));
 }
 
 $('login-form').onsubmit=async e=>{e.preventDefault();token=$('token').value;$('token').value='';try{await load();$('login').hidden=true;$('workspace').hidden=false;notice('Connecté.')}catch(err){token='';notice(err.message)}};
-$('logout').onclick=()=>{epoch++;token='';$('client-body').replaceChildren();$('client-kpis').replaceChildren();$('workspace').hidden=true;$('login').hidden=false;notice('Déconnecté.')};
+$('logout').onclick=()=>{epoch++;token='';$('client-body').replaceChildren();$('client-kpis').replaceChildren();if(window.dsigClientEmail)window.dsigClientEmail(null);$('workspace').hidden=true;$('login').hidden=false;notice('Déconnecté.')};
