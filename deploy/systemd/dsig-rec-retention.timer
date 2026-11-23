@@ -1,0 +1,9 @@
+[Unit]
+Description=DSIG REC monthly contact-request retention
+
+[Timer]
+OnCalendar=*-*-01 03:30:00 UTC
+Persistent=true
+
+[Install]
+WantedBy=timers.target

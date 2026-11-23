@@ -38,6 +38,7 @@ import client_overview
 import global_search
 import weekly_report
 import quote_followups
+import retention
 import billing_automation
 import contact_delivery
 import accounts
@@ -107,6 +108,10 @@ def connect():
     request_conversion.schema(db)
     lead_automation.schema(db)
     billing_automation.schema(db)
+    # Schema setup may seed rows (e.g. default email templates): commit it so callers start
+    # outside any transaction and can open their own (BEGIN IMMEDIATE).
+    if db.in_transaction:
+        db.commit()
     return db
 
 
@@ -422,6 +427,8 @@ class Handler(SimpleHTTPRequestHandler):
         transmission = re.fullmatch(r'/api/admin/quotes/([0-9a-f-]{36})/transmission', self.path)
         if transmission:
             return quotes.record_transmission(self,connect,transmission.group(1))
+        erasure = re.fullmatch(r'/api/admin/requests/([0-9a-f-]{36})/erase', self.path)
+        if erasure:return retention.handle_erasure(self,connect,erasure.group(1))
         conversion = re.fullmatch(r'/api/admin/requests/([0-9a-f-]{36})/convert', self.path)
         if conversion:
             return request_conversion.handle(self,connect,conversion.group(1))
@@ -558,11 +565,13 @@ def main():
     parser.add_argument('--send-contact-notifications', action='store_true', help='REC: traiter la file de mails avec configuration JSON sur stdin')
     parser.add_argument('--send-account-invitations', action='store_true', help='REC: traiter invitations de test')
     parser.add_argument('--contact-mail-status', action='store_true', help='Compteurs de la file de mails')
+    parser.add_argument('--purge-requests', action='store_true', help='Conservation : lister (aperçu) les demandes inactives à anonymiser ; ajouter --apply pour anonymiser')
+    parser.add_argument('--apply', action='store_true', help='Avec --purge-requests : appliquer l’anonymisation')
     parser.add_argument('--automation-preview', action='store_true', help='Compter les relances (devis, factures) que la prochaine planification mettrait en file, sans rien écrire')
     parser.add_argument('--weekly-report', action='store_true', help='Aperçu du rapport hebdomadaire de direction, sans envoi')
     parser.add_argument('--send-weekly-report', action='store_true', help='REC: envoyer le rapport hebdomadaire (configuration JSON sur stdin), une fois par semaine ISO')
     args = parser.parse_args()
-    if sum(bool(x) for x in (args.export,args.backup,args.backup_encrypted,args.restore_isolated,args.check_db,args.rotate_documents,args.refresh_notifications,args.send_contact_notifications,args.send_account_invitations,args.contact_mail_status,args.weekly_report,args.send_weekly_report,args.automation_preview))>1:
+    if sum(bool(x) for x in (args.export,args.backup,args.backup_encrypted,args.restore_isolated,args.check_db,args.rotate_documents,args.refresh_notifications,args.send_contact_notifications,args.send_account_invitations,args.contact_mail_status,args.weekly_report,args.send_weekly_report,args.automation_preview,args.purge_requests))>1:
         parser.error('Une seule opération à la fois.')
     if args.send_contact_notifications or args.send_account_invitations or args.contact_mail_status:
         if os.environ.get('DSIG_ENV','REC') != 'REC':raise SystemExit('REC uniquement.')
@@ -580,6 +589,14 @@ def main():
             return
         try:print(weekly_report.send(connect,json.loads(sys.stdin.read(8192))))
         except (ValueError, OSError, sqlite3.Error, AttributeError):raise SystemExit('Configuration ou envoi du rapport indisponible.')
+        return
+    if args.apply and not args.purge_requests:
+        parser.error('--apply exige --purge-requests.')
+    if args.purge_requests:
+        from datetime import date
+        with connect() as db:
+            db.execute('BEGIN IMMEDIATE')
+            print(json.dumps(retention.purge(db,date.today(),apply=args.apply)))
         return
     if args.automation_preview:
         from datetime import date
