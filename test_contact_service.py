@@ -184,6 +184,56 @@ class HardeningTests(unittest.TestCase):
         finally:
             server.server_close()
 
+    def test_slow_client_is_cut_and_slot_released(self):
+        import socket as socketlib
+        server = contact_service.BoundedServer(('127.0.0.1', 0), contact_service.Handler)
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        try:
+            with patch.object(contact_service, 'REQUEST_BUDGET', 1):
+                client = socketlib.create_connection(server.server_address, timeout=5)
+                client.sendall(b'POST /api/contact HTTP/1.1' + bytes([13, 10]) + b'Host: x' + bytes([13, 10]))
+                started = contact_service.time.monotonic()
+                closed = False
+                for _ in range(8):  # trickle one header byte every 0.4 s: each read alone stays under the socket timeout
+                    contact_service.time.sleep(0.4)
+                    try:
+                        client.sendall(b'X')
+                        if client.recv(1, socketlib.MSG_PEEK) == b'':
+                            closed = True
+                            break
+                    except (BlockingIOError, socketlib.timeout):
+                        continue
+                    except OSError:
+                        closed = True
+                        break
+                client.close()
+            self.assertTrue(closed, 'slow connection was not cut')
+            self.assertLess(contact_service.time.monotonic() - started, 4)
+            for _ in range(20):  # the handler slot comes back
+                if server.slots._value == server.MAX_HANDLERS:
+                    break
+                contact_service.time.sleep(0.1)
+            self.assertEqual(server.slots._value, server.MAX_HANDLERS)
+        finally:
+            server.shutdown()
+            server.server_close()
+
+    def test_errors_are_logged_without_ip(self):
+        import io
+        from contextlib import redirect_stderr
+        server = contact_service.BoundedServer(('127.0.0.1', 0), contact_service.Handler)
+        try:
+            buffer = io.StringIO()
+            with redirect_stderr(buffer):
+                try:
+                    raise BrokenPipeError('coupée')
+                except BrokenPipeError:
+                    server.handle_error(None, ('203.0.113.77', 4242))
+            self.assertEqual(buffer.getvalue(), 'connexion interrompue' + chr(10))
+        finally:
+            server.server_close()
+
     def test_service_uses_bounded_server(self):
         import inspect
         self.assertIn('BoundedServer((', inspect.getsource(contact_service.main))

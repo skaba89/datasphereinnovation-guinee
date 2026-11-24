@@ -97,6 +97,11 @@ jobs:
           chmod 0600 deploy/public/Caddyfile
           find dist -type f -exec chmod 0600 {} +
           docker build -f Dockerfile.public --build-arg DSIG_PUBLIC_EMAIL=contact@datasphere-innovation.net -t dsig-public:ci .
+      - name: Validate both public Caddyfiles with Caddy itself
+        run: |
+          node scripts/public-caddyfile.mjs deploy/public/Caddyfile enabled > Caddyfile.enabled
+          docker run --rm -v "$PWD/Caddyfile.enabled:/etc/caddy/Caddyfile:ro" caddy:2-alpine caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
+          docker run --rm --entrypoint caddy dsig-public:ci validate --config /etc/caddy/Caddyfile --adapter caddyfile
       - name: Public form build refused while legal data is incomplete
         run: |
           ! docker build -f Dockerfile.public --build-arg DSIG_PUBLIC_EMAIL=contact@datasphere-innovation.net --build-arg DSIG_PUBLIC_FORM=enabled -t dsig-public:form-refused . 2>build.log
