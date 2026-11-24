@@ -145,5 +145,49 @@ class ContactServiceTests(unittest.TestCase):
             contact_service.show(rid, contact_service.cipher())  # wrong key cannot decrypt
 
 
+
+class HardeningTests(unittest.TestCase):
+    def test_redirect_never_forwards_the_api_key(self):
+        from http.server import BaseHTTPRequestHandler
+        seen = []
+        class Thief(BaseHTTPRequestHandler):
+            def do_GET(self):  # urllib turns a redirected POST into a GET
+                seen.append(self.headers.get('Authorization'))
+                self.send_response(200); self.end_headers(); self.wfile.write(b'{"id":"stolen"}')
+            do_POST = do_GET
+            def log_message(self, *a): pass
+        thief = contact_service.ThreadingHTTPServer(('127.0.0.1', 0), Thief)
+        class Redirector(BaseHTTPRequestHandler):
+            def do_POST(self):
+                self.send_response(302); self.send_header('Location', f'http://127.0.0.1:{thief.server_address[1]}/'); self.end_headers()
+            def log_message(self, *a): pass
+        redirector = contact_service.ThreadingHTTPServer(('127.0.0.1', 0), Redirector)
+        threads = [threading.Thread(target=s.serve_forever, daemon=True) for s in (thief, redirector)]
+        for t in threads: t.start()
+        try:
+            with patch.object(contact_service, 'RESEND_URL', f'http://127.0.0.1:{redirector.server_address[1]}/emails'):
+                with self.assertRaises(OSError):  # HTTPError 302 surfaces; notify() turns it into a retry
+                    contact_service.resend({'sender': 's@dsig-consulting.com', 'recipients': ['d@example.invalid'], 'api_key': 're_secret'}, 'rid', 'S', 'T')
+            self.assertEqual(seen, [])  # the key never reached the redirect target
+        finally:
+            for s in (thief, redirector): s.shutdown(); s.server_close()
+
+    def test_bounded_server_refuses_beyond_capacity(self):
+        server = contact_service.BoundedServer(('127.0.0.1', 0), contact_service.Handler)
+        try:
+            for _ in range(server.MAX_HANDLERS):
+                self.assertTrue(server.slots.acquire(blocking=False))
+            closed = []
+            server.shutdown_request = lambda request: closed.append(request)
+            server.process_request('connexion-de-trop', ('203.0.113.1', 1))
+            self.assertEqual(closed, ['connexion-de-trop'])  # closed immediately, no thread started
+        finally:
+            server.server_close()
+
+    def test_service_uses_bounded_server(self):
+        import inspect
+        self.assertIn('BoundedServer((', inspect.getsource(contact_service.main))
+
+
 if __name__ == '__main__':
     unittest.main()

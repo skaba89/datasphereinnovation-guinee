@@ -31,7 +31,7 @@ import uuid
 from collections import defaultdict, deque
 from datetime import date, datetime, timedelta, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from threading import Lock
+from threading import BoundedSemaphore, Lock
 
 from cryptography.fernet import Fernet, InvalidToken
 
@@ -43,6 +43,7 @@ CLIENT_LIMIT, CLIENT_WINDOW = 5, 600        # 5 requests per client per 10 minut
 GLOBAL_LIMIT, GLOBAL_WINDOW = 60, 3600      # 60 requests per hour for the whole service
 DUPLICATE_WINDOW = 600                      # same email + message within 10 minutes -> same reference
 ERASED = '[supprimé]'
+RESEND_URL = 'https://api.resend.com/emails'
 ACK = {'fr': 'Votre demande a bien été reçue. Référence : ', 'en': 'Your request has been received. Reference: '}
 
 
@@ -125,6 +126,38 @@ class RateLimiter:
 
 
 LIMITER = RateLimiter()
+
+
+class BoundedServer(ThreadingHTTPServer):
+    """At most MAX_HANDLERS simultaneous requests; extra connections are closed at once."""
+    daemon_threads = True
+    MAX_HANDLERS = 16
+
+    def __init__(self, *args, **kwargs):
+        self.slots = BoundedSemaphore(self.MAX_HANDLERS)
+        super().__init__(*args, **kwargs)
+
+    def process_request(self, request, client_address):
+        if not self.slots.acquire(blocking=False):
+            self.shutdown_request(request)
+            return
+        try:
+            super().process_request(request, client_address)
+        except BaseException:
+            self.slots.release()
+            raise
+
+    def process_request_thread(self, request, client_address):
+        try:
+            super().process_request_thread(request, client_address)
+        finally:
+            self.slots.release()
+
+
+class NoRedirect(urllib.request.HTTPRedirectHandler):
+    """Never follow redirects: urllib would resend the Authorization header to the new location."""
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        return None
 
 
 def client_address(handler):
@@ -226,10 +259,10 @@ def notify(config, deliver=None, limit=20, now=None):
 
 def resend(config, rid, subject, text):
     message = {'from': config['sender'], 'to': config['recipients'], 'subject': subject, 'text': text}
-    req = urllib.request.Request('https://api.resend.com/emails', data=json.dumps(message).encode(), method='POST',
+    req = urllib.request.Request(RESEND_URL, data=json.dumps(message).encode(), method='POST',
                                  headers={'Authorization': 'Bearer ' + config['api_key'], 'Content-Type': 'application/json',
                                           'User-Agent': 'DSIG-CONTACT/1.0', 'Idempotency-Key': 'dsig-contact/' + rid})
-    with urllib.request.urlopen(req, timeout=15) as response:
+    with urllib.request.build_opener(NoRedirect).open(req, timeout=15) as response:
         identifier = json.loads(response.read(4096))['id']
     if not isinstance(identifier, str) or not re.fullmatch(r'[A-Za-z0-9-]{1,100}', identifier):
         raise ValueError('Invalid provider response')
@@ -318,7 +351,7 @@ def main(argv=None):
         else:
             cipher()  # refuse to start without a valid key
             connect().close()
-            server = ThreadingHTTPServer(('0.0.0.0' if os.environ.get('DSIG_CONTAINER') == '1' else '127.0.0.1', args.port), Handler)
+            server = BoundedServer(('0.0.0.0' if os.environ.get('DSIG_CONTAINER') == '1' else '127.0.0.1', args.port), Handler)
             server.serve_forever()
     except LookupError:
         raise SystemExit('Demande introuvable.')

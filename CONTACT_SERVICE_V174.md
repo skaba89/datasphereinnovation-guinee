@@ -27,6 +27,8 @@ Visiteur ──HTTPS──> Caddy partagé (inchangé) ──> conteneur vitrine
 | Indisponibilité mail | Demande enregistrée d'abord ; notification en file, réessais exponentiels (8 tentatives) ; le visiteur reçoit toujours sa référence |
 | Notification interne | Aucune donnée personnelle (type, date, référence) |
 | Traçabilité | Table `contact_audit` : réception, consultation, statut, effacement |
+| Saturation (V178) | 16 requêtes simultanées au plus ; au-delà, connexion fermée aussitôt (pas de fil d'exécution par connexion) |
+| Clé Resend (V178) | Aucune redirection suivie : la clé n'est jamais renvoyée vers une autre adresse |
 | Conservation / effacement | `--purge [--apply]` (`DSIG_CONTACT_RETENTION_DAYS`, défaut 1095, à valider), `--erase ID` |
 
 ## Exploitation (dans le conteneur, sans exposition réseau)
