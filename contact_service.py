@@ -23,6 +23,7 @@ import hashlib
 import json
 import os
 import re
+import socket
 import sqlite3
 import sys
 import time
@@ -31,7 +32,7 @@ import uuid
 from collections import defaultdict, deque
 from datetime import date, datetime, timedelta, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from threading import BoundedSemaphore, Lock
+from threading import BoundedSemaphore, Lock, Timer
 
 from cryptography.fernet import Fernet, InvalidToken
 
@@ -131,7 +132,7 @@ LIMITER = RateLimiter()
 class BoundedServer(ThreadingHTTPServer):
     """At most MAX_HANDLERS simultaneous requests; extra connections are closed at once."""
     daemon_threads = True
-    MAX_HANDLERS = 16
+    MAX_HANDLERS = 32
 
     def __init__(self, *args, **kwargs):
         self.slots = BoundedSemaphore(self.MAX_HANDLERS)
@@ -153,6 +154,10 @@ class BoundedServer(ThreadingHTTPServer):
         finally:
             self.slots.release()
 
+    def handle_error(self, request, client_address):
+        # The default prints a traceback with the client IP address: keep logs free of personal data.
+        sys.stderr.write('connexion interrompue' + chr(10))
+
 
 class NoRedirect(urllib.request.HTTPRedirectHandler):
     """Never follow redirects: urllib would resend the Authorization header to the new location."""
@@ -167,10 +172,32 @@ def client_address(handler):
     return chain[-hops] if len(chain) >= hops else handler.client_address[0]
 
 
+REQUEST_BUDGET = 10  # seconds per connection, whatever the client does (slow headers or body)
+
+
 class Handler(BaseHTTPRequestHandler):
     server_version = 'dsig-contact'
     sys_version = ''
-    timeout = 10
+    timeout = 5  # per socket read; REQUEST_BUDGET caps the whole connection (slowloris)
+
+    def setup(self):
+        super().setup()
+        self._deadline = Timer(REQUEST_BUDGET, self._expire)
+        self._deadline.daemon = True
+        self._deadline.start()
+
+    def _expire(self):
+        try:
+            self.connection.shutdown(socket.SHUT_RDWR)
+        except OSError:
+            pass
+
+    def finish(self):
+        self._deadline.cancel()
+        try:
+            super().finish()
+        except OSError:
+            pass
 
     def log_message(self, fmt, *args):  # no bodies, query strings or IP addresses
         sys.stderr.write('%s %s\n' % (self.command, args[1] if len(args) > 1 else '-'))

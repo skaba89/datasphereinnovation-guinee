@@ -56,6 +56,8 @@ try{
  assert(enabled.includes('reverse_proxy '+contactUpstream)&&enabled.includes('trusted_proxies static private_ranges'));
  assert(enabled.indexOf('handle @contact')<enabled.indexOf('@private path'),'contact route before the private 404 rule');
  assert(enabled.includes('method POST')&&enabled.includes('max_size 8KB'));
+ assert(enabled.includes('read_header 5s')&&enabled.includes('read_body 10s'),'slow clients cut by Caddy');
+ assert(/reverse_proxy dsig-contact:8090 \{\s+request_buffers 8KB\s+\}/.test(enabled),'body buffered before proxying');
  assert.throws(()=>publicCaddyfile(caddy,'on'));
  assert.throws(()=>publicCaddyfile('no markers','enabled'));
  console.log('PASS: public contact form gated by legal validation, Caddy route only when enabled');
