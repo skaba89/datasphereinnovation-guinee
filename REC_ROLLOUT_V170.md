@@ -91,6 +91,17 @@ Puis `sudo systemctl disable --now dsig-rec-weekly-report.timer` si le rapport a
 
 ## 7. Recette fonctionnelle (données fictives uniquement)
 
+### 7.0 Recette automatisée (V177)
+
+Sur le VPS, depuis le dépôt à jour (le jeton est lu dans le conteneur et n'est jamais affiché) :
+
+```bash
+cd /home/ubuntu/datasphereinnovation-guinee && git fetch origin && git merge --ff-only origin/main
+DSIG_ADMIN_TOKEN="$(docker exec dsig-rec-dsig-1 printenv DSIG_ADMIN_TOKEN)" python3 scripts/acceptance-rec.py
+```
+
+Le script déroule, avec des données fictives marquées `RECETTE-AUTO` : formulaire → demande + prospect CRM (téléphone, type Formation), recherche globale, tâche (création, report, clôture, verrou), devis → PDF sans coût interne, rapport hebdomadaire JSON/CSV, e-mail commercial (aperçu + historique), refus des API sans authentification, puis **droit à l'effacement** sur la demande fictive. Sortie JSON PASS/FAIL par étape, code retour 0 seulement si tout passe. Il refuse toute autre cible que la REC. Restent manuels : le téléphone (menu, barre, écran d'accueil) et la connexion MFA d'un compte DIRECTION.
+
 Cocher chaque ligne et conserver les preuves expurgées (captures sans données personnelles réelles).
 
 | # | Scénario | Résultat attendu |
