@@ -44,6 +44,14 @@ class AcceptanceScriptTests(unittest.TestCase):
         with server.connect() as db:
             self.assertEqual(db.execute("SELECT count(*) FROM requests WHERE email LIKE 'recette-auto-%'").fetchone()[0], 0)  # erased
 
+    def test_via_loopback_presents_the_rec_host(self):
+        # REC behind the shared proxy: the app only accepts its own Host and Origin.
+        with patch.dict(os.environ, {'DSIG_HTTPS_ORIGIN': 'https://rec.dsig-consulting.com'}):
+            direct = acceptance.run(acceptance.Client(self.base, server.ADMIN_TOKEN))
+            self.assertEqual(direct['status'], 'FAIL')  # wrong Host -> 403 Invalid host
+            report = acceptance.run(acceptance.Client('https://rec.dsig-consulting.com', server.ADMIN_TOKEN, via=self.base))
+        self.assertEqual(report['status'], 'PASS', report)
+
     def test_wrong_token_fails_without_crashing(self):
         report = acceptance.run(acceptance.Client(self.base, 'mauvais-jeton-' + 'y' * 32))
         self.assertEqual(report['status'], 'FAIL')
@@ -58,6 +66,7 @@ class AcceptanceScriptTests(unittest.TestCase):
             with patch.dict(os.environ, {'DSIG_ADMIN_TOKEN': server.ADMIN_TOKEN}):
                 self.assertEqual(acceptance.main(['--base', 'https://dsig-consulting.com']), 2)  # never the public/production site
                 self.assertEqual(acceptance.main(['--base', self.base]), 0)
+                self.assertEqual(acceptance.main(['--via', 'http://evil.example:80']), 2)  # loopback only
 
 
 if __name__ == '__main__':

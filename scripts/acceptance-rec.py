@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
 """Automated REC business acceptance (V177): runs the main scenarios through the HTTP API.
 
-Run by the operator ON THE VPS, never with real data:
-    DSIG_ADMIN_TOKEN="$(docker exec dsig-rec-dsig-1 printenv DSIG_ADMIN_TOKEN)" \
-        python3 scripts/acceptance-rec.py --base https://rec.dsig-consulting.com
+Run by the operator ON THE VPS, never with real data. The shared edge proxy only lets allow-listed
+addresses reach REC (the VPS itself is not one of them), so the script runs inside the REC container
+and talks to the application over loopback while presenting itself as the REC origin (--via); the
+token never leaves the container:
+    docker exec -i dsig-rec-dsig-1 python3 - --via http://127.0.0.1:8080 < scripts/acceptance-rec.py
 
 What it does (fictitious data tagged RECETTE-AUTO, one public submission only):
   1. public form (type Formation, phone) -> request stored, automatic CRM prospect
@@ -30,8 +32,9 @@ from datetime import date, timedelta
 
 
 class Client:
-    def __init__(self, base, token):
+    def __init__(self, base, token, via=None):
         self.base, self.token = base.rstrip('/'), token
+        self.via = via.rstrip('/') if via else None
 
     def call(self, method, path, payload=None, auth=True, origin=False, raw=False):
         headers = {'User-Agent': 'DSIG-REC-acceptance/1.0'}
@@ -43,7 +46,9 @@ class Client:
             headers['Authorization'] = 'Bearer ' + self.token
         if origin:
             headers['Origin'] = self.base
-        request = urllib.request.Request(self.base + path, data=data, method=method, headers=headers)
+        if self.via:  # loopback to the application, presenting the REC host (the app checks Host)
+            headers['Host'] = self.base.split('://', 1)[1]
+        request = urllib.request.Request((self.via or self.base) + path, data=data, method=method, headers=headers)
         try:
             with urllib.request.urlopen(request, timeout=20) as response:
                 body = response.read()
@@ -181,6 +186,7 @@ def run(client, today=None):
 def main(argv=None):
     parser = argparse.ArgumentParser(description='DSIG REC automated acceptance (fictitious data)')
     parser.add_argument('--base', default='https://rec.dsig-consulting.com')
+    parser.add_argument('--via', help='loopback address of the REC application, e.g. http://127.0.0.1:8080')
     args = parser.parse_args(argv)
     token = os.environ.get('DSIG_ADMIN_TOKEN', '')
     if len(token) < 32:
@@ -189,7 +195,10 @@ def main(argv=None):
     if not re.fullmatch(r'https://rec\.dsig-consulting\.com|http://127\.0\.0\.1:\d+', args.base):
         print('Base refusée : REC ou test local uniquement.', file=sys.stderr)
         return 2
-    report = run(Client(args.base, token))
+    if args.via and not re.fullmatch(r'http://127\.0\.0\.1:\d+', args.via):
+        print('--via refusé : boucle locale uniquement (http://127.0.0.1:PORT).', file=sys.stderr)
+        return 2
+    report = run(Client(args.base, token, args.via))
     print(json.dumps(report, ensure_ascii=False, indent=1))
     return 0 if report['status'] == 'PASS' else 1
 
