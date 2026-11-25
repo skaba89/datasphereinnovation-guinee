@@ -1,0 +1,73 @@
+{
+  "environment": "REC",
+  "commit": "",
+  "gates": {
+    "kits_verified": {
+      "status": "NOT_RUN",
+      "reviewer": "",
+      "file": "",
+      "sha256": ""
+    },
+    "independent_secrets": {
+      "status": "NOT_RUN",
+      "reviewer": "",
+      "file": "",
+      "sha256": ""
+    },
+    "independent_host": {
+      "status": "NOT_RUN",
+      "reviewer": "",
+      "file": "",
+      "sha256": ""
+    },
+    "data_snapshot_verified": {
+      "status": "NOT_RUN",
+      "reviewer": "",
+      "file": "",
+      "sha256": ""
+    },
+    "docker_sqlite_restore": {
+      "status": "NOT_RUN",
+      "reviewer": "",
+      "file": "",
+      "sha256": ""
+    },
+    "systemd_clamav": {
+      "status": "NOT_RUN",
+      "reviewer": "",
+      "file": "",
+      "sha256": ""
+    },
+    "caddy_https": {
+      "status": "NOT_RUN",
+      "reviewer": "",
+      "file": "",
+      "sha256": ""
+    },
+    "business_acceptance": {
+      "status": "NOT_RUN",
+      "reviewer": "",
+      "file": "",
+      "sha256": ""
+    },
+    "notifications_isolated": {
+      "status": "NOT_RUN",
+      "reviewer": "",
+      "file": "",
+      "sha256": ""
+    },
+    "automatic_backup_cycle": {
+      "status": "NOT_RUN",
+      "reviewer": "",
+      "file": "",
+      "sha256": ""
+    },
+    "rollback_exercised": {
+      "status": "NOT_RUN",
+      "reviewer": "",
+      "file": "",
+      "sha256": ""
+    }
+  },
+  "timing": null
+}
