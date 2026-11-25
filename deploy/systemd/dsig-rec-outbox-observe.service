@@ -1,0 +1,25 @@
+[Unit]
+Description=DSIG REC persistent incident observation
+After=docker.service
+Wants=docker.service
+
+[Service]
+Type=oneshot
+User=ubuntu
+StateDirectory=dsig-rec-outbox
+StateDirectoryMode=0700
+UMask=0077
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=read-only
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes
+StandardOutput=journal
+StandardError=journal
+Environment=PYTHONDONTWRITEBYTECODE=1
+Environment=DSIG_BACKUP_DIR=/home/ubuntu/dsig-backups
+ExecStart=/usr/bin/python3 /home/ubuntu/datasphereinnovation-guinee/scripts/rec_alert_outbox.py --state-dir /var/lib/dsig-rec-outbox --observe
+TimeoutStartSec=120

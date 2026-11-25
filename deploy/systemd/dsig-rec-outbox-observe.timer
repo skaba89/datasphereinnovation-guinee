@@ -1,0 +1,11 @@
+[Unit]
+Description=DSIG REC incident observation schedule
+
+[Timer]
+OnBootSec=3min
+OnUnitInactiveSec=5min
+AccuracySec=15s
+Unit=dsig-rec-outbox-observe.service
+
+[Install]
+WantedBy=timers.target
