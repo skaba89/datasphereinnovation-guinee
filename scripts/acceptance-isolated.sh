@@ -24,10 +24,20 @@ test ! -e "$stage/data"
 chmod -R a+rX "$stage"
 image="dsig-rec-suite:$commit"
 docker build -t "$image" "$stage"
+# Test-only derivative: host-side release tooling needs Git in the isolated suite.
+# Keep the deployable application image unchanged; install dependencies at build time only.
+test_image="dsig-rec-suite-git:$commit"
+docker build --build-arg BASE_IMAGE="$image" -t "$test_image" -f - "$stage" <<'DOCKERFILE'
+ARG BASE_IMAGE
+FROM ${BASE_IMAGE}
+USER root
+RUN apt-get update && apt-get install -y --no-install-recommends git && rm -rf /var/lib/apt/lists/*
+USER 10001:10001
+DOCKERFILE
 echo "Candidate commit: $commit"
 docker run --rm --network none --read-only --tmpfs /tmp:rw,nosuid,nodev,size=512m \
   --cap-drop ALL --security-opt no-new-privileges \
   --mount "type=bind,src=$stage,dst=/suite,readonly" \
   -e DSIG_ENV=REC -e PYTHONDONTWRITEBYTECODE=1 \
-  -w /tmp "$image" sh -ec 'cp -R /suite /tmp/suite; cd /tmp/suite; python -m unittest -v'
+  -w /tmp "$test_image" sh -ec 'cp -R /suite /tmp/suite; cd /tmp/suite; python -m unittest -v'
 echo 'PASS: isolated Python regression suite. Manual REC acceptance still required.'
