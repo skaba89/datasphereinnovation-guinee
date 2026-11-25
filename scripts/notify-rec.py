@@ -8,6 +8,7 @@ from email.message import EmailMessage
 
 UNITS = {
     'dsig-rec-b2.service',
+    'dsig-rec-backup-audit.service',
     'dsig-rec-backup.service',
     'dsig-rec-monitor.service',
     'test',
