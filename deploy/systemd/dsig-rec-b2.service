@@ -1,0 +1,19 @@
+[Unit]
+Description=DSIG REC encrypted backup export to Backblaze B2 (daily cycle)
+Wants=network-online.target
+After=network-online.target dsig-rec-backup.service
+OnFailure=dsig-rec-alert@%n.service
+
+[Service]
+Type=oneshot
+User=ubuntu
+WorkingDirectory=/home/ubuntu/datasphereinnovation-guinee
+Environment=HOME=/home/ubuntu
+UMask=0077
+# The b2 CLI reads its own authorised account (~/.config/b2) for user ubuntu: no secret here.
+ExecStart=/usr/bin/python3 /home/ubuntu/datasphereinnovation-guinee/scripts/export-rec-b2.py --scheduled
+# 03:05 + 45 min < 04:00: a successful run always publishes its proof inside the daily window.
+TimeoutStartSec=2700
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=dsig-rec-b2
