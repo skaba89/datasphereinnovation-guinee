@@ -6,6 +6,7 @@ the proof date a real export would have produced at the simulated time (test clo
 import contextlib
 import importlib.util
 import io
+import json
 import os
 import sys
 import tempfile
@@ -37,10 +38,14 @@ class FakeB2:
     def __init__(self):
         self.objects, self.uploads = {}, 0
         self.network_down = self.crash_after_upload = False
+        self.bucket = {'bucketName': 'dsig-backup', 'bucketType': 'allPrivate'}
 
-    def __call__(self, args, timeout=600):
+    def __call__(self, args, timeout=600, capture=False):
         if self.network_down:
             raise rec_b2.Failure('B2 injoignable ou délai dépassé')
+        if args[1:] == ['bucket', 'get', 'dsig-backup']:
+            assert capture
+            return json.dumps(self.bucket)
         if args[1:3] == ['file', 'download']:
             obj = args[-2].removeprefix('b2://dsig-backup/')
             if obj not in self.objects:
@@ -251,6 +256,14 @@ class ExportTests(unittest.TestCase):
         self.set_proof_time(archive, at(26, 3, 6))
         ok, out = self.run_audit(at(26, 4, 5))
         self.assertFalse(ok)
+
+    def test_public_or_unknown_bucket_blocks_upload(self):
+        archive = self.archive('20261126T021500')
+        for bucket in ({'bucketName': 'dsig-backup', 'bucketType': 'allPublic'}, {'bucketName': 'other', 'bucketType': 'allPrivate'}, None):
+            self.b2.bucket = bucket
+            with self.assertRaisesRegex(rec_b2.Failure, 'non privé'):
+                self.export('scheduled', at(26, 3, 5))
+        self.assertEqual((self.b2.uploads, self.proof(archive).exists()), (0, False))
 
     def test_network_error_writes_no_proof(self):
         archive = self.archive('20261126T021500')

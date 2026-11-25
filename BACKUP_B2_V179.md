@@ -50,10 +50,11 @@ l'archive. Son message final est « qualification manuelle (cycle quotidien NON 
    - S'il est **différent**, c'est un FAIL et **rien n'est écrasé**.
 4. **La preuve n'est écrite qu'après la vérification distante effective.** La publication est atomique :
    fichier temporaire, `fsync`, `os.replace`, puis `fsync` du répertoire.
-5. Aucun secret : la CLI `b2` utilise son propre compte autorisé (utilisateur `ubuntu`), et sa sortie est ignorée.
-6. Format des preuves inchangé : `<archive>.sha256` contenant l'empreinte hexadécimale. Une ligne
+5. **Bucket privé obligatoire** : `b2 bucket get` doit renvoyer `dsig-backup` de type `allPrivate`, sinon aucun envoi n'a lieu. C'est le contrôle repris du script installé sur le VPS.
+6. Aucun secret : la CLI `b2` utilise son propre compte autorisé (utilisateur `ubuntu`), et sa sortie est ignorée.
+7. Format des preuves inchangé : `<archive>.sha256` contenant l'empreinte hexadécimale. Une ligne
    `sha256sum` existante qui nomme la même archive reste acceptée.
-7. Nom d'objet : `rec/AAAA/MM/<archive>`, daté par l'archive elle-même.
+8. Nom d'objet : `rec/AAAA/MM/<archive>`, daté par l'archive elle-même.
 
 ## 3. Reprise après interruption
 
@@ -127,7 +128,7 @@ preuves écrites par V179 ont le format d'origine et restent lisibles. Aucune ar
 
 ## 6. Rapport de non-régression
 
-- **Nouveaux tests** : `test_export_rec_b2.py`, 25 tests. B2 est simulé en mémoire, les horloges sont injectées,
+- **Nouveaux tests** : `test_export_rec_b2.py`, 26 tests. B2 est simulé en mémoire, les horloges sont injectées,
   et `os.utime` est appelé uniquement dans les tests pour donner à la preuve la date qu'aurait produite l'export à
   l'heure simulée.
 - **Scénarios couverts** :
@@ -142,6 +143,7 @@ preuves écrites par V179 ont le format d'origine et restent lisibles. Aucune ar
   - archive vide ;
   - permissions incorrectes (archive et répertoire) ;
   - liens symboliques (archive, preuve) ;
+  - bucket public ou inconnu (aucun envoi) ;
   - erreur réseau, puis reprise ;
   - export concurrent ;
   - sauvegarde en cours ;

@@ -14,6 +14,7 @@ The b2 CLI uses its own authorised account; no secret is read, printed or passed
 """
 import argparse
 import errno
+import json
 import os
 import subprocess
 import sys
@@ -33,14 +34,26 @@ BUCKET = 'dsig-backup'
 UPLOAD_TIMEOUT = 1800
 
 
-def run_b2(args, timeout=600):
-    """Run the b2 CLI; its output is discarded (it may echo account details)."""
+def run_b2(args, timeout=600, capture=False):
+    """Run the b2 CLI. Output is never printed (it may echo account details); returned only if captured."""
     try:
-        result = subprocess.run(args, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=timeout, check=False)
+        result = subprocess.run(args, stdout=subprocess.PIPE if capture else subprocess.DEVNULL,
+                                stderr=subprocess.DEVNULL, timeout=timeout, check=False)
     except (OSError, subprocess.TimeoutExpired):
         raise Failure('B2 injoignable ou délai dépassé')
     if result.returncode != 0:
         raise Failure(f'commande B2 en échec (code {result.returncode})')
+    return result.stdout.decode('utf-8', 'replace') if capture else None
+
+
+def bucket_private(run, b2):
+    """Same control as the former VPS script: the bucket must exist and be allPrivate."""
+    try:
+        info = json.loads(run([str(b2), 'bucket', 'get', BUCKET], capture=True) or 'null')
+    except ValueError:
+        raise Failure('description du bucket illisible')
+    if not isinstance(info, dict) or info.get('bucketName') != BUCKET or info.get('bucketType') != 'allPrivate':
+        raise Failure('bucket B2 non privé : aucun envoi')
 
 
 class Lock:
@@ -102,6 +115,7 @@ def export(mode, now, name=None, backups=None, state=None, b2=None, run=run_b2):
         else:
             archive = rec_b2.select_manual(backups, now, name)
         rec_b2.check_archive(archive)
+        bucket_private(run, b2)
         digest = rec_b2.sha256(archive)
         marker = rec_b2.proof_path(state, archive.name)
         recorded = rec_b2.read_proof(marker, archive.name)
