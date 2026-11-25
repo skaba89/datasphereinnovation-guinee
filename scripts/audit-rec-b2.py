@@ -45,14 +45,14 @@ def timer_active(name):
         ["systemctl", "is-active", name]
     ) == "active"
 
-def audit():
+def audit(manual=False, archive_name=None):
     now = datetime.now(timezone.utc)
     day = now.strftime("%Y%m%d")
 
     print("=== AUDIT DSIG REC / B2 ===", flush=True)
     print("Date UTC :", day, flush=True)
 
-    if now.hour < 3 or (now.hour == 3 and now.minute < 30):
+    if not manual and (now.hour < 3 or (now.hour == 3 and now.minute < 30)):
         fail("audit lancé avant 03:30 UTC")
 
     for timer in (
@@ -63,8 +63,14 @@ def audit():
             fail("timer inactif : " + timer)
         print("PASS : timer", timer, flush=True)
 
-    if not BACKUPS.is_dir() or not STATE.is_dir():
+    if (BACKUPS.is_symlink() or STATE.is_symlink() or
+            not BACKUPS.is_dir() or not STATE.is_dir()):
         fail("répertoire de sauvegarde absent")
+
+    if archive_name is not None and (not manual or not re.fullmatch(
+        r"dsig-rec-\d{8}T\d{6}Z\.dsigbak", archive_name
+    )):
+        fail("nom archive invalide")
 
     candidates = []
     pattern = re.compile(
@@ -75,9 +81,18 @@ def audit():
         if p.is_symlink() or not p.is_file():
             continue
         match = pattern.fullmatch(p.name)
-        if match and "020000" <= match.group(1) < "030000":
+        if manual:
+            if re.fullmatch(r"dsig-rec-\d{8}T\d{6}Z\.dsigbak", p.name) and (
+                archive_name is None or p.name == archive_name
+            ):
+                candidates.append(p)
+        elif match and "020000" <= match.group(1) < "030000":
             candidates.append(p)
 
+    if manual:
+        if not candidates:
+            fail("archive manuelle absente")
+        candidates = [max(candidates)]
     if len(candidates) != 1:
         fail("une archive unique attendue entre 02:00 et 03:00 UTC")
 
@@ -104,7 +119,15 @@ def audit():
         marker.stat().st_mtime, timezone.utc
     )
 
-    if (
+    if manual:
+        try:
+            archive_time = datetime.strptime(archive.name[9:25], "%Y%m%dT%H%M%SZ").replace(tzinfo=timezone.utc)
+        except ValueError:
+            fail("date archive invalide")
+        if not archive_time <= marker_time <= now or marker.stat().st_mtime < archive.stat().st_mtime:
+            fail("horodatage preuve manuelle incohérent")
+        day = archive.name[9:17]
+    elif (
         marker_time.strftime("%Y%m%d") != day
         or not (3 <= marker_time.hour < 4)
     ):
@@ -137,7 +160,11 @@ def audit():
 
     print("PASS : objet distant et intégrité SHA256", flush=True)
     print("Archive :", archive.name, flush=True)
-    print("PASS : cycle quotidien REC vers B2 vérifié", flush=True)
+    if manual:
+        print("PASS : qualification manuelle REC vers B2 vérifiée", flush=True)
+        print("NOTE : cycle quotidien non certifié", flush=True)
+    else:
+        print("PASS : cycle quotidien REC vers B2 vérifié", flush=True)
 
 if __name__ == "__main__":
     if len(sys.argv) == 2 and sys.argv[1] == "--preflight":
@@ -149,5 +176,9 @@ if __name__ == "__main__":
         print("PASS : prérequis de l'audit")
     elif len(sys.argv) == 1:
         audit()
+    elif sys.argv[1:] == ["--manual"]:
+        audit(manual=True)
+    elif len(sys.argv) == 4 and sys.argv[1:3] == ["--manual", "--archive"]:
+        audit(manual=True, archive_name=sys.argv[3])
     else:
         fail("argument non reconnu")
