@@ -60,12 +60,12 @@ def timer_active(name):
     ) == "active"
 
 
-def local_checks(archive):
+def local_checks(archive, mode='scheduled'):
     """Archive and proof checks shared by both modes; returns (digest, marker)."""
     try:
         rec_b2.check_archive(archive)
         digest = sha256(archive)
-        marker = rec_b2.proof_path(STATE, archive.name)
+        marker = rec_b2.proof_path(STATE, archive.name, mode)
         recorded = rec_b2.read_proof(marker, archive.name)
     except rec_b2.Failure as error:
         fail(str(error))
@@ -153,7 +153,7 @@ def manual(name=None):
         archive = rec_b2.select_manual(BACKUPS, now, name)
     except rec_b2.Failure as error:
         fail(str(error))
-    digest, marker = local_checks(archive)
+    digest, marker = local_checks(archive, 'manual')
     marker_time = datetime.fromtimestamp(marker.stat().st_mtime, timezone.utc)
     if marker_time < rec_b2.archive_time(archive.name) or marker_time > now + rec_b2.FUTURE_TOLERANCE:
         fail("preuve B2 incohérente avec l'archive")

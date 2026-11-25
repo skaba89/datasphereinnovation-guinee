@@ -107,6 +107,8 @@ def remote_digest(run, b2, obj, directory, label):
 
 
 def export(mode, now, name=None, backups=None, state=None, b2=None, run=run_b2):
+    if mode not in ('scheduled', 'manual'):
+        raise Failure('mode export invalide')
     backups, state, b2 = Path(backups or BACKUPS), Path(state or STATE), Path(b2 or B2)
     rec_b2.private_dir(backups, 'répertoire de sauvegarde')
     rec_b2.private_dir(state, 'répertoire des preuves')
@@ -122,9 +124,11 @@ def export(mode, now, name=None, backups=None, state=None, b2=None, run=run_b2):
             archive = rec_b2.select_manual(backups, now, name)
         rec_b2.check_archive(archive)
         digest = rec_b2.sha256(archive)
-        marker = rec_b2.proof_path(state, archive.name)
+        marker = rec_b2.proof_path(state, archive.name, mode)
         recorded = rec_b2.read_proof(marker, archive.name)
-        if recorded is not None and recorded != digest:
+        known = [rec_b2.read_proof(rec_b2.proof_path(state, archive.name, kind), archive.name)
+                 for kind in ('scheduled', 'manual', 'legacy')]
+        if any(value is not None and value != digest for value in known):
             raise Failure('preuve existante incohérente avec l\'archive : rien n\'est écrasé')
         obj = rec_b2.object_name(archive.name)
         bucket = json_response(run, [str(b2), 'bucket', 'get', BUCKET])
@@ -132,7 +136,7 @@ def export(mode, now, name=None, backups=None, state=None, b2=None, run=run_b2):
             raise Failure('bucket non privé ou invalide')
         with tempfile.TemporaryDirectory(prefix='dsig-b2-export-') as tmp:
             present = remote_present(run, b2, obj)
-            if not present and recorded is not None:
+            if not present and any(value is not None for value in known):
                 raise Failure('objet distant absent malgré preuve existante')
             remote = remote_digest(run, b2, obj, tmp, 'before.dsigbak') if present else None
             if remote is not None and remote != digest:
@@ -144,11 +148,11 @@ def export(mode, now, name=None, backups=None, state=None, b2=None, run=run_b2):
                     raise Failure('vérification distante en échec après envoi : aucune preuve écrite')
         if rec_b2.sha256(archive) != digest:
             raise Failure('archive locale modifiée pendant export')
-        # Proof only after an effective remote verification. The scheduled cycle (re)publishes today's
-        # proof; a manual run never refreshes an existing one (it would move a daily proof's date).
+        # Proof only after effective remote verification, in the mode-specific namespace.
+        # Manual exports cannot create or refresh a scheduled proof.
         proof = 'inchangée'
         if mode == 'scheduled' or recorded is None:
-            rec_b2.write_proof(state, archive.name, digest)
+            rec_b2.write_proof(state, archive.name, digest, mode)
             proof = 'publiée'
     return {'archive': archive.name, 'object': obj, 'sha256': digest, 'uploaded': uploaded, 'proof': proof,
             'in_daily_window': mode == 'scheduled' and now.hour < rec_b2.PROOF_HOURS[1]}

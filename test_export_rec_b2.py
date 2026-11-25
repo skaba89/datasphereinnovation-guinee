@@ -93,11 +93,11 @@ class ExportTests(unittest.TestCase):
     def export(self, mode, now, name=None):
         return exporter.export(mode, now, name, self.backups, self.state, self.b2bin, self.b2)
 
-    def proof(self, path):
-        return rec_b2.proof_path(self.state, path.name)
+    def proof(self, path, mode='scheduled'):
+        return rec_b2.proof_path(self.state, path.name, mode)
 
-    def set_proof_time(self, path, when):
-        os.utime(self.proof(path), (when.timestamp(), when.timestamp()))
+    def set_proof_time(self, path, when, mode='scheduled'):
+        os.utime(self.proof(path, mode), (when.timestamp(), when.timestamp()))
 
     def run_audit(self, now, argv=()):
         class Clock(datetime):
@@ -172,7 +172,7 @@ class ExportTests(unittest.TestCase):
     def test_manual_qualification_outside_window(self):
         archive = self.archive('20261126T095000')
         self.assertEqual(self.export('manual', at(26, 10, 0))['archive'], archive.name)
-        self.set_proof_time(archive, at(26, 10, 1))
+        self.set_proof_time(archive, at(26, 10, 1), 'manual')
         ok, out = self.run_audit(at(26, 10, 5), ['--manual'])
         self.assertTrue(ok, out)
         self.assertIn('cycle quotidien NON validé', out)
@@ -193,7 +193,7 @@ class ExportTests(unittest.TestCase):
         self.export('scheduled', at(26, 3, 5))
         self.set_proof_time(daily, at(26, 3, 6))
         result = self.export('manual', at(26, 11, 0), daily.name)
-        self.assertEqual((result['uploaded'], result['proof']), (False, 'inchangée'))
+        self.assertEqual((result['uploaded'], result['proof']), (False, 'publiée'))
         self.assertEqual(rec_b2.proof_time(self.proof(daily)), at(26, 3, 6))
         self.assertTrue(self.run_audit(at(26, 11, 5))[0])
 
@@ -205,6 +205,38 @@ class ExportTests(unittest.TestCase):
         self.archive('20261126T230000')
         with self.assertRaisesRegex(rec_b2.Failure, 'futur'):
             self.export('manual', at(26, 10, 0))
+
+    def test_manual_in_daily_window_cannot_certify_daily(self):
+        daily = self.archive('20261126T021500')
+        self.export('manual', at(26, 3, 10), daily.name)
+        self.set_proof_time(daily, at(26, 3, 11), 'manual')
+        self.assertFalse(self.proof(daily).exists())
+        self.assertFalse(self.run_audit(at(26, 4, 5))[0])
+        self.assertTrue(self.run_audit(at(26, 4, 5), ['--manual', '--archive', daily.name])[0])
+        self.assertFalse(self.export('scheduled', at(26, 3, 15))['uploaded'])
+        self.set_proof_time(daily, at(26, 3, 16))
+        self.assertTrue(self.run_audit(at(26, 4, 5))[0])
+
+    def test_legacy_proof_not_daily_evidence(self):
+        daily = self.archive('20261126T021500')
+        self.b2.objects[rec_b2.object_name(daily.name)] = daily.read_bytes()
+        old = self.proof(daily, 'legacy')
+        old.write_text(rec_b2.sha256(daily) + '\n')
+        old.chmod(0o600)
+        self.set_proof_time(daily, at(26, 3, 10), 'legacy')
+        self.assertFalse(self.run_audit(at(26, 4, 5))[0])
+        self.assertFalse(self.export('manual', at(26, 10, 0), daily.name)['uploaded'])
+        self.assertFalse(self.proof(daily).exists())
+        self.assertEqual(rec_b2.proof_time(old), at(26, 3, 10))
+
+    def test_legacy_proof_prevents_reupload_of_missing_object(self):
+        daily = self.archive('20261126T021500')
+        old = self.proof(daily, 'legacy')
+        old.write_text(rec_b2.sha256(daily) + '\n')
+        old.chmod(0o600)
+        with self.assertRaisesRegex(rec_b2.Failure, 'absent malgré preuve'):
+            self.export('manual', at(26, 10, 0), daily.name)
+        self.assertEqual(self.b2.uploads, 0)
 
     # --- proofs ------------------------------------------------------------------------------------
 
@@ -228,7 +260,7 @@ class ExportTests(unittest.TestCase):
     def test_manual_proof_older_than_archive_is_incoherent(self):
         archive = self.archive('20261126T095000')
         self.export('manual', at(26, 10, 0))
-        self.set_proof_time(archive, at(26, 9, 0))
+        self.set_proof_time(archive, at(26, 9, 0), 'manual')
         ok, out = self.run_audit(at(26, 10, 5), ['--manual'])
         self.assertFalse(ok)
         self.assertIn('incohérente', out)
@@ -338,8 +370,8 @@ class ExportTests(unittest.TestCase):
         target = self.state / 'elsewhere'
         target.write_text(rec_b2.sha256(real) + '\n')
         target.chmod(0o600)
-        self.proof(real).unlink()
-        self.proof(real).symlink_to(target)
+        self.proof(real, 'manual').unlink()
+        self.proof(real, 'manual').symlink_to(target)
         self.assertFalse(self.run_audit(at(26, 10, 10), ['--manual'])[0])
         with self.assertRaisesRegex(rec_b2.Failure, 'lien symbolique'):
             self.export('manual', at(26, 10, 10))
