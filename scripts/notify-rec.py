@@ -6,7 +6,12 @@ import ssl
 import sys
 from email.message import EmailMessage
 
-UNITS = {'dsig-rec-backup.service', 'dsig-rec-monitor.service', 'test'}
+UNITS = {
+    'dsig-rec-b2.service',
+    'dsig-rec-backup.service',
+    'dsig-rec-monitor.service',
+    'test',
+}
 ADDRESS = re.compile(r'[A-Za-z0-9.!#$%&\'*+/=?^_`{|}~-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}')
 
 
