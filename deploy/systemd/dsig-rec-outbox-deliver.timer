@@ -1,0 +1,11 @@
+[Unit]
+Description=DSIG REC alert delivery schedule
+
+[Timer]
+OnBootSec=4min
+OnUnitInactiveSec=1min
+AccuracySec=10s
+Unit=dsig-rec-outbox-deliver.service
+
+[Install]
+WantedBy=timers.target
