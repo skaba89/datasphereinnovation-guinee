@@ -54,7 +54,7 @@ class TestDailyB2Audit(unittest.TestCase):
         self.archive.write_bytes(CONTENT)
         self.archive.chmod(0o600)
 
-        self.marker = self.state / (NAME + ".sha256")
+        self.marker = self.state / (NAME + ".scheduled.sha256")
         self.marker.write_text(DIGEST + "\n")
         self.marker.chmod(0o600)
 

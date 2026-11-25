@@ -6,8 +6,8 @@ always designate the same archive:
     02:15), exported and proven between 03:00 and 04:00 UTC;
   * manual qualification: the most recent archive (or one named explicitly), at most 24 h old, at any
     time. It never counts as a daily cycle.
-Proof files keep the existing format: <state>/<archive>.sha256 containing the hex SHA256 (a
-`sha256sum` line naming the same archive is also accepted). Never handles B2 secrets.
+V185 separates manual and scheduled proofs. Legacy unqualified markers are read only as
+integrity safeguards, never as evidence of a scheduled cycle. Never handles B2 secrets.
 """
 import hashlib
 import os
@@ -111,8 +111,11 @@ def check_archive(path):
         raise Failure('permissions archive trop ouvertes')
 
 
-def proof_path(state, name):
-    return Path(state) / (name + '.sha256')
+def proof_path(state, name, mode='scheduled'):
+    if mode not in ('scheduled', 'manual', 'legacy'):
+        raise Failure('mode de preuve invalide')
+    suffix = '.sha256' if mode == 'legacy' else '.' + mode + '.sha256'
+    return Path(state) / (name + suffix)
 
 
 def read_proof(marker, name):
@@ -133,8 +136,10 @@ def read_proof(marker, name):
     return fields[0]
 
 
-def write_proof(state, name, digest):
+def write_proof(state, name, digest, mode='scheduled'):
     """Atomically publish <state>/<name>.sha256 (0600). Call only after remote verification."""
+    if mode not in ('scheduled', 'manual'):
+        raise Failure('écriture de preuve historique interdite')
     if not HEX64.fullmatch(digest):
         raise Failure('empreinte invalide')
     fd, tmp = tempfile.mkstemp(prefix='.proof-', dir=state)
@@ -144,7 +149,7 @@ def write_proof(state, name, digest):
             out.flush()
             os.fsync(out.fileno())
         os.chmod(tmp, 0o600)
-        os.replace(tmp, proof_path(state, name))
+        os.replace(tmp, proof_path(state, name, mode))
     except BaseException:
         Path(tmp).unlink(missing_ok=True)
         raise
