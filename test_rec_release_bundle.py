@@ -1,5 +1,6 @@
 import hashlib
 import json
+import os
 from pathlib import Path
 import subprocess
 import tempfile
@@ -41,6 +42,16 @@ class ReleaseBundleTests(unittest.TestCase):
             self.assertEqual(hashlib.sha256(file.read_bytes()).hexdigest(), info["sha256"])
             self.assertEqual(file.stat().st_mode & 0o777, 0o600)
         self.assertEqual(json.loads((folder / "manifest.json").read_text())["status"], "STAGED_ONLY")
+
+    def test_all_nested_directories_private_with_permissive_umask(self):
+        previous = os.umask(0o022)
+        try:
+            report = prepare(self.repo, self.commit, self.out, list(GROUPS))
+        finally:
+            os.umask(previous)
+        folder = self.out / report["bundle"]
+        for directory in [folder] + [p for p in folder.rglob("*") if p.is_dir()]:
+            self.assertEqual(directory.stat().st_mode & 0o777, 0o700, str(directory))
 
     def test_dependencies(self):
         with self.assertRaises(ValueError):
