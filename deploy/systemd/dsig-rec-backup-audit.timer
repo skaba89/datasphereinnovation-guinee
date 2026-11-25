@@ -1,0 +1,11 @@
+[Unit]
+Description=DSIG REC daily B2 audit schedule (after the 03:00-04:00 UTC proof window)
+
+[Timer]
+OnCalendar=*-*-* 04:05:00 UTC
+Persistent=true
+AccuracySec=15s
+Unit=dsig-rec-backup-audit.service
+
+[Install]
+WantedBy=timers.target
