@@ -62,8 +62,19 @@ def committed_file(repo, commit, path):
     return mode, data
 
 
+def ensure_private_dir(path):
+    # pathlib mkdir(parents=True) applies mode only to the leaf.
+    # Create every missing ancestor explicitly, independent of a permissive umask.
+    try:
+        private_dir(path)
+    except FileNotFoundError:
+        ensure_private_dir(path.parent)
+        path.mkdir(mode=0o700)
+        private_dir(path)
+
+
 def write_private(path, data):
-    path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+    ensure_private_dir(path.parent)
     with os.fdopen(os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600), "wb") as out:
         out.write(data)
         out.flush()
