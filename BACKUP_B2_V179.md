@@ -155,3 +155,7 @@ preuves écrites par V179 ont le format d'origine et restent lisibles. Aucune ar
   `backup-rec.sh` et ses unités ne sont pas modifiés.
 - **Durcissement de l'audit** : les répertoires de sauvegarde et de preuves doivent être en `0700`, sans lien
   symbolique. La preuve doit contenir une empreinte valide. Ce contrôle est vérifié à l'étape 0.
+
+## Réconciliation PR #189
+
+Conservation de l'implémentation Python V179 et de ses unités. L'export contrôle le bucket privé, consulte l'inventaire avant tout upload, refuse les erreurs de lecture et l'absence d'objet malgré une preuve existante. Une preuve quotidienne future est refusée. Le fichier Bash concurrent et son drop-in ne sont pas installés. La politique manuelle V179 (24 h selon le nom de l'archive) reste à valider par l'exploitant avant déploiement, car elle diffère du seuil historique de 3 h. Le rappel périodique des incidents persistants reste à qualifier. Aucun GO PROD.

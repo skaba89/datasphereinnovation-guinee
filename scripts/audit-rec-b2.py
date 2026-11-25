@@ -133,6 +133,7 @@ def audit():
     if (
         marker_time.strftime("%Y%m%d") != day
         or not (start <= marker_time.hour < end)
+        or marker_time > now
     ):
         fail("preuve B2 non créée pendant la fenêtre prévue")
 

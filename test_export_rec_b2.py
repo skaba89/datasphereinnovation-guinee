@@ -6,6 +6,7 @@ the proof date a real export would have produced at the simulated time (test clo
 import contextlib
 import importlib.util
 import io
+import json
 import os
 import sys
 import tempfile
@@ -36,12 +37,20 @@ def at(day, hour, minute=0):
 class FakeB2:
     def __init__(self):
         self.objects, self.uploads = {}, 0
-        self.network_down = self.crash_after_upload = False
+        self.network_down = self.crash_after_upload = self.download_failure = False
+        self.private = True
 
     def __call__(self, args, timeout=600):
         if self.network_down:
             raise rec_b2.Failure('B2 injoignable ou délai dépassé')
+        if args[1:3] == ['bucket', 'get']:
+            return json.dumps({'bucketName': 'dsig-backup', 'bucketType': 'allPrivate' if self.private else 'allPublic'})
+        if args[1:2] == ['ls']:
+            prefix = args[-1].removeprefix('b2://dsig-backup/')
+            return json.dumps([{'fileName': name, 'action': 'upload'} for name in self.objects if name.startswith(prefix)])
         if args[1:3] == ['file', 'download']:
+            if self.download_failure:
+                raise rec_b2.Failure('téléchargement en échec')
             obj = args[-2].removeprefix('b2://dsig-backup/')
             if obj not in self.objects:
                 raise rec_b2.Failure('commande B2 en échec (code 1)')
@@ -261,6 +270,36 @@ class ExportTests(unittest.TestCase):
         self.assertEqual(list(self.state.glob('.proof-*')), [])
         self.b2.network_down = False  # the next run recovers on its own
         self.assertEqual(self.export('scheduled', at(26, 3, 30))['proof'], 'publiée')
+
+    def test_existing_object_download_failure_never_uploads(self):
+        archive = self.archive('20261126T021500')
+        self.b2.objects[rec_b2.object_name(archive.name)] = archive.read_bytes()
+        self.b2.download_failure = True
+        with self.assertRaises(rec_b2.Failure):
+            self.export('scheduled', at(26, 3, 5))
+        self.assertEqual(self.b2.uploads, 0)
+        self.assertFalse(self.proof(archive).exists())
+
+    def test_public_bucket_is_refused(self):
+        archive = self.archive('20261126T021500')
+        self.b2.private = False
+        with self.assertRaisesRegex(rec_b2.Failure, 'non privé'):
+            self.export('scheduled', at(26, 3, 5))
+        self.assertEqual(self.b2.uploads, 0)
+        self.assertFalse(self.proof(archive).exists())
+
+    def test_missing_remote_with_proof_is_refused(self):
+        archive = self.archive('20261126T021500')
+        rec_b2.write_proof(self.state, archive.name, rec_b2.sha256(archive))
+        with self.assertRaisesRegex(rec_b2.Failure, 'absent malgré preuve'):
+            self.export('scheduled', at(26, 3, 5))
+        self.assertEqual(self.b2.uploads, 0)
+
+    def test_future_daily_proof_is_refused(self):
+        archive = self.archive('20261126T021500')
+        self.export('scheduled', at(26, 3, 5))
+        self.set_proof_time(archive, at(26, 3, 59))
+        self.assertFalse(self.run_audit(at(26, 3, 35))[0])
 
     def test_resume_after_interrupted_upload(self):
         archive = self.archive('20261126T021500')

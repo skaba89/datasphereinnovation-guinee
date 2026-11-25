@@ -41,7 +41,10 @@ def archive_time(name):
     match = ARCHIVE.fullmatch(name)
     if not match:
         raise Failure('nom d\'archive invalide')
-    return datetime.strptime(match.group(1) + match.group(2), '%Y%m%d%H%M%S').replace(tzinfo=timezone.utc)
+    try:
+        return datetime.strptime(match.group(1) + match.group(2), '%Y%m%d%H%M%S').replace(tzinfo=timezone.utc)
+    except ValueError:
+        raise Failure('date archive invalide') from None
 
 
 def object_name(name):
@@ -71,6 +74,7 @@ def select_daily(backups, day):
              if ARCHIVE.fullmatch(p.name).group(1) == day and start <= ARCHIVE.fullmatch(p.name).group(2) < end]
     if len(found) != 1:
         raise Failure('une archive unique attendue entre 02:00 et 03:00 UTC')
+    archive_time(found[0].name)
     return found[0]
 
 

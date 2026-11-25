@@ -14,6 +14,7 @@ The b2 CLI uses its own authorised account; no secret is read, printed or passed
 """
 import argparse
 import errno
+import json
 import os
 import subprocess
 import sys
@@ -34,13 +35,14 @@ UPLOAD_TIMEOUT = 1800
 
 
 def run_b2(args, timeout=600):
-    """Run the b2 CLI; its output is discarded (it may echo account details)."""
+    """Run the b2 CLI; its output is captured but never logged (it may echo account details)."""
     try:
-        result = subprocess.run(args, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=timeout, check=False)
+        result = subprocess.run(args, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, timeout=timeout, check=False)
     except (OSError, subprocess.TimeoutExpired):
         raise Failure('B2 injoignable ou délai dépassé')
     if result.returncode != 0:
         raise Failure(f'commande B2 en échec (code {result.returncode})')
+    return result.stdout.decode('utf-8', errors='strict')
 
 
 class Lock:
@@ -77,14 +79,31 @@ def backup_idle(backups):
             pass
 
 
-def remote_digest(run, b2, obj, directory, label):
-    """SHA256 of the remote object, or None if it cannot be downloaded (absent or unreachable)."""
-    dest = Path(directory) / label
+def json_response(run, args):
     try:
-        run([str(b2), 'file', 'download', '--no-progress', f'b2://{BUCKET}/{obj}', str(dest)])
-    except Failure:
-        return None
-    return rec_b2.sha256(dest) if dest.is_file() else None
+        return json.loads(run(args))
+    except (ValueError, TypeError):
+        raise Failure('réponse B2 invalide')
+
+
+def remote_present(run, b2, obj):
+    prefix = obj.rsplit('/', 1)[0] + '/'
+    rows = json_response(run, [str(b2), 'ls', '--recursive', '--json',
+                               f'b2://{BUCKET}/{prefix}'])
+    if not isinstance(rows, list) or any(
+        not isinstance(row, dict) or not isinstance(row.get('fileName'), str)
+        or row.get('action') not in ('upload', 'hide', 'folder') for row in rows
+    ):
+        raise Failure('inventaire B2 invalide')
+    return any(row['fileName'] == obj and row['action'] == 'upload' for row in rows)
+
+
+def remote_digest(run, b2, obj, directory, label):
+    dest = Path(directory) / label
+    run([str(b2), 'file', 'download', '--no-progress', f'b2://{BUCKET}/{obj}', str(dest)])
+    if not dest.is_file():
+        raise Failure('téléchargement B2 incomplet')
+    return rec_b2.sha256(dest)
 
 
 def export(mode, now, name=None, backups=None, state=None, b2=None, run=run_b2):
@@ -108,8 +127,14 @@ def export(mode, now, name=None, backups=None, state=None, b2=None, run=run_b2):
         if recorded is not None and recorded != digest:
             raise Failure('preuve existante incohérente avec l\'archive : rien n\'est écrasé')
         obj = rec_b2.object_name(archive.name)
+        bucket = json_response(run, [str(b2), 'bucket', 'get', BUCKET])
+        if not isinstance(bucket, dict) or bucket.get('bucketName') != BUCKET or bucket.get('bucketType') != 'allPrivate':
+            raise Failure('bucket non privé ou invalide')
         with tempfile.TemporaryDirectory(prefix='dsig-b2-export-') as tmp:
-            remote = remote_digest(run, b2, obj, tmp, 'before.dsigbak')
+            present = remote_present(run, b2, obj)
+            if not present and recorded is not None:
+                raise Failure('objet distant absent malgré preuve existante')
+            remote = remote_digest(run, b2, obj, tmp, 'before.dsigbak') if present else None
             if remote is not None and remote != digest:
                 raise Failure('objet distant différent de l\'archive locale : rien n\'est écrasé')
             uploaded = remote is None
@@ -117,6 +142,8 @@ def export(mode, now, name=None, backups=None, state=None, b2=None, run=run_b2):
                 run([str(b2), 'file', 'upload', '--no-progress', BUCKET, str(archive), obj], timeout=UPLOAD_TIMEOUT)
                 if remote_digest(run, b2, obj, tmp, 'after.dsigbak') != digest:
                     raise Failure('vérification distante en échec après envoi : aucune preuve écrite')
+        if rec_b2.sha256(archive) != digest:
+            raise Failure('archive locale modifiée pendant export')
         # Proof only after an effective remote verification. The scheduled cycle (re)publishes today's
         # proof; a manual run never refreshes an existing one (it would move a daily proof's date).
         proof = 'inchangée'
