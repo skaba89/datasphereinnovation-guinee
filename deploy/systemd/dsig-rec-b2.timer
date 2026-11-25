@@ -1,0 +1,11 @@
+[Unit]
+Description=DSIG REC export to Backblaze B2 schedule (after the 02:15 UTC backup)
+
+[Timer]
+OnCalendar=*-*-* 03:05:00 UTC
+Persistent=true
+AccuracySec=15s
+Unit=dsig-rec-b2.service
+
+[Install]
+WantedBy=timers.target

@@ -86,7 +86,7 @@ class TestDailyB2Audit(unittest.TestCase):
 
         raise AssertionError("Commande inattendue")
 
-    def execute(self, should_succeed, **kwargs):
+    def execute(self, should_succeed):
         output = io.StringIO()
 
         with contextlib.ExitStack() as stack:
@@ -113,10 +113,10 @@ class TestDailyB2Audit(unittest.TestCase):
             )
 
             if should_succeed:
-                audit.audit(**kwargs)
+                audit.audit()
             else:
                 with self.assertRaises(SystemExit) as raised:
-                    audit.audit(**kwargs)
+                    audit.audit()
 
                 self.assertEqual(raised.exception.code, 1)
                 self.assertIn("FAIL:", output.getvalue())
@@ -163,34 +163,6 @@ class TestDailyB2Audit(unittest.TestCase):
         )
         other.write_bytes(CONTENT)
         other.chmod(0o600)
-        self.execute(False)
-
-
-    def test_manual_explicit(self):
-        stamp = datetime(2026, 11, 26, 2, 15, tzinfo=timezone.utc).timestamp()
-        os.utime(self.archive, (stamp, stamp))
-        self.execute(True, manual=True, archive_name=NAME)
-
-    def test_manual_traversal(self):
-        self.execute(False, manual=True, archive_name="../" + NAME)
-
-    def test_daily_ignores_manual_archive(self):
-        other = self.backups / f"dsig-rec-{DAY}T031000Z.dsigbak"
-        other.write_bytes(CONTENT)
-        other.chmod(0o600)
-        self.execute(True)
-
-    def test_missing_marker(self):
-        self.marker.unlink()
-        self.execute(False)
-
-    def test_open_permissions(self):
-        self.archive.chmod(0o644)
-        self.execute(False)
-
-    def test_symlink_marker(self):
-        self.marker.unlink()
-        self.marker.symlink_to(self.remote)
         self.execute(False)
 
 

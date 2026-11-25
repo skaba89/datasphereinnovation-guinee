@@ -1,0 +1,17 @@
+[Unit]
+Description=DSIG REC daily audit of the Backblaze B2 backup chain
+Wants=network-online.target
+After=network-online.target dsig-rec-b2.service
+OnFailure=dsig-rec-alert@%n.service
+
+[Service]
+Type=oneshot
+User=ubuntu
+WorkingDirectory=/home/ubuntu/datasphereinnovation-guinee
+Environment=HOME=/home/ubuntu
+UMask=0077
+ExecStart=/usr/bin/python3 /home/ubuntu/datasphereinnovation-guinee/scripts/audit-rec-b2.py
+TimeoutStartSec=900
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=dsig-rec-backup-audit
