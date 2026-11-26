@@ -1,0 +1,3 @@
+# V211 — Renforcement du portail client
+
+Le portail conserve les projections par organisation déjà existantes. Validation stricte des paramètres GET, refus des doublons et paramètres étrangers même vides, refus de paramètres POST et des projections inconnues. Le frontend a été vérifié : GET utilise kind/page/q, POST ne contient pas de paramètres. Les tests HTTP existants sur deux clients sont étendus avec recherches croisées et injection d'identifiant d'organisation dans la création d'un ticket. Aucun changement du modèle métier, des comptes ou de la configuration VPS. Ce contrôle concerne le portail client, pas une certification exhaustive de tous les documents et routes de l'ERP. Le verrou PROD reste actif.
