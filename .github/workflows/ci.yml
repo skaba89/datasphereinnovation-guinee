@@ -24,7 +24,7 @@ jobs:
         run: |
           python -m pip install -r requirements.txt
           python -m unittest -v
-          python -m unittest discover -s scripts -p 'test-qualification-image.py' -v
+          python -m unittest discover -s scripts -p 'test_qualification_image.py' -v
       - name: Shell syntax
         run: bash -n scripts/backup-rec.sh && bash -n scripts/acceptance-isolated.sh && bash -n scripts/prepare-rec-upgrade.sh
       - name: JavaScript syntax
