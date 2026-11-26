@@ -75,6 +75,11 @@ jobs:
         run: |
           docker compose -f compose.prod.yaml --profile prod-review config --quiet
           docker compose -f compose.prod.yaml --profile prod-review config --format json | python -c "import json,sys; c=json.load(sys.stdin); s=c['services']['app']; assert c['name']=='dsig-prod'; assert s['environment']['DSIG_ENV']=='PROD'; assert s['ports'][0]['host_ip']=='127.0.0.1'; assert c['volumes']['prod-data']['name']=='dsig-prod_prod-data'; assert c['networks']['prod-private']['internal']; assert 'edge' not in c['networks']; assert s['entrypoint'][2].startswith('raise SystemExit'); assert s['user']=='10001:10001'; assert s['read_only']; assert s['restart']=='no'; assert s['pull_policy']=='never'"
+      - name: Validate actual resolved PROD topology and isolated secrets
+        run: |
+          python -m venv "$RUNNER_TEMP/dsig-prod-check"
+          "$RUNNER_TEMP/dsig-prod-check/bin/python" -m pip install -r requirements.txt
+          "$RUNNER_TEMP/dsig-prod-check/bin/python" scripts/test-prod-compose-integration.py
       - name: Build local image
         run: docker build -t dsig-ci .
       - name: Verify local container
