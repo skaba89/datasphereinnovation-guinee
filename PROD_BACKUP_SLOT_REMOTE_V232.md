@@ -1,0 +1,3 @@
+# V232 — Qualification distante par créneau
+
+Nouveaux modules SLOT-V2 distincts des anciens. Namespace prod/qualification/v232-slots/<run_id>/<YYYY-MM-DD-01 ou 13>/, archive, checkpoint et tentatives séparés. Fenêtres décalées de douze heures, inventaires groupés, réservation signée avant traitement. Refus de recréer une archive manquante lorsqu'un checkpoint existe dans le nouveau chemin. Tests avec stockage et restauration simulés. Un seul écrivain, identité stable et verrou externe nécessaires. Pas de migration automatique des preuves historiques ni de changement des anciens chemins. La qualification réelle des deux créneaux, producteur métier, horodatages réels, rétention et lanceur restent à réaliser. Aucun timer activé.
