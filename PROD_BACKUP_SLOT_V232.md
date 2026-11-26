@@ -1,0 +1,3 @@
+# V232 — Identités de qualification biquotidiennes
+
+Nouveaux modules isolés : planificateur, journal signé (domaine SLOT-V2) et exécuteur local. Identités YYYY-MM-DD-01 et YYYY-MM-DD-13, noms distincts d'archives, fenêtres semi-ouvertes. Le journal historique V1 reste intact. Les tests simulent le snapshot et vérifient l'absence de collision et de rejeu inter-cycle. Les noms d'archives sont des étiquettes de créneau, non des horodatages réels de capture métier. Il reste à adapter le registre des tentatives, ancrage B2, producteur métier et lanceur aux nouvelles identités. Aucun timer et aucune production autorisée.
