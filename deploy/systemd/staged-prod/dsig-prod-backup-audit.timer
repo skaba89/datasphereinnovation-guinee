@@ -1,0 +1,8 @@
+[Unit]
+Description=DSIG PROD backup-audit proposed schedule (do not install)
+
+[Timer]
+OnCalendar=*-*-* 03:00:00 UTC
+Persistent=false
+AccuracySec=15s
+Unit=dsig-prod-backup-audit.service
