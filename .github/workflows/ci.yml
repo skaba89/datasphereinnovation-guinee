@@ -37,7 +37,8 @@ jobs:
           node scripts/test-public-form.mjs
           python scripts/test-monitor-public.py
   browser-acceptance:
-    runs-on: ubuntu-latest
+    # Keep browser system dependencies on the established LTS runner.
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-python@v6
@@ -46,7 +47,16 @@ jobs:
       - name: Install browser test dependencies
         run: |
           python -m pip install -r requirements-dev.txt
-          python -m playwright install --with-deps chromium
+          for attempt in 1 2 3; do
+            if python -m playwright install --with-deps chromium; then
+              exit 0
+            fi
+            if [ "$attempt" -eq 3 ]; then
+              echo "::error::Playwright dependency installation failed after three attempts"
+              exit 1
+            fi
+            sleep "$((attempt * 10))"
+          done
       - name: Browser acceptance tests
         run: python -m unittest -v browser_e2e
   docker-smoke:
