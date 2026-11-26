@@ -55,6 +55,18 @@ def main():
     c = resolve()
     report = prod_compose.validate(c, IMAGE, PORT)
     print(json.dumps(report))
+    if report['status'] != 'PASS':
+        # Diagnostic limited to allowlisted structural metadata, never env values.
+        app = c.get('services', {}).get('app', {})
+        print(json.dumps({
+            'top_level_fields': sorted(c),
+            'service_fields': sorted(app),
+            'network_names': sorted(c.get('networks', {})),
+            'network_fields': {k: sorted(v or {}) for k, v in c.get('networks', {}).items()},
+            'service_network_shape': app.get('networks'),
+            'expected_network': {k: v for k, v in c.get('networks', {}).get('prod-private', {}).items()
+                                 if k in ('name', 'internal', 'driver', 'external', 'attachable', 'enable_ipv6')}
+        }))
     check(report['status'] == 'PASS' and not report['production_authorized'],
           'actual resolved topology')
     env = c['services']['app']['environment']
