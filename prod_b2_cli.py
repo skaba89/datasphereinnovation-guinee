@@ -172,3 +172,53 @@ class B2QualificationAdapter(B2ReviewAdapter):
         if inventory()!=before:
             raise ValueError('retry inventory changed')
         return records
+
+
+class B2SlotQualificationAdapter(B2QualificationAdapter):
+    """Only the distinct V232 slot namespace; never legacy or business objects."""
+    def _allowed_object(self,obj):
+        if not isinstance(obj,str):
+            return False
+        m=re.fullmatch(r'prod/qualification/v232-slots/[0-9a-f]{32}/([0-9]{4}-[0-9]{2}-[0-9]{2})-(01|13)/(.+)',obj)
+        if not m:
+            return False
+        from datetime import date
+        day,hour,tail=m.groups()
+        try:
+            if date.fromisoformat(day).isoformat()!=day:return False
+        except ValueError:return False
+        return (tail=='journal-anchor.json'
+                or tail==f"dsig-prod-{day.replace('-','')}T{hour}1500Z.dsigbak"
+                or re.fullmatch(r'retry/audit/[1-5]\.(start|end)\.json',tail) is not None)
+
+    def read_retry_records(self,*args,**kwargs):
+        raise ValueError('legacy retry namespace refused')
+
+    def read_slot_retry_records(self,bucket,run_id,day):
+        prefix=f'prod/qualification/v232-slots/{run_id}/{day}/retry/audit/'
+        if bucket!=BUCKET or not self._allowed_object(prefix+'1.start.json'):
+            raise ValueError('invalid slot inventory')
+        allowed={prefix+f'{i}.{event}.json' for i in range(1,6) for event in ('start','end')}
+        def inventory():
+            self.bucket_info(bucket)
+            rows=self._json(['ls','--recursive','--versions','--json',f'b2://{BUCKET}/{prefix}'])
+            if not isinstance(rows,list) or len(rows)>10:raise ValueError('invalid slot inventory')
+            out={}
+            for row in rows:
+                if not isinstance(row,dict):raise ValueError('invalid slot version')
+                name=row.get('fileName')
+                if not isinstance(name,str) or name not in allowed or name in out or row.get('action')!='upload' or not isinstance(row.get('fileId'),str) or not row['fileId']:
+                    raise ValueError('ambiguous slot versions')
+                out[name]=row
+            return out
+        before=inventory()
+        records={}
+        with tempfile.TemporaryDirectory(prefix='dsig-slot-batch-') as tmp:
+            for i,name in enumerate(sorted(before)):
+                dest=Path(tmp)/str(i)
+                self.run(['file','download','--no-progress',f'b2://{BUCKET}/{name}',str(dest)])
+                with dest.open('rb') as handle:data=handle.read(8193)
+                if not 0<len(data)<=8192:raise ValueError('invalid slot record size')
+                records[name]=data
+        if inventory()!=before:raise ValueError('slot inventory changed')
+        return records
