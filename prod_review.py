@@ -37,7 +37,7 @@ def complete(data, commit):
 
 def review(*, compose_bytes, evidence_bytes, rec, candidate, envelope,
            registry_bytes, pinned_sha256, expected_commit, expected_image,
-           expected_port, ledger_path, now=None):
+           expected_port, ledger_path, now=None, dry_run=False):
     checks = dict.fromkeys(('input', 'topology', 'configuration', 'evidence_completeness',
                             'signed_binding', 'single_use'), 'NOT_RUN')
     try:
@@ -66,6 +66,9 @@ def review(*, compose_bytes, evidence_bytes, rec, candidate, envelope,
                                                      now=current, **expected)['status']
         if checks['signed_binding'] != 'PASS':
             raise ValueError('signature rejected')
+        if dry_run is True:
+            return {'status': 'PASS', 'checks': checks, 'production_authorized': False,
+                    'dry_run': True, 'authorization_consumed': False}
         # Consumption occurs last and re-verifies trust in the transactional ledger.
         checks['single_use'] = prod_replay.consume(ledger_path, envelope, registry_bytes,
                                                    pinned_sha256, now=current, **expected)['status']
