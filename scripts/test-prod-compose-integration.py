@@ -64,6 +64,9 @@ def main():
             'network_names': sorted(c.get('networks', {})),
             'network_fields': {k: sorted(v or {}) for k, v in c.get('networks', {}).items()},
             'service_network_shape': app.get('networks'),
+            'command_is_null': app.get('command') is None,
+            'command_is_empty_list': app.get('command') == [],
+            'ipam_is_default': c.get('networks', {}).get('prod-private', {}).get('ipam') in (None, {}, {'driver':'default'}, {'config':[]}, {'driver':'default','config':[]}),
             'expected_network': {k: v for k, v in c.get('networks', {}).get('prod-private', {}).items()
                                  if k in ('name', 'internal', 'driver', 'external', 'attachable', 'enable_ipv6')}
         }))
