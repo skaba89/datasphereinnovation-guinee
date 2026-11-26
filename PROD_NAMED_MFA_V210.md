@@ -1,0 +1,5 @@
+# V210 — Qualification nominative MFA sur handlers réels
+
+Tests sans réseau ni démarrage PROD, base SQLite en mémoire, comptes et clés fictifs. Le bootstrap V207 alimente les vrais handlers authentication.handle et accounts.authorize avec un adaptateur HTTP de test. Vérifie activation unique, accès interdit avant MFA, enrôlement TOTP, invalidation de session lors de confirmation, refus du TOTP rejoué, connexion avec nouveau code, récupération à usage unique, déconnexion, origine POST et stockage chiffré du secret MFA. Les cookies sont vérifiés avec secure_cookie() simulé vrai : cela ne prouve pas la configuration TLS, les en-têtes du proxy, le navigateur ni toutes les routes du serveur. Aucun compte réel, aucune modification du code applicatif, aucun changement VPS ou ouverture PROD.
+
+La qualification doit être complétée par un navigateur HTTPS dans un environnement isolé et la revue de la délivrance de sessions Bearer sur les routes d'authentification, des limites de débit et des procédures de récupération. NO GO maintenu.
