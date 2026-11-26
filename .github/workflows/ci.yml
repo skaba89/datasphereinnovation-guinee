@@ -91,7 +91,13 @@ jobs:
           "$RUNNER_TEMP/dsig-prod-check/bin/python" -m pip install -r requirements.txt
           "$RUNNER_TEMP/dsig-prod-check/bin/python" scripts/test-prod-compose-integration.py
       - name: Build local image
-        run: docker build -t dsig-ci .
+        run: |
+          # Reproduce the private checkout permissions used on the VPS.
+          find . -maxdepth 1 -type f -name '*.py' -exec chmod 0600 {} +
+          chmod 0600 requirements.txt
+          find dist -type d -exec chmod 0700 {} +
+          find dist -type f -exec chmod 0600 {} +
+          docker build -t dsig-ci .
       - name: Verify application image content in isolated sandbox
         run: python scripts/verify-prod-image.py "$(git rev-parse HEAD)" dsig-ci --ci-local
       - name: Verify local container
