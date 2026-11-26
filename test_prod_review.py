@@ -15,8 +15,8 @@ import test_prod_trust
 import test_prod_compose
 
 
-def keys():
-    return dict(DSIG_ADMIN_TOKEN=secrets.token_urlsafe(48),
+def keys(reference=True):
+    return dict(**({'DSIG_ADMIN_TOKEN':secrets.token_urlsafe(48)} if reference else {}),
                 **{k:Fernet.generate_key().decode() for k in prod_config.KEYS})
 
 
@@ -29,7 +29,7 @@ class CombinedReviewTests(unittest.TestCase):
         self.trust = test_prod_trust.ProdTrustTests()
         self.trust.setUp()
         self.compose = test_prod_compose.fixture()
-        self.compose['services']['app']['environment'].update(keys())
+        self.compose['services']['app']['environment'].update(keys(reference=False))
         self.rec = dict(DSIG_ENV='REC', DSIG_HTTPS_ORIGIN='https://rec.dsig-consulting.com', **keys())
         self.candidate = dict(DSIG_ENV='REC', DSIG_HTTPS_ORIGIN='https://candidate.invalid', **keys())
         self.commit = 'a'*40

@@ -14,10 +14,26 @@ ORIGIN = 'https://app.dsig-consulting.com'
 def secret_values(env):
     if not isinstance(env, dict):
         raise ValueError('invalid environment')
+    if env.get('DSIG_ENV') == 'PROD':
+        if 'DSIG_ADMIN_TOKEN' in env:
+            raise ValueError('bootstrap forbidden')
+        return encryption_values(env)
     token = env.get('DSIG_ADMIN_TOKEN', '')
     if not isinstance(token, str) or not re.fullmatch(r'[A-Za-z0-9_-]{43,128}', token):
         raise ValueError('invalid token')
-    raw = [token.encode('ascii')]
+    raw = [token.encode('ascii'), *encryption_values(env)]
+    # Compare token text and its decoded representation to encryption keys.
+    try:
+        decoded_token = base64.urlsafe_b64decode(token + '=' * (-len(token) % 4))
+    except ValueError:
+        decoded_token = b''
+    if len(set(raw)) != len(raw) or decoded_token in raw[1:]:
+        raise ValueError('reused key')
+    return set(raw) | ({decoded_token} if decoded_token else set())
+
+
+def encryption_values(env):
+    raw = []
     for name in KEYS:
         value = env.get(name, '')
         if not isinstance(value, str):
@@ -28,14 +44,9 @@ def secret_values(env):
         if base64.urlsafe_b64encode(decoded) != encoded:
             raise ValueError('noncanonical key')
         raw.append(decoded)
-    # Compare token text and its decoded representation to encryption keys.
-    try:
-        decoded_token = base64.urlsafe_b64decode(token + '=' * (-len(token) % 4))
-    except ValueError:
-        decoded_token = b''
-    if len(set(raw)) != len(raw) or decoded_token in raw[1:]:
+    if len(set(raw)) != len(raw):
         raise ValueError('reused key')
-    return set(raw) | ({decoded_token} if decoded_token else set())
+    return set(raw)
 
 
 def inspect(prod, rec, candidate):

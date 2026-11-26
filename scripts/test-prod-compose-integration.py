@@ -21,7 +21,7 @@ PORT = 8320
 
 def secret_env(mode, origin):
     return dict(DSIG_ENV=mode, DSIG_HTTPS_ORIGIN=origin,
-                DSIG_ADMIN_TOKEN=secrets.token_urlsafe(48),
+                **({'DSIG_ADMIN_TOKEN':secrets.token_urlsafe(48)} if mode != 'PROD' else {}),
                 **{k: Fernet.generate_key().decode() for k in prod_config.KEYS})
 
 
@@ -29,7 +29,7 @@ def resolve():
     prod = secret_env('PROD', prod_config.ORIGIN)
     env = {k: v for k, v in os.environ.items()
            if not k.startswith(('DSIG_', 'COMPOSE_'))}
-    for name in prod_config.SECRET_NAMES:
+    for name in prod_config.KEYS:
         env[name.replace('DSIG_', 'DSIG_PROD_', 1)] = prod[name]
     env.update(DSIG_PROD_IMAGE=IMAGE, DSIG_PROD_PORT=str(PORT), DSIG_PROD_CLAMD_GID='109')
     with tempfile.TemporaryDirectory() as tmp:
@@ -88,6 +88,10 @@ def main():
     bad = dict(env, DSIG_MFA_KEY=rec['DSIG_MFA_KEY'])
     check(prod_config.inspect(bad, rec, candidate)['status'] == 'FAIL',
           'reject REC key reuse')
+    bad = dict(env, DSIG_ADMIN_TOKEN='synthetic')
+    check(prod_config.inspect(bad, rec, candidate)['status'] == 'FAIL', 'reject generic PROD token')
+    c['services']['app']['environment'] = bad
+    check(prod_compose.validate(c, IMAGE, PORT)['status'] == 'FAIL', 'reject token in resolved topology')
     print('PASS: integration review only; production_authorized=false')
 
 

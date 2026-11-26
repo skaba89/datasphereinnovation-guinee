@@ -1,0 +1,3 @@
+ # V209 — Configuration PROD sans jeton générique
+
+Le Compose PROD de revue et ses validateurs refusent désormais toute présence de DSIG_ADMIN_TOKEN, même vide. Les trois clés Fernet restent obligatoires, distinctes entre elles et des secrets des références REC/candidate (y compris leur jeton décodé). Les références conservent leur contrat existant. Les fixtures V202–V206 et le test réel de résolution Compose sont adaptés. Les anciens dossiers de revue signés doivent être reconstruits et resignés, jamais réutilisés. Le verrou serveur et l'arrêt explicite Compose restent inchangés. Aucun démarrage ni déploiement, aucun changement REC. Les documents historiques V195–V208 décrivent leur version d'origine ; ce document les supplante sur le contrat du jeton PROD uniquement.

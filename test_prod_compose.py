@@ -55,6 +55,10 @@ class ComposeReviewTests(unittest.TestCase):
         c=fixture();c['services']['app']['environment']['DSIG_ENV']='REC';self.check(c)
         c=fixture();c['services']['app']['environment']['DSIG_DOCUMENT_PREVIOUS_KEY']='fake';self.check(c)
 
+    def test_prod_token_forbidden(self):
+        for token in ('', 'fake'):
+            c=fixture();c['services']['app']['environment']['DSIG_ADMIN_TOKEN']=token;self.check(c)
+
     def test_missing_field(self):
         for k in p.SERVICE_FIELDS:
             c=fixture();del c['services']['app'][k];self.check(c)
