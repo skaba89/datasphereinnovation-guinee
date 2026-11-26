@@ -1,0 +1,18 @@
+[Unit]
+Description=DSIG PROD b2 staging (locked)
+
+[Service]
+Type=oneshot
+User=ubuntu
+WorkingDirectory=/home/ubuntu
+Environment=HOME=/home/ubuntu
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=read-only
+ExecStart=/usr/bin/false
+TimeoutStartSec=2700
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=dsig-prod-b2

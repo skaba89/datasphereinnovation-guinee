@@ -1,0 +1,8 @@
+[Unit]
+Description=DSIG PROD backup proposed schedule (do not install)
+
+[Timer]
+OnCalendar=*-*-* 01:15:00 UTC
+Persistent=false
+AccuracySec=15s
+Unit=dsig-prod-backup.service
