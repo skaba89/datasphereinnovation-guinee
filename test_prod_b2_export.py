@@ -2,6 +2,10 @@ import tempfile
 import unittest
 from pathlib import Path
 import prod_b2_export as p
+from cryptography.fernet import Fernet
+from contextlib import closing
+from unittest.mock import patch
+import server
 
 
 class Remote:
@@ -26,12 +30,17 @@ class ProdExportTests(unittest.TestCase):
         tmp=tempfile.TemporaryDirectory()
         self.addCleanup(tmp.cleanup)
         self.path=Path(tmp.name)/'dsig-prod-20261126T021500Z.dsigbak'
-        self.path.write_bytes(b'synthetic archive bytes')
+        self.key=Fernet.generate_key()
+        source=self.path.with_name('source.sqlite3')
+        with patch.object(server,'DB',source):
+            with closing(server.connect()) as db:
+                db.commit()
+        self.path.write_bytes(Fernet(self.key).encrypt(source.read_bytes()))
         self.path.chmod(0o600)
         self.remote=Remote()
 
     def export(self):
-        return p.export_review(self.path,expected_bucket_id='prod-bucket-id',remote=self.remote)
+        return p.export_review(self.path,expected_bucket_id='prod-bucket-id',remote=self.remote,backup_key=self.key)
 
     def test_idempotent(self):
         first=self.export()
@@ -72,3 +81,19 @@ class ProdExportTests(unittest.TestCase):
     def test_permissions(self):
         self.path.chmod(0o644)
         with self.assertRaises(ValueError):self.export()
+
+
+    def test_wrong_key_before_upload(self):
+        self.key=Fernet.generate_key()
+        with self.assertRaises(ValueError):self.export()
+        self.assertEqual(self.remote.writes,0)
+
+    def test_plaintext_before_upload(self):
+        self.path.write_bytes(b'not encrypted')
+        with self.assertRaises(ValueError):self.export()
+        self.assertEqual(self.remote.writes,0)
+
+    def test_invalid_schema_before_upload(self):
+        self.path.write_bytes(Fernet(self.key).encrypt(b'not a database'))
+        with self.assertRaises(ValueError):self.export()
+        self.assertEqual(self.remote.writes,0)
