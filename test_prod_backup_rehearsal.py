@@ -39,7 +39,7 @@ class RehearsalTests(unittest.TestCase):
 
     def cycle(self,check=lambda:{'status':'PASS'}):
         return p.run_rehearsal(active=self.db,root=self.root,name=self.name,backup_path=self.backup,
-            signer_path=self.signer,pinned_signer_id=self.pin,forbidden_backup_ids={'a'*64,'b'*64'},source_check=check)
+            signer_path=self.signer,pinned_signer_id=self.pin,forbidden_backup_ids={'a'*64, 'b'*64},source_check=check)
 
     def test_full_cycle_and_repeat(self):
         first=self.cycle()
