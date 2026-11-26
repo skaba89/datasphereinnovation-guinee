@@ -125,3 +125,50 @@ class B2QualificationAdapter(B2ReviewAdapter):
     """Restricted to unique V232 qualification namespaces, never business paths."""
     def _allowed_object(self,obj):
         return isinstance(obj,str) and (QUALIFICATION_NAME.fullmatch(obj) is not None or re.fullmatch(r'prod/qualification/v232/[0-9a-f]{32}/journal-anchor\.json',obj) is not None or re.fullmatch(r'prod/qualification/v232/[0-9a-f]{32}/retry/[0-9]{4}-[0-9]{2}-[0-9]{2}/audit/[1-5]\.(start|end)\.json',obj) is not None)
+
+
+    def read_retry_records(self,bucket,run_id,day):
+        """Fresh bounded version inventory, download present records, re-list.
+        
+        Never caches bytes across calls. Unknown objects and duplicate/hide
+        versions within the exact audit prefix fail closed.
+        """
+        from datetime import date
+        if bucket!=BUCKET or not isinstance(run_id,str) or not re.fullmatch(r'[0-9a-f]{32}',run_id):
+            raise ValueError('invalid retry namespace')
+        if not isinstance(day,str) or date.fromisoformat(day).isoformat()!=day:
+            raise ValueError('invalid retry date')
+        prefix=f'prod/qualification/v232/{run_id}/retry/{day}/audit/'
+        allowed={prefix+f'{i}.{event}.json' for i in range(1,6) for event in ('start','end')}
+
+        def inventory():
+            self.bucket_info(bucket)
+            rows=self._json(['ls','--recursive','--versions','--json',f'b2://{BUCKET}/{prefix}'])
+            if not isinstance(rows,list) or len(rows)>10:
+                raise ValueError('invalid retry inventory')
+            out={}
+            for row in rows:
+                if not isinstance(row,dict):
+                    raise ValueError('invalid retry version')
+                name=row.get('fileName')
+                if not isinstance(name,str) or name not in allowed or name in out or row.get('action')!='upload':
+                    raise ValueError('ambiguous retry versions')
+                if not isinstance(row.get('fileId'),str) or not row['fileId']:
+                    raise ValueError('missing retry version identity')
+                out[name]=row
+            return out
+
+        before=inventory()
+        records={}
+        with tempfile.TemporaryDirectory(prefix='dsig-retry-batch-') as tmp:
+            for i,name in enumerate(sorted(before)):
+                dest=Path(tmp)/str(i)
+                self.run(['file','download','--no-progress',f'b2://{BUCKET}/{name}',str(dest)])
+                with dest.open('rb') as handle:
+                    data=handle.read(8193)
+                if not 0<len(data)<=8192:
+                    raise ValueError('invalid retry record size')
+                records[name]=data
+        if inventory()!=before:
+            raise ValueError('retry inventory changed')
+        return records

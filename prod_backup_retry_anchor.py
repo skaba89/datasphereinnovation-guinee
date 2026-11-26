@@ -24,17 +24,40 @@ def _compare(state,*,now,day,run_id,public,pin,bucket_id,remote,allow_new=None):
     result=ledger._read(state,now,day,'audit',run_id,public,pin)
     anchor.policy_check(remote,bucket_id)
     count=0
-    for path,obj in _objects(state,day,run_id):
+    objects=list(_objects(state,day,run_id))
+    batch=getattr(remote,'read_retry_records',None)
+    def inventory():
+        if batch is None:
+            return {obj:remote.read(BUCKET,obj) for _,obj in objects}
+        rows=batch(BUCKET,run_id,day)
+        if not isinstance(rows,dict) or set(rows)-{obj for _,obj in objects}:
+            raise ValueError('invalid retry batch')
+        if any(not isinstance(v,bytes) or not 0<len(v)<=8192 for v in rows.values()):
+            raise ValueError('invalid retry batch record')
+        return rows
+    stored_records=inventory()
+    # Compare all existing slots before writing even a single new record.
+    pending=None
+    for path,obj in objects:
         present=path.exists() or path.is_symlink()
         raw=auth.canonical(guard.read_proof(path)) if present else None
-        stored=remote.read(BUCKET,obj)
+        stored=stored_records.get(obj)
         if raw is None and stored is None:
             continue
         if raw is not None and stored is None and path==allow_new:
-            remote.create_only(BUCKET,obj,raw)
-            stored=remote.read(BUCKET,obj)
+            pending=(obj,raw)
+            continue
         if not isinstance(raw,bytes) or not isinstance(stored,bytes) or not hmac.compare_digest(raw,stored):
             raise ValueError('retry anchor missing or divergent; operator review required')
+        count+=1
+    if pending is not None:
+        obj,raw=pending
+        remote.create_only(BUCKET,obj,raw)
+        after=inventory()
+        expected={k:v for k,v in stored_records.items() if v is not None}
+        expected[obj]=raw
+        if {k:v for k,v in after.items() if v is not None}!=expected:
+            raise ValueError('retry inventory changed after publication')
         count+=1
     return dict(result,retry_external_anchor_verified=True,anchored_records=count)
 
