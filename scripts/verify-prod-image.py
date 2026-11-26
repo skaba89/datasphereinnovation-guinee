@@ -32,13 +32,18 @@ def invoke(args):
     return subprocess.run(args, cwd=ROOT.parent, check=True, capture_output=True, timeout=120).stdout
 
 
-def verify(commit, image, *, ci_local=False):
+def verify(commit, image, *, ci_local=False, qualification_local=False):
     checks=dict.fromkeys(('source_manifest','immutable_reference','image_identity','content_matches'), 'FAIL')
     count=0
     try:
         if not re.fullmatch(r'[0-9a-f]{40}',commit):
             raise ValueError('invalid commit')
-        if ci_local:
+        if ci_local and qualification_local:
+            raise ValueError('conflicting local modes')
+        if qualification_local:
+            if not re.fullmatch(r'sha256:[0-9a-f]{64}',image):
+                raise ValueError('qualification requires immutable local image ID')
+        elif ci_local:
             if image != 'dsig-ci':
                 raise ValueError('invalid CI image')
         elif not re.fullmatch(r'[^\s@]+@sha256:[0-9a-f]{64}',image):
@@ -53,7 +58,11 @@ def verify(commit, image, *, ci_local=False):
         image_id=data['Id']
         if not re.fullmatch(r'sha256:[0-9a-f]{64}',image_id):
             raise ValueError('invalid image ID')
-        if not ci_local:
+        if qualification_local:
+            if image_id != image:
+                raise ValueError('qualification image ID mismatch')
+            checks['immutable_reference']='PASS'
+        elif not ci_local:
             if image not in (data.get('RepoDigests') or []):
                 raise ValueError('digest not found')
             checks['immutable_reference']='PASS'
@@ -72,15 +81,17 @@ def verify(commit, image, *, ci_local=False):
     ok=all(v=='PASS' or (ci_local and k=='immutable_reference' and v=='NOT_APPLICABLE_CI')
            for k,v in checks.items())
     return {'status':'PASS' if ok else 'FAIL','checks':checks,'file_count':count,
-            'ci_local':ci_local,'production_authorized':False}
+            'ci_local':ci_local,'qualification_local':qualification_local,'production_authorized':False}
 
 
 if __name__=='__main__':
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument('commit')
     parser.add_argument('image')
-    parser.add_argument('--ci-local',action='store_true')
+    modes=parser.add_mutually_exclusive_group()
+    modes.add_argument('--ci-local',action='store_true')
+    modes.add_argument('--qualification-local',action='store_true')
     args=parser.parse_args()
-    report=verify(args.commit,args.image,ci_local=args.ci_local)
+    report=verify(args.commit,args.image,ci_local=args.ci_local,qualification_local=args.qualification_local)
     print(json.dumps(report))
     raise SystemExit(int(report['status']!='PASS'))
