@@ -1,0 +1,5 @@
+# V205 — Revue opérateur privée, lecture seule
+
+Le module prod_operator permet une revue hors ligne avec sept fichiers privés dans un répertoire 0700, chacun 0600, sans lien symbolique ni fichier spécial. Les paramètres indépendants (commit, image, port, pin, clé publique d'ancre et séquence) sont fournis par l'opérateur. La CLI python3 prod_operator.py --help expose les options. Le checkpoint V204 précède les contrôles V202 en mode dry_run. Aucun appel à la consommation V201, aucun démarrage, aucune création de registre ou modification de configuration. Les rapports sont limités aux statuts.
+
+PASS signifie revue cohérente en lecture seule, pas disponibilité de l'autorisation : le statut de consommation n'est pas testé. La provenance et fraîcheur de l'ancre indépendante ne sont pas établies par la CLI. La preuve G01–G10 reste déclarative. Le contrôle du contenu image V203 doit être réalisé séparément. Ne pas créer de dossier avec des données réelles avant validation de la gouvernance et du stockage privé. Aucun déploiement. NO GO maintenu.
