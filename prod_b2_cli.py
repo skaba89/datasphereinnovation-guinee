@@ -7,6 +7,7 @@ import subprocess
 import tempfile
 from pathlib import Path
 from prod_b2_export import BUCKET, NAME
+QUALIFICATION_NAME=re.compile(r'prod/qualification/v232/[0-9a-f]{32}/dsig-prod-[0-9]{8}T[0-9]{6}Z\.dsigbak')
 
 CAPABILITIES={'listBuckets','listFiles','readFiles','writeFiles',
               'readBucketEncryption','readBucketRetentions','readFileRetentions'}
@@ -64,11 +65,14 @@ class B2ReviewAdapter:
         return dict(bucketName=BUCKET,bucketId=self.expected,bucketType='allPrivate',
                     encryption='SSE-B2',lock_mode='compliance',lock_days=period['duration'])
 
-    def _versions(self,bucket,obj):
+    def _allowed_object(self,obj):
         parts=obj.split('/')
         match=NAME.fullmatch(parts[-1])
-        if (bucket!=BUCKET or len(parts)!=4 or parts[0]!='prod' or not match
-                or parts[1]!=match.group(1)[:4] or parts[2]!=match.group(1)[4:6]):
+        return bool(len(parts)==4 and parts[0]=='prod' and match
+                    and parts[1]==match.group(1)[:4] and parts[2]==match.group(1)[4:6])
+
+    def _versions(self,bucket,obj):
+        if bucket!=BUCKET or not self._allowed_object(obj):
             raise ValueError('invalid PROD object')
         self.bucket_info(bucket)
         rows=self._json(['ls','--recursive','--versions','--json',f'b2://{BUCKET}/{obj}'])
@@ -105,3 +109,9 @@ class B2ReviewAdapter:
             self.run(['file','upload','--no-progress',BUCKET,str(path),obj])
         if len(self._versions(bucket,obj))!=1:
             raise ValueError('upload not uniquely verified')
+
+
+class B2QualificationAdapter(B2ReviewAdapter):
+    """Restricted to unique V232 qualification namespaces, never business paths."""
+    def _allowed_object(self,obj):
+        return isinstance(obj,str) and QUALIFICATION_NAME.fullmatch(obj) is not None
