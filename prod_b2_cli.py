@@ -14,6 +14,10 @@ CAPABILITIES={'listBuckets','listFiles','readFiles','writeFiles',
 MAX_BYTES=128*1024*1024
 
 
+class B2ReadTimeout(ValueError):
+    """Timeout of a read-only CLI command; no command output exposed."""
+
+
 class B2ReviewAdapter:
     def __init__(self, expected_bucket_id, *, run=None):
         if not re.fullmatch(r'[A-Za-z0-9_-]{8,128}',expected_bucket_id):
@@ -35,12 +39,18 @@ class B2ReviewAdapter:
             result=subprocess.run([str(self.binary),*args],env=env,stdout=subprocess.PIPE,
                                   stderr=subprocess.DEVNULL,timeout=600,check=True)
             return result.stdout
+        except subprocess.TimeoutExpired:
+            if tuple(args[:2]) in {('account','get'),('bucket','get'),('file','download')} or args[:1]==['ls']:
+                raise B2ReadTimeout('B2 read timed out') from None
+            raise ValueError('B2 write outcome uncertain') from None
         except (OSError,subprocess.SubprocessError):
             raise ValueError('B2 command failed') from None
 
     def _json(self,args):
         try:
             return json.loads(self.run(args))
+        except B2ReadTimeout:
+            raise
         except (ValueError,TypeError):
             raise ValueError('invalid B2 response') from None
 
