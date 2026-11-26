@@ -543,6 +543,11 @@ def main():
     parser.add_argument('--weekly-report', action='store_true', help='Aperçu du rapport hebdomadaire de direction, sans envoi')
     parser.add_argument('--send-weekly-report', action='store_true', help='REC: envoyer le rapport hebdomadaire (configuration JSON sur stdin), une fois par semaine ISO')
     args = parser.parse_args()
+    # Until a dedicated production release is approved, deny every entry point
+    # before database creation, migration, export, or worker side effects.
+    mode = os.environ.get('DSIG_ENV', 'REC')
+    if mode not in ('DEV', 'REC'):
+        raise SystemExit('Production bloquée : validation de sécurité requise.')
     if sum(bool(x) for x in (args.export,args.backup,args.backup_encrypted,args.restore_isolated,args.check_db,args.rotate_documents,args.refresh_notifications,args.send_contact_notifications,args.send_account_invitations,args.contact_mail_status,args.weekly_report,args.send_weekly_report,args.automation_preview,args.purge_requests))>1:
         parser.error('Une seule opération à la fois.')
     if args.send_contact_notifications or args.send_account_invitations or args.contact_mail_status:
