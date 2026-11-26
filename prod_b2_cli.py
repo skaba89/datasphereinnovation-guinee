@@ -114,4 +114,4 @@ class B2ReviewAdapter:
 class B2QualificationAdapter(B2ReviewAdapter):
     """Restricted to unique V232 qualification namespaces, never business paths."""
     def _allowed_object(self,obj):
-        return isinstance(obj,str) and QUALIFICATION_NAME.fullmatch(obj) is not None
+        return isinstance(obj,str) and (QUALIFICATION_NAME.fullmatch(obj) is not None or re.fullmatch(r'prod/qualification/v232/[0-9a-f]{32}/journal-anchor\.json',obj) is not None)
