@@ -1,0 +1,7 @@
+# V202 — Orchestrateur de qualification hors ligne
+
+NO GO. prod_review.review combine les contrôles de topologie, de configuration, de séparation des secrets, de complétude G01–G10, de confiance/signature et d'usage unique local. Il calcule les SHA256 sur les octets exacts du JSON Compose résolu et du dossier déclaratif G01–G10, sans les réécrire ni les afficher. Les entrées JSON dupliquées ou trop grandes sont refusées. Le digest image est extrait de la référence attendue immuable. La consommation intervient en dernier.
+
+Le SHA attendu, le digest image, le port, le pin du registre et les environnements REC/candidate doivent être établis indépendamment par un opérateur habilité. Aucun de ces paramètres ne doit être dérivé de l'enveloppe. Le fichier Compose résolu contient des secrets : conserver hors Git, dans un espace privé, ne jamais publier ses octets ni son contenu. L'empreinte de configuration engage les secrets ; ne pas la publier inutilement.
+
+La complétude G01–G10 ne démontre pas la véracité des preuves. Le contrôle ne vérifie pas la provenance réelle de l'image, ne crée aucun volume ni compte, ne lance aucun serveur et ne résout pas le rollback du registre anti-rejeu. La gouvernance de confiance, la validation des pièces, la protection anti-rollback externe et la qualification sur VPS restent nécessaires. PASS signifie uniquement revue hors ligne cohérente et consommée, production_authorized=false. Aucun changement de verrou ni de Compose. Tests avec données fictives exclusivement.
