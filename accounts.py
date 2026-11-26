@@ -90,6 +90,12 @@ def authorize(h,connect,bootstrap):
     import hmac
     header=h.headers.get('Authorization','');resource=urlsplit(h.path).path.split('/')[3]
     cookie_mode=header=='Bearer session'
+    mode=os.environ.get('DSIG_ENV','REC')
+    # Unknown modes and PROD never accept generic bootstrap or raw bearer access.
+    if mode not in ('DEV','REC'):
+        bootstrap=''
+        if not cookie_mode:
+            h.json_response(401,{'error':'Session nominative requise.'});return False
     if cookie_mode:
         if h.headers.get('Sec-Fetch-Site')=='cross-site':
             h.json_response(403,{'error':'Origine non autorisée.'});return False
