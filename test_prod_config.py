@@ -10,7 +10,7 @@ def environment(mode, origin):
                 DSIG_DB='/app/data/requests.sqlite3',
                 DSIG_MFA_REQUIRED_ROLES=','.join(sorted(prod_config.ROLES)),
                 DSIG_CLAMD_SOCKET='/run/dsig-clamav/clamd.ctl',
-                DSIG_ADMIN_TOKEN=secrets.token_urlsafe(48),
+                **({'DSIG_ADMIN_TOKEN': secrets.token_urlsafe(48)} if mode != 'PROD' else {}),
                 **{k: Fernet.generate_key().decode() for k in prod_config.KEYS})
 
 
@@ -41,7 +41,7 @@ class ProdConfigTests(unittest.TestCase):
 
     def test_cross_environment_key_reuse(self):
         for other in (self.r, self.c):
-            for key in prod_config.SECRET_NAMES:
+            for key in prod_config.KEYS:
                 original = self.p[key]
                 self.p[key] = other[key]
                 self.assertEqual(self.check()['status'], 'FAIL')
@@ -52,8 +52,13 @@ class ProdConfigTests(unittest.TestCase):
         self.assertEqual(self.check()['status'], 'FAIL')
 
     def test_token_key_reuse(self):
-        self.p['DSIG_ADMIN_TOKEN'] = self.p['DSIG_MFA_KEY'].rstrip('=')
+        self.r['DSIG_ADMIN_TOKEN'] = self.p['DSIG_MFA_KEY'].rstrip('=')
         self.assertEqual(self.check()['status'], 'FAIL')
+
+    def test_prod_token_forbidden(self):
+        for token in ('', None, secrets.token_urlsafe(48)):
+            self.p['DSIG_ADMIN_TOKEN'] = token
+            self.assertEqual(self.check()['status'], 'FAIL')
 
     def test_invalid_key(self):
         self.p['DSIG_DOCUMENT_KEY'] = 'invalid'

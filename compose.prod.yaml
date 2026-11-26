@@ -10,7 +10,6 @@ services:
       DSIG_ENV: PROD
       DSIG_HTTPS_ORIGIN: https://app.dsig-consulting.com
       DSIG_DB: /app/data/requests.sqlite3
-      DSIG_ADMIN_TOKEN: "${DSIG_PROD_ADMIN_TOKEN:?Dedicated PROD token required}"
       DSIG_MFA_KEY: "${DSIG_PROD_MFA_KEY:?Dedicated PROD key required}"
       DSIG_BACKUP_KEY: "${DSIG_PROD_BACKUP_KEY:?Dedicated PROD key required}"
       DSIG_DOCUMENT_KEY: "${DSIG_PROD_DOCUMENT_KEY:?Dedicated PROD key required}"

@@ -7,7 +7,7 @@ STOP = ["python", "-c", "raise SystemExit('PROD review topology: startup disable
 ENV = {'DSIG_ENV': 'PROD', 'DSIG_HTTPS_ORIGIN': 'https://app.dsig-consulting.com',
        'DSIG_DB': '/app/data/requests.sqlite3', 'DSIG_CLAMD_SOCKET': '/run/dsig-clamav/clamd.ctl',
        'DSIG_MFA_REQUIRED_ROLES': 'ADMIN,CLIENT,DIRECTION,CONTROLE,COMPTABLE,AUDITEUR'}
-KEYS = {'DSIG_ADMIN_TOKEN', 'DSIG_MFA_KEY', 'DSIG_BACKUP_KEY', 'DSIG_DOCUMENT_KEY'}
+KEYS = {'DSIG_MFA_KEY', 'DSIG_BACKUP_KEY', 'DSIG_DOCUMENT_KEY'}
 SERVICE_FIELDS = {'profiles', 'image', 'pull_policy', 'user', 'environment', 'group_add',
                   'ports', 'volumes', 'networks', 'read_only', 'tmpfs', 'cap_drop',
                   'security_opt', 'mem_limit', 'mem_reservation', 'memswap_limit',
