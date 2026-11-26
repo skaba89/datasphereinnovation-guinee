@@ -1,0 +1,55 @@
+# Future production topology, deliberately non-startable with current server.
+name: dsig-prod
+services:
+  app:
+    profiles: ["prod-review"]
+    image: "${DSIG_PROD_IMAGE:?Immutable production image digest required}"
+    pull_policy: never
+    user: "10001:10001"
+    environment:
+      DSIG_ENV: PROD
+      DSIG_HTTPS_ORIGIN: https://app.dsig-consulting.com
+      DSIG_DB: /app/data/requests.sqlite3
+      DSIG_ADMIN_TOKEN: "${DSIG_PROD_ADMIN_TOKEN:?Dedicated PROD token required}"
+      DSIG_MFA_KEY: "${DSIG_PROD_MFA_KEY:?Dedicated PROD key required}"
+      DSIG_BACKUP_KEY: "${DSIG_PROD_BACKUP_KEY:?Dedicated PROD key required}"
+      DSIG_DOCUMENT_KEY: "${DSIG_PROD_DOCUMENT_KEY:?Dedicated PROD key required}"
+      DSIG_MFA_REQUIRED_ROLES: ADMIN,CLIENT,DIRECTION,CONTROLE,COMPTABLE,AUDITEUR
+      DSIG_CLAMD_SOCKET: /run/dsig-clamav/clamd.ctl
+    group_add:
+      - "${DSIG_PROD_CLAMD_GID:?Numeric scanner group required}"
+    ports:
+      - "127.0.0.1:${DSIG_PROD_PORT:?Reserve a distinct loopback port}:8080"
+    volumes:
+      - prod-data:/app/data
+      - type: bind
+        source: /run/clamav
+        target: /run/dsig-clamav
+        read_only: true
+        bind:
+          create_host_path: false
+    networks:
+      - prod-private
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev,size=64m
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    mem_limit: 512m
+    mem_reservation: 128m
+    memswap_limit: 512m
+    cpus: 2.0
+    pids_limit: 128
+    restart: "no"
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
+    # Explicit review-only stop, independent of application code.
+    entrypoint: ["python", "-c", "raise SystemExit('PROD review topology: startup disabled')"]
+volumes:
+  prod-data:
+networks:
+  prod-private:
+    internal: true
