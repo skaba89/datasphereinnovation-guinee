@@ -14,7 +14,7 @@ FIELDS={'schema','kind','archive','object','sha256','bucket_id','verified_at',
 
 
 def evaluate(proof, *, expected_bucket_id, now=None):
-    now=now or datetime.now(timezone.utc)
+    now=datetime.now(timezone.utc) if now is None else now
     checks=dict.fromkeys(('business_evidence','identity','freshness','integrity_claim'),'NOT_RUN')
     try:
         checks['business_evidence']='FAIL'
@@ -38,10 +38,17 @@ def evaluate(proof, *, expected_bucket_id, now=None):
         checks['freshness']='FAIL'
         created=datetime.strptime(stamp,'%Y%m%dT%H%M%SZ').replace(tzinfo=timezone.utc)
         verified=datetime.fromisoformat(proof['verified_at'])
+        if not isinstance(now,datetime) or now.utcoffset() is None or verified.utcoffset() is None:
+            raise ValueError()
+        now=now.astimezone(timezone.utc)
+        verified=verified.astimezone(timezone.utc)
         if not created<=verified<=now or now-created>timedelta(hours=24):
             raise ValueError()
-        # Scheduled window 01:00-02:00 UTC, verified before 03:00 UTC.
-        if created.hour!=1 or verified.date()!=created.date() or verified.hour>=3:
+        # Snapshot window 01:15-02:05; remote verification 02:05-03:00.
+        # Final audit is separate (03:00-04:00) and not implied by this claim.
+        midnight=created.replace(hour=0,minute=0,second=0,microsecond=0)
+        if not (midnight+timedelta(minutes=75)<=created<midnight+timedelta(minutes=125)
+                and midnight+timedelta(minutes=125)<=verified<midnight+timedelta(minutes=180)):
             raise ValueError()
         checks['freshness']='PASS'
         checks['integrity_claim']='FAIL'

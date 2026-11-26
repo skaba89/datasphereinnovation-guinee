@@ -60,3 +60,40 @@ class BackupMonitorTests(unittest.TestCase):
     def test_missing_fields(self):
         del self.proof['synthetic_data']
         self.check()
+
+    def test_utc_offset(self):
+        self.proof['verified_at']='2026-11-27T03:25:00+01:00'
+        self.check('PASS')
+
+    def test_offset_disguises_late_verification(self):
+        self.now=datetime(2026,11,27,5,0,tzinfo=timezone.utc)
+        self.proof['verified_at']='2026-11-27T02:25:00-02:00'
+        self.check()
+
+    def test_naive_clock(self):
+        self.now=self.now.replace(tzinfo=None)
+        self.check()
+
+    def test_naive_verification(self):
+        self.proof['verified_at']='2026-11-27T02:25:00'
+        self.check()
+
+    def test_exact_rpo(self):
+        self.now=datetime(2026,11,28,1,15,tzinfo=timezone.utc)
+        self.check('PASS')
+        self.now=self.now.replace(second=1)
+        self.check()
+
+    def test_snapshot_window_end(self):
+        self.proof['archive']='dsig-prod-20261127T020500Z.dsigbak'
+        self.proof['object']='prod/2026/11/'+self.proof['archive']
+        self.check()
+
+    def test_early_export(self):
+        self.proof['verified_at']='2026-11-27T02:04:59+00:00'
+        self.check()
+
+    def test_late_snapshot_in_window(self):
+        self.proof['archive']='dsig-prod-20261127T020400Z.dsigbak'
+        self.proof['object']='prod/2026/11/'+self.proof['archive']
+        self.check('PASS')
