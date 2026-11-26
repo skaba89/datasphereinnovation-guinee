@@ -22,6 +22,8 @@ def schema(db):
 
 
 def records(db,org,kind):
+    if kind not in ('contracts','subscriptions','invoices','tickets'):
+        raise ValueError('invalid projection')
     if kind=='contracts':
         return [dict(r) for r in db.execute("""SELECT m.contract_ref AS reference,q.title,m.start_date,m.end_date,m.status
             FROM missions m JOIN quotes q ON q.id=m.quote_id AND q.opportunity_id=m.opportunity_id
@@ -74,8 +76,10 @@ def handle(h,connect,method):
     if h.role!='CLIENT' or h.headers.get('Authorization')!='Bearer session':
         return h.json_response(403,{'error':'Session client nominative requise.'})
     try:
-        query=parse_qs(urlsplit(h.path).query)
-        if set(query)-{'kind','page','q'}:raise ValueError()
+        if method not in ('GET','POST'):raise ValueError()
+        query=parse_qs(urlsplit(h.path).query,keep_blank_values=True)
+        if set(query)-{'kind','page','q'} or any(len(v)!=1 for v in query.values()):raise ValueError()
+        if method=='POST' and query:raise ValueError()
         kind=query.get('kind',['contracts'])[0];page=int(query.get('page',['1'])[0]);q=query.get('q',[''])[0].strip().casefold()
         if kind not in ('contracts','subscriptions','invoices','tickets') or not 1<=page<=10000 or len(q)>120:raise ValueError()
         if method=='POST':

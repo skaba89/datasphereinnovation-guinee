@@ -1376,6 +1376,19 @@ class IntakeTests(unittest.TestCase):
                 code,body,_=self.request('GET',path+'?kind='+kind,headers=headers);self.assertEqual(code,200)
                 result=json.loads(body);self.assertEqual({r['reference'] for r in result['items']},set(refs));self.assertNotIn(b'secret-',body)
             self.assertEqual(self.request('GET',path+'?organization_id='+orgs[1-i],headers=headers)[0],400)
+        for headers in (first,second):
+            for suffix in ('?kind=contracts&kind=invoices','?page=1&page=2',
+                           '?q=&q=secret','?organization_id=','?kind=','?page='):
+                self.assertEqual(self.request('GET',path+suffix,headers=headers)[0],400)
+            self.assertEqual(self.request('GET',path+'?kind=contracts&page=1&q=',headers=headers)[0],200)
+        for i,headers in enumerate((first,second)):
+            for kind,foreign in [('contracts',f'C-{1-i}'),('subscriptions',f'SUB-{1-i}'),
+                                 ('invoices',f'FACT-{1-i}'),('invoices',f'SAAS-{1-i}')]:
+                code,body,_=self.request('GET',path+'?kind='+kind+'&q='+foreign,headers=headers)
+                self.assertEqual(code,200)
+                self.assertEqual(json.loads(body)['total'],0)
+        self.assertEqual(self.request('POST',path,{'title':'Ticket A','description':'Test','organization_id':orgs[1]},first)[0],400)
+        self.assertEqual(self.request('POST',path+'?kind=tickets',{'title':'Ticket A','description':'Test'},first)[0],400)
         self.assertEqual(self.request('POST',path,{'title':'Ticket A','description':'Assistance fictive'},first|{'Origin':'https://evil.invalid'})[0],403)
         code,body,_=self.request('POST',path,{'title':'Ticket A','description':'Assistance fictive'},first);self.assertEqual(code,201);ticket=json.loads(body)['id']
         self.assertEqual(json.loads(self.request('GET',path+'?kind=tickets',headers=second)[1])['total'],0)
