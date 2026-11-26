@@ -82,6 +82,8 @@ jobs:
           "$RUNNER_TEMP/dsig-prod-check/bin/python" scripts/test-prod-compose-integration.py
       - name: Build local image
         run: docker build -t dsig-ci .
+      - name: Verify application image content in isolated sandbox
+        run: python scripts/verify-prod-image.py "$(git rev-parse HEAD)" dsig-ci --ci-local
       - name: Verify local container
         run: |
           docker run -d --name dsig-ci -p 127.0.0.1:8080:8080 -e DSIG_ENV=REC -e DSIG_ADMIN_TOKEN=ci-fictitious-token-not-a-secret-123456 dsig-ci
