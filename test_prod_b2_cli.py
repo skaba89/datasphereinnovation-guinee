@@ -15,9 +15,9 @@ class AdapterTests(unittest.TestCase):
                          defaultServerSideEncryption=dict(mode='SSE-B2',algorithm='AES256'))
         self.rows=[]
         self.calls=[]
-        self.adapter=B2ReviewAdapter(ID,run=self.run)
+        self.adapter=B2ReviewAdapter(ID,run=self.fake_run)
 
-    def run(self,args):
+    def fake_run(self,args):
         self.calls.append(args)
         if args[:2]==['account','get']:return json.dumps(self.account)
         if args[:2]==['bucket','get']:return json.dumps(self.bucket)
