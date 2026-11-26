@@ -11,6 +11,20 @@ DB=DEST+'/requests.sqlite3'
 
 
 def inspect(container, volume, *, expected_container_id, expected_image_id):
+    return _inspect(container, volume, expected_container_id=expected_container_id,
+                    expected_image_id=expected_image_id, project='dsig-prod', name=VOLUME)
+
+
+def inspect_qualification(container, volume, *, expected_container_id, expected_image_id, run_id):
+    if not isinstance(run_id,str) or not re.fullmatch(r'[0-9a-f]{16}',run_id):
+        raise ValueError('invalid qualification run id')
+    project='dsig-qualification-'+run_id
+    result=_inspect(container,volume,expected_container_id=expected_container_id,
+                    expected_image_id=expected_image_id,project=project,name=project+'_prod-data')
+    return dict(result,qualification_only=True)
+
+
+def _inspect(container, volume, *, expected_container_id, expected_image_id, project, name):
     checks=dict.fromkeys(('identity','image','project','mount','volume','runtime'),'NOT_RUN')
     try:
         checks['identity']='FAIL'
@@ -23,7 +37,7 @@ def inspect(container, volume, *, expected_container_id, expected_image_id):
         checks['image']='PASS'
         checks['project']='FAIL'
         labels=container['Config']['Labels']
-        if (labels['com.docker.compose.project']!='dsig-prod'
+        if (labels['com.docker.compose.project']!=project
                 or labels['com.docker.compose.service']!='app'
                 or container['Config']['User']!='10001:10001'):
             raise ValueError()
@@ -31,7 +45,7 @@ def inspect(container, volume, *, expected_container_id, expected_image_id):
         checks['mount']='FAIL'
         mounts=container['Mounts']
         data=[m for m in mounts if m['Destination']==DEST]
-        if len(data)!=1 or data[0]['Type']!='volume' or data[0]['Name']!=VOLUME or data[0]['RW'] is not True:
+        if len(data)!=1 or data[0]['Type']!='volume' or data[0]['Name']!=name or data[0]['RW'] is not True:
             raise ValueError()
         if any(m['Destination']!=DEST and (m['Destination']=='/' or DEST.startswith(m['Destination'].rstrip('/')+'/')
                     or m['Destination'].startswith(DEST+'/')) for m in mounts):
@@ -39,12 +53,12 @@ def inspect(container, volume, *, expected_container_id, expected_image_id):
         checks['mount']='PASS'
         checks['volume']='FAIL'
         vl=volume['Labels']
-        if (volume['Name']!=VOLUME or volume['Driver']!='local' or volume['Scope']!='local'
+        if (volume['Name']!=name or volume['Driver']!='local' or volume['Scope']!='local'
                 or volume.get('Options') not in (None,{})
-                or vl['com.docker.compose.project']!='dsig-prod'
+                or vl['com.docker.compose.project']!=project
                 or vl['com.docker.compose.volume']!='prod-data'
                 or data[0]['Source']!=volume['Mountpoint']
-                or not re.fullmatch(r'/var/lib/docker/volumes/dsig-prod_prod-data/_data',volume['Mountpoint'])):
+                or volume['Mountpoint']!=f'/var/lib/docker/volumes/{name}/_data'):
             raise ValueError()
         checks['volume']='PASS'
         checks['runtime']='FAIL'

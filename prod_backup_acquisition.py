@@ -25,6 +25,21 @@ def command(args):
 
 
 def acquire(*, expected_container_id, expected_image_id, run=None):
+    return _acquire(expected_container_id=expected_container_id,expected_image_id=expected_image_id,
+                    run=run,volume_name=source.VOLUME,validator=source.inspect)
+
+
+def acquire_qualification(*, expected_container_id, expected_image_id, run_id, run=None):
+    if not isinstance(run_id,str) or not re.fullmatch(r'[0-9a-f]{16}',run_id):
+        raise ValueError('invalid qualification run id')
+    def validator(c,v,**kwargs):
+        return source.inspect_qualification(c,v,run_id=run_id,**kwargs)
+    result=_acquire(expected_container_id=expected_container_id,expected_image_id=expected_image_id,
+                    run=run,volume_name='dsig-qualification-'+run_id+'_prod-data',validator=validator)
+    return dict(result,qualification_only=True)
+
+
+def _acquire(*, expected_container_id, expected_image_id, run, volume_name, validator):
     run=run or command
     checks=dict.fromkeys(('local_inspection','source','exclusive_consumer','stable_observation'),'NOT_RUN')
     try:
@@ -33,13 +48,13 @@ def acquire(*, expected_container_id, expected_image_id, run=None):
             raise ValueError('invalid pinned identity')
         def snapshot():
             c=json.loads(run(['container','inspect','--format',CONTAINER_FORMAT,expected_container_id]))
-            v=json.loads(run(['volume','inspect','--format',VOLUME_FORMAT,source.VOLUME]))
-            ids=run(['container','ls','--all','--no-trunc','--filter',f'volume={source.VOLUME}','--format','{{.ID}}']).splitlines()
+            v=json.loads(run(['volume','inspect','--format',VOLUME_FORMAT,volume_name]))
+            ids=run(['container','ls','--all','--no-trunc','--filter',f'volume={volume_name}','--format','{{.ID}}']).splitlines()
             return c,v,ids
         c,v,ids=snapshot()
         checks['local_inspection']='PASS'
         checks['source']='FAIL'
-        if source.inspect(c,v,expected_container_id=expected_container_id,expected_image_id=expected_image_id)['status']!='PASS':
+        if validator(c,v,expected_container_id=expected_container_id,expected_image_id=expected_image_id)['status']!='PASS':
             raise ValueError('source rejected')
         if not isinstance(c['State']['StartedAt'],str) or not c['State']['StartedAt']:
             raise ValueError('missing runtime generation')
