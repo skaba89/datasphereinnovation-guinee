@@ -36,7 +36,7 @@ def verify_remote(*, root, now, public, pin, key, run_id, bucket_id, remote, all
                 or policy.get('bucketType')!='allPrivate' or policy.get('encryption')!='SSE-B2'
                 or policy.get('lock_mode')!='compliance' or type(policy.get('lock_days')) is not int or policy['lock_days']<30):
             raise ValueError('invalid remote policy')
-        obj=f'prod/qualification/v232-slots/{run_id}/{proof['cycle']}/{name}'
+        obj=f"prod/qualification/v232-slots/{run_id}/{proof['cycle']}/{name}"
         downloaded=remote.read(export.BUCKET,obj)
         uploaded=False
         if downloaded is None:
