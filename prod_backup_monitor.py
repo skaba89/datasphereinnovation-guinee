@@ -44,11 +44,10 @@ def evaluate(proof, *, expected_bucket_id, now=None):
         verified=verified.astimezone(timezone.utc)
         if not created<=verified<=now or now-created>timedelta(hours=24):
             raise ValueError()
-        # Snapshot window 01:15-02:05; remote verification 02:05-03:00.
-        # Final audit is separate (03:00-04:00) and not implied by this claim.
-        midnight=created.replace(hour=0,minute=0,second=0,microsecond=0)
-        if not (midnight+timedelta(minutes=75)<=created<midnight+timedelta(minutes=125)
-                and midnight+timedelta(minutes=125)<=verified<midnight+timedelta(minutes=180)):
+        # Both UTC slots share the same half-open windows. Audit is separate.
+        from prod_backup_cadence import slot_for_snapshot
+        slot=slot_for_snapshot(created)
+        if slot is None or not slot['export_start']<=verified<slot['export_end']:
             raise ValueError()
         checks['freshness']='PASS'
         checks['integrity_claim']='FAIL'
