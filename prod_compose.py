@@ -21,7 +21,8 @@ def validate(c, expected_image, expected_port):
         s = c['services']['app']
         checks['project'] = (set(c) == {'name', 'services', 'volumes', 'networks'}
                              and c['name'] == 'dsig-prod' and set(c['services']) == {'app'}
-                             and set(s) == SERVICE_FIELDS)
+                             and SERVICE_FIELDS <= set(s) <= SERVICE_FIELDS | {'command'}
+                             and s.get('command') in (None, []))
         checks['image'] = (isinstance(expected_image, str) and bool(re.fullmatch(
             r'[^\s@]+@sha256:[0-9a-f]{64}', expected_image)) and s['image'] == expected_image
             and s['pull_policy'] == 'never')
@@ -46,7 +47,13 @@ def validate(c, expected_image, expected_port):
                             and a['type'] == 'bind' and a['source'] == '/run/clamav'
                             and a['read_only'] is True and a.get('bind',{}) in ({},{'create_host_path':False}))
         checks['network'] = (s['networks'] in ({'prod-private':None},{'prod-private':{}})
-                             and c['networks'] == {'prod-private':{'name':'dsig-prod_prod-private','internal':True}})
+                             and set(c['networks']) == {'prod-private'}
+                             and set(c['networks']['prod-private']) <= {'name','internal','ipam'}
+                             and c['networks']['prod-private']['name'] == 'dsig-prod_prod-private'
+                             and c['networks']['prod-private']['internal'] is True
+                             and c['networks']['prod-private'].get('ipam') in (
+                                 None, {}, {'driver':'default'}, {'config':[]},
+                                 {'driver':'default','config':[]}))
         checks['privileges'] = (s['user'] == '10001:10001' and s['read_only'] is True
                                 and s['cap_drop'] == ['ALL']
                                 and s['security_opt'] in (['no-new-privileges:true'],['no-new-privileges=true'])

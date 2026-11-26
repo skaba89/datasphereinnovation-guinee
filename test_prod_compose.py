@@ -58,3 +58,19 @@ class ComposeReviewTests(unittest.TestCase):
     def test_missing_field(self):
         for k in p.SERVICE_FIELDS:
             c=fixture();del c['services']['app'][k];self.check(c)
+
+    def test_compose_generated_defaults(self):
+        for command in (None, []):
+            for ipam in (None, {}, {'driver':'default'}, {'config':[]},
+                         {'driver':'default','config':[]}):
+                c=fixture()
+                c['services']['app']['command']=command
+                c['networks']['prod-private']['ipam']=ipam
+                self.check(c,'PASS')
+
+    def test_nondefault_command_and_ipam(self):
+        for command in (['sh'], ['python','server.py'], 'sh'):
+            c=fixture();c['services']['app']['command']=command;self.check(c)
+        for ipam in ({'driver':'custom'}, {'config':[{'subnet':'10.0.0.0/24'}]},
+                     {'options':{'foo':'bar'}}, {'config':[{}]}):
+            c=fixture();c['networks']['prod-private']['ipam']=ipam;self.check(c)
