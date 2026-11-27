@@ -14,6 +14,7 @@ class AuthorityTests(unittest.TestCase):
         self.path = Path(self.tmp.name)
         # Exercise filesystem operations with the test user's ownership.
         # Root-only ancestor validation is tested independently.
+        self.real_directory = authority._directory
         self.open_dir = patch.object(authority, '_directory',
             side_effect=lambda path: os.open(path, os.O_RDONLY | os.O_DIRECTORY))
         self.open_dir.start()
@@ -57,4 +58,4 @@ class AuthorityTests(unittest.TestCase):
     def test_nonroot_refused(self):
         with patch.object(authority.os, 'geteuid', return_value=10001):
             with self.assertRaises(PermissionError):
-                self.open_dir.temp_original(self.path)
+                self.real_directory(self.path)
