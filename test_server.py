@@ -13,6 +13,12 @@ from pathlib import Path
 import server
 
 
+class JoinedHTTPServer(server.ThreadingHTTPServer):
+    """Drain all request handlers before restoring globals or deleting test data."""
+    daemon_threads = False
+    block_on_close = True
+
+
 class IntakeTests(unittest.TestCase):
     def setUp(self):
         # Existing lifecycle tests explicitly preserve the legacy local policy; a separate test exercises the strict default.
@@ -23,7 +29,7 @@ class IntakeTests(unittest.TestCase):
         server.ADMIN_TOKEN = "test-token-only-" + "x"*32
         server.DB = Path(self.tmp.name) / "requests.sqlite3"
         server.RATE.clear()
-        self.http = server.ThreadingHTTPServer(("127.0.0.1", 0), server.Handler)
+        self.http = JoinedHTTPServer(("127.0.0.1", 0), server.Handler)
         self.thread = threading.Thread(target=self.http.serve_forever, daemon=True)
         self.thread.start()
         self.port = self.http.server_address[1]
@@ -40,13 +46,15 @@ class IntakeTests(unittest.TestCase):
         self.tmp.cleanup()
 
     def request(self, method, path, payload=None, headers=None):
-        conn = HTTPConnection("127.0.0.1", self.port, timeout=5)
-        body = None if payload is None else json.dumps(payload)
-        conn.request(method, path, body, headers or {"Content-Type": "application/json"})
-        res = conn.getresponse()
-        result = res.status, res.read(), dict(res.getheaders())
-        conn.close()
-        return result
+        # SQLite may wait ten seconds for a lock; allow the handler to finish.
+        conn = HTTPConnection("127.0.0.1", self.port, timeout=20)
+        try:
+            body = None if payload is None else json.dumps(payload)
+            conn.request(method, path, body, headers or {"Content-Type": "application/json"})
+            res = conn.getresponse()
+            return res.status, res.read(), dict(res.getheaders())
+        finally:
+            conn.close()
 
     def test_list_page_size_validation(self):
         headers={'Authorization':'Bearer '+server.ADMIN_TOKEN}
