@@ -49,11 +49,11 @@ def encryption_values(env):
     return set(raw)
 
 
-def inspect(prod, rec, candidate):
+def local_checks(prod):
+    """Validate only production-local configuration; not environment separation."""
     checks = dict.fromkeys(('mode', 'origin', 'database_path', 'mfa_policy',
-                            'scanner_path', 'prod_secrets', 'reference_secrets',
-                            'secret_separation'), False)
-    if all(isinstance(x, dict) for x in (prod, rec, candidate)):
+                            'scanner_path', 'prod_secrets'), False)
+    if isinstance(prod, dict):
         checks['mode'] = prod.get('DSIG_ENV') == 'PROD'
         checks['origin'] = prod.get('DSIG_HTTPS_ORIGIN') == ORIGIN
         checks['database_path'] = prod.get('DSIG_DB') == '/app/data/requests.sqlite3'
@@ -61,8 +61,26 @@ def inspect(prod, rec, candidate):
         checks['mfa_policy'] = isinstance(roles, str) and ROLES <= set(roles.split(','))
         checks['scanner_path'] = prod.get('DSIG_CLAMD_SOCKET') == '/run/dsig-clamav/clamd.ctl'
         try:
-            p = secret_values(prod)
+            secret_values(prod)
             checks['prod_secrets'] = True
+        except (ValueError, TypeError):
+            pass
+    return checks
+
+
+def inspect_local(prod):
+    checks = local_checks(prod)
+    return {'status': 'PASS' if all(checks.values()) else 'FAIL',
+            'checks': {k: 'PASS' if v else 'FAIL' for k, v in checks.items()},
+            'reference_secrets_checked': False, 'production_authorized': False}
+
+
+def inspect(prod, rec, candidate):
+    checks = local_checks(prod) if all(isinstance(x, dict) for x in (prod, rec, candidate)) else local_checks(None)
+    checks.update(reference_secrets=False, secret_separation=False)
+    if all(isinstance(x, dict) for x in (prod, rec, candidate)):
+        try:
+            p = secret_values(prod)
         except (ValueError, TypeError):
             p = None
         try:
