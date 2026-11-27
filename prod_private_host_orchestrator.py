@@ -91,3 +91,15 @@ def exchange_prepared(*, authority_path, approved_pin, approved_measurements,
     finally:
         if attempted and not completed:
             stop_failed(container_id)
+
+
+def launch_approved(*, authority_path, approved_pin, approved_measurements,
+                    measurement_inputs):
+    """Use only pinned Docker actions; PASS denotes handoff, not HTTP readiness."""
+    import prod_private_docker_actions as docker
+    expected = json.loads(auth.canonical(approved_measurements))
+    start, stop = docker.actions(container_id=expected['container_id'],
+        image_id=expected['image_id'], approved_digest=expected['runtime_sha256'])
+    return exchange_prepared(authority_path=authority_path, approved_pin=approved_pin,
+        approved_measurements=expected, measurement_inputs=measurement_inputs,
+        start_created=start, stop_failed=stop)
