@@ -26,7 +26,7 @@ class ExecutableMeasurementTests(unittest.TestCase):
                 NetworkMode='dsig-prod_prod-private',GroupAdd=['109'],
                 Tmpfs={'/tmp':'rw,noexec,nosuid,nodev,size=64m'},
                 LogConfig={'Type':'json-file','Config':{'max-size':'10m','max-file':'5'}},
-                PublishAllPorts=False,Mounts=[dict(Type='bind',Source=binding.topology.HOST_CHANNEL,
+                PublishAllPorts=False,Binds=['dsig-prod_prod-data:/app/data:rw'],Mounts=[dict(Type='bind',Source=binding.topology.HOST_CHANNEL,
                     Target=binding.topology.CHANNEL,ReadOnly=True,BindOptions={'CreateMountpoint':False})]),
             Mounts=[dict(Destination='/app/data',Type='volume',Name='dsig-prod_prod-data',RW=True),
                     dict(Destination='/run/dsig-clamav',Type='bind',Source='/run/clamav',RW=False),
