@@ -4,6 +4,7 @@ import tempfile
 from pathlib import Path
 from contextlib import closing
 import prod_named_bootstrap as named
+import prod_private_volume_init as volume
 import server
 from prod_private_handoff_transport import recipient_exchange
 
@@ -31,26 +32,40 @@ def run(sock,*,expected_uid,envelope,public,authority_pin,expected,exercise):
         block_on_close=True
     with tempfile.TemporaryDirectory(prefix='dsig-business-qualification-') as root:
         try:
-            server.DB=Path(root)/'requests.sqlite3'
+            data=Path(root)/'data'
+            data.mkdir(mode=0o700)
+            server.DB=data/'requests.sqlite3'
             server.ADMIN_TOKEN=''
             server.RATE.clear()
             with patch.dict(os.environ,{'DSIG_MFA_KEY':Fernet.generate_key().decode(),
                 'DSIG_DOCUMENT_KEY':Fernet.generate_key().decode(),
                 'DSIG_BACKUP_KEY':Fernet.generate_key().decode(),
                 'DSIG_MFA_REQUIRED_ROLES':'ADMIN,CLIENT,DIRECTION,CONTROLE,COMPTABLE,AUDITEUR','DSIG_HTTPS_ORIGIN':'https://qualification.invalid'}):
-                with closing(server.connect()) as db:
-                    rows=named.initialize_review(db,['alice.example','bob.example'])
-                with JoinedServer(('127.0.0.1',0),server.Handler) as http:
-                    thread=threading.Thread(target=http.serve_forever)
-                    thread.start()
-                    try:
-                        exercise(http.server_port,rows)
-                        with closing(server.connect()) as db:
-                            if named.readiness(db)['status']!='PASS':
-                                raise ValueError('named MFA readiness failed')
-                    finally:
-                        http.shutdown()
-                        thread.join()
+                volume.initialize_isolated(data)
+                with volume.exclusive(data):
+                    with closing(server.connect()) as db:
+                        rows=named.initialize_review(db,['alice.example','bob.example'])
+                    with JoinedServer(('127.0.0.1',0),server.Handler) as http:
+                        thread=threading.Thread(target=http.serve_forever)
+                        thread.start()
+                        try:
+                            # A competing cooperative writer must fail while HTTP is alive.
+                            try:
+                                with volume.exclusive(data):
+                                    raise AssertionError('second volume lock acquired')
+                            except BlockingIOError:
+                                pass
+                            exercise(http.server_port,rows)
+                            with closing(server.connect()) as db:
+                                if named.readiness(db)['status']!='PASS':
+                                    raise ValueError('named MFA readiness failed')
+                        finally:
+                            http.shutdown()
+                            thread.join()
+                # Verify the lock is released only after all request handlers join.
+                with volume.exclusive(data):
+                    import operations
+                    operations.verify(server.DB)
         finally:
             server.DB,server.ADMIN_TOKEN=previous_db,previous_token
             server.RATE.clear()
