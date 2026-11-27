@@ -1,4 +1,4 @@
-"""Private runtime admission integration. CLI remains locked until host provisioning.
+"""Private runtime admission integration. Executable admission requires trusted host provisioning.
 The supervisor must independently measure the executable container and provision
 the authority pin; never derive expected values from the signed envelope.
 """
@@ -33,7 +33,17 @@ def admission(sock,*,rec,candidate,envelope,public,authority_pin,expected):
         sock.close()
 
 def main():
-    raise SystemExit('PROD startup disabled: trusted host provisioning and executable measurements required')
+    import prod_private_business_runtime as business
+    # Only the container init process can participate in the pinned host
+    # peer protocol. The ordinary server entrypoint remains DEV/REC-only.
+    if (os.getpid()!=1 or os.getuid()!=10001 or os.getgid()!=10001
+            or os.environ.get('DSIG_CONTAINER')!='1'
+            or os.environ.get('DSIG_ENV')!='PROD'):
+        raise SystemExit('PROD startup disabled: trusted host provisioning and executable measurements required')
+    try:
+        business.run()
+    except (OSError, ValueError, TypeError, KeyError, RuntimeError):
+        raise SystemExit('PROD runtime admission failed') from None
 
 if __name__=='__main__':
     main()
