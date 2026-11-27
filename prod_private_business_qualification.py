@@ -49,6 +49,12 @@ def run(sock,*,expected_uid,envelope,public,authority_pin,expected,exercise):
                         thread=threading.Thread(target=http.serve_forever)
                         thread.start()
                         try:
+                            # A competing cooperative writer must fail while HTTP is alive.
+                            try:
+                                with volume.exclusive(data):
+                                    raise AssertionError('second volume lock acquired')
+                            except BlockingIOError:
+                                pass
                             exercise(http.server_port,rows)
                             with closing(server.connect()) as db:
                                 if named.readiness(db)['status']!='PASS':
@@ -56,6 +62,10 @@ def run(sock,*,expected_uid,envelope,public,authority_pin,expected,exercise):
                         finally:
                             http.shutdown()
                             thread.join()
+                # Verify the lock is released only after all request handlers join.
+                with volume.exclusive(data):
+                    import operations
+                    operations.verify(server.DB)
         finally:
             server.DB,server.ADMIN_TOKEN=previous_db,previous_token
             server.RATE.clear()
