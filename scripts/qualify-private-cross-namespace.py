@@ -22,6 +22,7 @@ import prod_private_peer_binding as binding
 CLIENT = """
 import base64,json,os,socket,urllib.request,urllib.error
 from prod_private_business_qualification import run
+restart_state={}
 def exercise(port,rows):
     import authentication as auth
     import secrets
@@ -58,6 +59,8 @@ def exercise(port,rows):
         call('/api/auth/login',401,data=credentials)
         auth.ATTEMPTS.clear()
         otp=confirmation['recovery_codes'][0]
+        restart_state['credentials']=credentials
+        restart_state['otp']=confirmation['recovery_codes'][1]
         body,cookie=call('/api/auth/login',200,data=dict(credentials,otp=otp))
         assert body['mfa_enabled'] and 'token' not in body
         session=cookie.split(';',1)[0]
@@ -71,12 +74,33 @@ def exercise(port,rows):
         consent=True,website='')
     created,_=call('/api/requests',201,data=payload)
     assert created['id']
+    restart_state['id']=created['id']
+
+def restart_exercise(port):
+    import authentication as auth
+    auth.ATTEMPTS.clear()
+    base='http://127.0.0.1:'+str(port)
+    headers={'Host':'qualification.invalid','Origin':'https://qualification.invalid',
+        'Content-Type':'application/json','X-DSIG-Session':'cookie'}
+    credentials=restart_state['credentials']
+    req=urllib.request.Request(base+'/api/auth/login',headers=headers,
+        data=json.dumps(dict(credentials,otp=restart_state['otp'])).encode())
+    with urllib.request.urlopen(req,timeout=15) as response:
+        assert json.load(response)['mfa_enabled']
+        headers.update(Authorization='Bearer session',Cookie=response.headers['Set-Cookie'].split(';',1)[0])
+    req=urllib.request.Request(base+'/api/admin/requests',headers=headers)
+    with urllib.request.urlopen(req,timeout=15) as response:
+        body=json.load(response)
+        assert restart_state['id'] in json.dumps(body)
+    req=urllib.request.Request(base+'/api/auth/logout',headers=headers,data=b'{}')
+    with urllib.request.urlopen(req,timeout=15) as response:
+        assert response.code==200
 with socket.socket(socket.AF_UNIX) as sock:
     sock.connect('/qualification/channel.sock')
     config=json.load(open('/qualification/config.json'))
     result=run(sock,expected_uid=config['uid'],envelope=config['envelope'],
         public=base64.b64decode(config['public']),authority_pin=config['pin'],
-        expected=config['expected'],exercise=exercise)
+        expected=config['expected'],exercise=exercise,restart_exercise=restart_exercise)
     assert result['qualification_only'] and not result['production_authorized']
 """
 
