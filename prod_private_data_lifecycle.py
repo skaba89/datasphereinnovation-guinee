@@ -8,6 +8,13 @@ from pathlib import Path
 from contextlib import closing
 import operations
 
+def _identity(info):
+    # Read-only SQLite inspection may update atime (including on relatime).
+    # All identity, ownership, size and modification metadata remain pinned.
+    return (info.st_dev, info.st_ino, info.st_mode, info.st_nlink,
+            info.st_uid, info.st_gid, info.st_size, info.st_mtime_ns,
+            info.st_ctime_ns)
+
 def inspect(data_dir):
     result=dict(status='FAIL',state='UNKNOWN',database_initialized=False,
                 startup_authorized=False,production_authorized=False)
@@ -38,7 +45,7 @@ def inspect(data_dir):
                 return result
             if conn.execute('PRAGMA integrity_check').fetchall()!=[('ok',)]:
                 return result
-        if {p.name for p in path.iterdir()}!=names or db.lstat()!=info:
+        if {p.name for p in path.iterdir()}!=names or _identity(db.lstat())!=_identity(info):
             return result
         return dict(result,status='PASS',state='EXISTING_SCHEMA')
     except (OSError,ValueError,TypeError,sqlite3.Error):

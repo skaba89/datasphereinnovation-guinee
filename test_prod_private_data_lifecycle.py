@@ -37,6 +37,23 @@ class DataLifecycleTest(unittest.TestCase):
         self.assertFalse(result['database_initialized'])
         self.assertEqual(self.db.read_bytes(),before)
 
+    def test_read_induced_atime_change(self):
+        self.create_db()
+        info = self.db.stat()
+        os.utime(self.db, ns=(0, info.st_mtime_ns))
+        self.assertEqual(lifecycle.inspect(self.path)['state'], 'EXISTING_SCHEMA')
+
+    def test_modification_metadata_rejected(self):
+        self.create_db()
+        original = lifecycle.sqlite3.connect
+        def changed(*args, **kwargs):
+            conn = original(*args, **kwargs)
+            info = self.db.stat()
+            os.utime(self.db, ns=(info.st_atime_ns, info.st_mtime_ns + 1000000000))
+            return conn
+        with patch.object(lifecycle.sqlite3, 'connect', side_effect=changed):
+            self.assertEqual(lifecycle.inspect(self.path)['status'], 'FAIL')
+
     def test_sidecar_rejected(self):
         self.create_db()
         (self.path/'requests.sqlite3-wal').touch()
