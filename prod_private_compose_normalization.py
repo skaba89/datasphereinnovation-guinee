@@ -34,11 +34,12 @@ def reconcile(reviewed, rendered, expected_image):
 def inspect_channel(host_config):
     """Require explicit bind API mount; absent CreateMountpoint means false.
 
-    Docker Engine's optional bool defaults to false. Reject legacy Binds,
-    duplicate channel mounts and all additional bind options.
+    Docker Engine's optional bool defaults to false. Allow only the exact
+    named PROD data volume in legacy Binds; reject duplicate channel mounts
+    and all additional channel bind options.
     """
     try:
-        if host_config.get('Binds') not in (None, []):
+        if host_config.get('Binds') not in (None, [], ['dsig-prod_prod-data:/app/data:rw']):
             return False
         mounts = host_config['Mounts']
         channel = [m for m in mounts if m['Target'] == topology.CHANNEL]
