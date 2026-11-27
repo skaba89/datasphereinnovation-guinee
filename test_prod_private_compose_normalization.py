@@ -42,3 +42,26 @@ class ComposeNormalizationTests(unittest.TestCase):
         mount['BindOptions']['CreateMountpoint'] = False
         hc['Binds'] = ['/tmp:/tmp']
         self.assertFalse(normalization.inspect_channel(hc))
+
+    def test_observed_prod_volume_and_two_api_binds(self):
+        hc = {'Binds': ['dsig-prod_prod-data:/app/data:rw'],
+              'Mounts': [
+                  dict(Type='bind', Source='/run/clamav',
+                       Target='/run/dsig-clamav', ReadOnly=True, BindOptions={}),
+                  dict(Type='bind', Source=topology.HOST_CHANNEL,
+                       Target=topology.CHANNEL, ReadOnly=True, BindOptions={})]}
+        self.assertTrue(normalization.inspect_channel(hc))
+        for binds in [
+            ['dsig-prod_prod-data:/app/data:ro'],
+            ['other:/app/data:rw'],
+            ['/var/run/docker.sock:/var/run/docker.sock:rw'],
+            ['/run/dsig-prod-launch:/run/dsig-private-launch:ro'],
+            ['dsig-prod_prod-data:/app/data:rw', '/:/host:rw'],
+            ['dsig-prod_prod-data:/app/data:rw'] * 2,
+        ]:
+            with self.subTest(binds=binds):
+                altered = copy.deepcopy(hc)
+                altered['Binds'] = binds
+                self.assertFalse(normalization.inspect_channel(altered))
+        hc['Mounts'][1]['BindOptions']['CreateMountpoint'] = True
+        self.assertFalse(normalization.inspect_channel(hc))
