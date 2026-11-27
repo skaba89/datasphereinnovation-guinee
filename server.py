@@ -68,10 +68,11 @@ def configured_origin():
     return origin
 
 
-def connect():
-    DB.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
-    db = sqlite3.connect(DB, timeout=10)
-    os.chmod(DB, 0o600)
+def connect(path=None):
+    target = DB if path is None else Path(path)
+    target.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+    db = sqlite3.connect(target, timeout=10)
+    os.chmod(target, 0o600)
     db.execute("""CREATE TABLE IF NOT EXISTS requests (
         id TEXT PRIMARY KEY, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
         nom TEXT NOT NULL, org TEXT NOT NULL, email TEXT NOT NULL,
