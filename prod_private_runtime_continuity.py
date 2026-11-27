@@ -26,7 +26,7 @@ def digest(observation):
         {'domain': measurement.DOMAIN, 'observation': observation})).hexdigest()
 
 
-def compare(created, running, *, approved_digest):
+def compare(created, running, *, approved_digest, network_id=None, dns_names=None):
     """Compare immutable settings exactly, including all environment fields."""
     try:
         if not re.fullmatch('[0-9a-f]{64}', approved_digest):
@@ -37,14 +37,34 @@ def compare(created, running, *, approved_digest):
             return False
         if set(created) != set(running):
             return False
-        if any(created[k] != running[k] for k in created if k not in ('State', 'Networks')):
+        if any(created[k] != running[k] for k in created if k not in ('State', 'Networks', 'HostConfig')):
+            return False
+        old_host, new_host = dict(created['HostConfig']), dict(running['HostConfig'])
+        if old_host.get('OomKillDisable') is False and new_host.get('OomKillDisable') is None:
+            if 'OomKillDisable' in old_host and 'OomKillDisable' in new_host:
+                new_host['OomKillDisable'] = False
+        if old_host != new_host:
             return False
         if set(created['Networks']) != {NETWORK} or set(running['Networks']) != {NETWORK}:
             return False
         before, after = created['Networks'][NETWORK], running['Networks'][NETWORK]
         if set(before) != set(after):
             return False
-        if any(before[k] != after[k] for k in before if k not in DYNAMIC):
+        dynamic = set(DYNAMIC)
+        if before['NetworkID'] == '':
+            if network_id is None or after['NetworkID'] != network_id:
+                return False
+            dynamic.add('NetworkID')
+        elif network_id is not None and after['NetworkID'] != network_id:
+            return False
+        if before.get('DNSNames') is None and after.get('DNSNames') is not None:
+            names = after['DNSNames']
+            if (not isinstance(names, list) or not names or dns_names is None
+                    or not all(isinstance(n, str) for n in names)
+                    or len(names) != len(set(names)) or set(names) != set(dns_names)):
+                return False
+            dynamic.add('DNSNames')
+        if any(before[k] != after[k] for k in before if k not in dynamic):
             return False
         if not re.fullmatch('[0-9a-f]{64}', after['NetworkID']):
             return False
@@ -85,9 +105,22 @@ def inspect(*, created, approved_digest, container_id):
         def snapshot():
             return prod_review.decode(acquisition.command(args).encode('utf-8'))
         first = snapshot()
-        if not compare(created, first, approved_digest=approved_digest):
+        network = prod_review.decode(acquisition.command(
+            ['network','inspect','--format','{"Id":{{json .Id}},"Name":{{json .Name}},"Internal":{{json .Internal}}}',NETWORK]).encode('utf-8'))
+        if network['Name'] != NETWORK or network['Internal'] is not True:
+            return result
+        name = acquisition.command(['container','inspect','--format','{{.Name}}',container_id]).strip()
+        if not name.startswith('/') or not re.fullmatch(r'[a-zA-Z0-9][a-zA-Z0-9_.-]*',name[1:]):
+            return result
+        aliases = created['Networks'][NETWORK].get('Aliases') or []
+        names = set(aliases) | {name[1:], container_id[:12]}
+        if not compare(created, first, approved_digest=approved_digest,
+                       network_id=network['Id'], dns_names=names):
             return result
         if snapshot() != first:
+            return result
+        if prod_review.decode(acquisition.command(
+            ['network','inspect','--format','{"Id":{{json .Id}},"Name":{{json .Name}},"Internal":{{json .Internal}}}',NETWORK]).encode('utf-8')) != network:
             return result
         result['status'] = 'PASS'
     except (ValueError, TypeError, KeyError, OSError, AttributeError, RecursionError):
