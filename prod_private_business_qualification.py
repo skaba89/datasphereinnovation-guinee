@@ -6,6 +6,7 @@ from contextlib import closing
 import prod_named_bootstrap as named
 import prod_private_volume_init as volume
 import server
+import prod_private_http_lifecycle as lifecycle
 from prod_private_handoff_transport import recipient_exchange
 
 def run(sock,*,expected_uid,envelope,public,authority_pin,expected,exercise,restart_exercise):
@@ -27,9 +28,6 @@ def run(sock,*,expected_uid,envelope,public,authority_pin,expected,exercise,rest
     import threading
     from unittest.mock import patch
     from cryptography.fernet import Fernet
-    class JoinedServer(server.BoundedHTTPServer):
-        daemon_threads=False
-        block_on_close=True
     with tempfile.TemporaryDirectory(prefix='dsig-business-qualification-') as root:
         try:
             data=Path(root)/'data'
@@ -45,8 +43,9 @@ def run(sock,*,expected_uid,envelope,public,authority_pin,expected,exercise,rest
                 with volume.exclusive(data):
                     with closing(server.connect()) as db:
                         rows=named.initialize_review(db,['alice.example','bob.example'])
-                    with JoinedServer(('127.0.0.1',0),server.Handler) as http:
-                        thread=threading.Thread(target=http.serve_forever)
+                    with lifecycle.listener(('127.0.0.1',0)) as http:
+                        stop=threading.Event()
+                        thread=threading.Thread(target=lifecycle.serve_until_stopped,args=(http,stop))
                         thread.start()
                         try:
                             # A competing cooperative writer must fail while HTTP is alive.
@@ -60,7 +59,7 @@ def run(sock,*,expected_uid,envelope,public,authority_pin,expected,exercise,rest
                                 if named.readiness(db)['status']!='PASS':
                                     raise ValueError('named MFA readiness failed')
                         finally:
-                            http.shutdown()
+                            stop.set()
                             thread.join()
                 # Verify the lock is released only after all request handlers join.
                 with volume.exclusive(data):
@@ -72,13 +71,14 @@ def run(sock,*,expected_uid,envelope,public,authority_pin,expected,exercise,rest
                 if volume.initialize_isolated(data)['created'] is not False:
                     raise ValueError('existing schema unexpectedly recreated')
                 with volume.exclusive(data):
-                    with JoinedServer(('127.0.0.1',0),server.Handler) as http:
-                        thread=threading.Thread(target=http.serve_forever)
+                    with lifecycle.listener(('127.0.0.1',0)) as http:
+                        stop=threading.Event()
+                        thread=threading.Thread(target=lifecycle.serve_until_stopped,args=(http,stop))
                         thread.start()
                         try:
                             restart_exercise(http.server_port)
                         finally:
-                            http.shutdown()
+                            stop.set()
                             thread.join()
                     operations.verify(server.DB)
         finally:
