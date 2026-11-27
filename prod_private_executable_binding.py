@@ -4,6 +4,7 @@ import re
 import prod_backup_acquisition as acquisition
 import prod_review
 import prod_private_launch_topology as topology
+import prod_private_compose_normalization as normalization
 
 FORMAT='{"Id":{{json .Id}},"Image":{{json .Image}},"State":{{json .State.Status}},"Config":{{json .Config}},"HostConfig":{{json .HostConfig}},"Mounts":{{json .Mounts}},"Networks":{{json .NetworkSettings.Networks}}}'
 
@@ -75,7 +76,7 @@ def inspect(*, container_id, image_id, compose_bytes, expected_image, run=None):
                 or a['Type']!='bind' or a['Source']!='/run/clamav' or a['RW'] is not False):
             return result
         channel=mounts[topology.CHANNEL]
-        if (channel['Type']!='bind' or channel['Source']!=topology.HOST_CHANNEL
+        if (not normalization.inspect_channel(hc) or channel['Type']!='bind' or channel['Source']!=topology.HOST_CHANNEL
                 or channel['RW'] is not False):
             return result
         if (hc.get('GroupAdd')!=[str(s['group_add'][0])]
