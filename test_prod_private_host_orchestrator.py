@@ -6,7 +6,7 @@ import prod_private_host_orchestrator as orch
 
 class OrchestratorTests(unittest.TestCase):
     def setUp(self):
-        self.created = {'Id':'a'*64,'State':'created'}
+        self.created = {'Id':'a'*64,'State':'created','Mounts':[{'Destination':'/app/data'},{'Destination':'/run/dsig-clamav'}]}
         self.expected = {'container_id':'a'*64,
                          'runtime_sha256':orch.continuity.digest(self.created)}
         self.kw = dict(authority_path='/unused', approved_pin='b'*64,
@@ -35,6 +35,11 @@ class OrchestratorTests(unittest.TestCase):
     def run_exchange(self):
         return orch.exchange_prepared(**self.kw,start_created=self.start,
                                       stop_failed=self.stop)
+
+    def test_reordered_observation(self):
+        other = dict(self.created, Mounts=list(reversed(self.created['Mounts'])))
+        self.command.side_effect = [json.dumps(self.created), json.dumps(other)]
+        self.assertEqual(self.run_exchange()['status'], 'PASS')
 
     def test_success_order(self):
         def start(cid):
