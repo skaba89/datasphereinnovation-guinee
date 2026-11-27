@@ -26,7 +26,8 @@ class ExecutableMeasurementTests(unittest.TestCase):
                 NetworkMode='dsig-prod_prod-private',GroupAdd=['109'],
                 Tmpfs={'/tmp':'rw,noexec,nosuid,nodev,size=64m'},
                 LogConfig={'Type':'json-file','Config':{'max-size':'10m','max-file':'5'}},
-                PublishAllPorts=False),
+                PublishAllPorts=False,Mounts=[dict(Type='bind',Source=binding.topology.HOST_CHANNEL,
+                    Target=binding.topology.CHANNEL,ReadOnly=True,BindOptions={'CreateMountpoint':False})]),
             Mounts=[dict(Destination='/app/data',Type='volume',Name='dsig-prod_prod-data',RW=True),
                     dict(Destination='/run/dsig-clamav',Type='bind',Source='/run/clamav',RW=False),
                     dict(Destination=binding.topology.CHANNEL,Type='bind',Source=binding.topology.HOST_CHANNEL,RW=False)],
@@ -62,6 +63,11 @@ class ExecutableMeasurementTests(unittest.TestCase):
             c=copy.deepcopy(self.c)
             c['HostConfig'][field]=value
             self.assertEqual(self.measure(c)['status'],'FAIL')
+
+    def test_engine_create_mountpoint_rejected(self):
+        c=copy.deepcopy(self.c)
+        c['HostConfig']['Mounts'][0]['BindOptions']['CreateMountpoint']=True
+        self.assertEqual(self.measure(c)['status'],'FAIL')
 
     def test_changed_observation_rejected(self):
         with patch.object(measurement.acquisition,'command',side_effect=[
