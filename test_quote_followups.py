@@ -3,6 +3,8 @@ import json
 import tempfile
 import threading
 import unittest
+from unittest.mock import patch
+import os
 from datetime import date, timedelta
 from http.client import HTTPConnection
 from pathlib import Path
@@ -16,6 +18,10 @@ CFG = {'api_key': 're_test_key', 'sender': 'notifications@dsig-consulting.com', 
 
 class QuoteFollowupTests(unittest.TestCase):
     def setUp(self):
+        # Follow-up mail is deliberately REC-only; do not inherit runner mode.
+        mode = patch.dict(os.environ, {'DSIG_ENV': 'REC'})
+        mode.start()
+        self.addCleanup(mode.stop)
         self.tmp = tempfile.TemporaryDirectory()
         self.original, self.original_token = server.DB, server.ADMIN_TOKEN
         server.DB = Path(self.tmp.name) / 'followups.sqlite3'
