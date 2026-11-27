@@ -100,6 +100,8 @@ jobs:
           docker build -t dsig-ci .
       - name: Verify application image content in isolated sandbox
         run: python scripts/verify-prod-image.py "$(git rev-parse HEAD)" dsig-ci --ci-local
+      - name: Qualify private signed handoff inside isolated Docker
+        run: bash scripts/qualify-private-docker.sh dsig-ci
       - name: Verify local container
         run: |
           docker run -d --name dsig-ci -p 127.0.0.1:8080:8080 -e DSIG_ENV=REC -e DSIG_ADMIN_TOKEN=ci-fictitious-token-not-a-secret-123456 dsig-ci
