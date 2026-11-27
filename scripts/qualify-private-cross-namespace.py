@@ -20,26 +20,37 @@ import prod_private_handoff_transport as transport
 import prod_private_peer_binding as binding
 
 CLIENT = """
-import base64,json,os,socket,urllib.request
-from prod_private_qualification_entrypoint import prepare
+import base64,json,os,socket,urllib.request,urllib.error
+from prod_private_business_qualification import run
+def exercise(port,token):
+    base='http://127.0.0.1:'+str(port)
+    def call(route,expected,headers=None,data=None):
+        req=urllib.request.Request(base+route,headers=headers or {},data=data)
+        try:
+            response=urllib.request.urlopen(req,timeout=15)
+        except urllib.error.HTTPError as error:
+            response=error
+        with response:
+            assert response.code==expected,(route,response.code)
+            return json.load(response)
+    assert call('/api/ready',200)['status']=='ready'
+    call('/api/admin/requests',401)
+    headers={'Authorization':'Bearer '+token,'Content-Type':'application/json'}
+    for route in ('/api/admin/requests','/api/admin/crm/organizations','/api/admin/quotes','/api/admin/billing','/api/admin/direction'):
+        call(route,200,headers)
+    payload=dict(nom='Qualification',org='Synthetic',email='qa@example.invalid',
+        besoin='Demande de démonstration',solution='MineFleet360',message='Qualification isolée',
+        consent=True,website='')
+    created=call('/api/requests',201,{'Content-Type':'application/json'},json.dumps(payload).encode())
+    assert created['id']
+    call('/api/admin/requests',200,headers)
 with socket.socket(socket.AF_UNIX) as sock:
     sock.connect('/qualification/channel.sock')
-    config=json.loads(os.environ['QUALIFICATION_CONFIG'])
-    http=prepare(sock,expected_uid=config['uid'],envelope=config['envelope'],
+    config=json.load(open('/qualification/config.json'))
+    result=run(sock,expected_uid=config['uid'],envelope=config['envelope'],
         public=base64.b64decode(config['public']),authority_pin=config['pin'],
-        expected=config['expected'])
-    try:
-        import threading
-        t=threading.Thread(target=http.serve_forever)
-        t.start()
-        try:
-            with urllib.request.urlopen('http://127.0.0.1:'+str(http.server_port)+'/api/ready',timeout=3) as response:
-                assert json.load(response)['qualification_only'] is True
-        finally:
-            http.shutdown()
-            t.join()
-    finally:
-        http.server_close()
+        expected=config['expected'],exercise=exercise)
+    assert result['qualification_only'] and not result['production_authorized']
 """
 
 def docker(*args):
@@ -65,10 +76,11 @@ def main():
             (shared/'channel.sock').chmod(0o666)
             listener.listen(1)
             listener.settimeout(30)
-            code=CLIENT.replace("config=json.loads(os.environ['QUALIFICATION_CONFIG'])","config=json.load(open('/qualification/config.json'))")
+            code=CLIENT
             cid=docker('create','--name',name,'--network','none','--read-only',
                 '--cap-drop','ALL','--security-opt','no-new-privileges:true','--user','10001:10001',
                 '--memory','512m','--pids-limit','128','--no-healthcheck',
+                '--tmpfs','/tmp:rw,noexec,nosuid,nodev,size=64m,mode=1777',
                 '--mount','type=bind,src='+str(shared)+',dst=/qualification,readonly',
                 '-e','DSIG_ENV=DEV',image,'python','-c',code)
             key=Ed25519PrivateKey.generate()
