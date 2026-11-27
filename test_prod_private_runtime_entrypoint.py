@@ -54,8 +54,33 @@ class AdmissionTests(unittest.TestCase):
                     self.fail('unexpected admission')
 
     def test_cli_remains_locked(self):
-        with self.assertRaises(SystemExit):
+        with patch.object(entry.os,'getpid',return_value=2):
+            with self.assertRaises(SystemExit):
+                entry.main()
+
+    def test_pid1_delegates_to_business_admission(self):
+        import prod_private_business_runtime as business
+        with patch.object(entry.os,'getpid',return_value=1), \
+             patch.object(entry.os,'getuid',return_value=10001), \
+             patch.object(entry.os,'getgid',return_value=10001), \
+             patch.dict(entry.os.environ,{'DSIG_CONTAINER':'1'}), \
+             patch.object(business,'run') as run:
             entry.main()
+            run.assert_called_once_with()
+
+    def test_pid1_admission_failure_is_sanitized(self):
+        import prod_private_business_runtime as business
+        with patch.object(entry.os,'getpid',return_value=1), \
+             patch.object(entry.os,'getuid',return_value=10001), \
+             patch.object(entry.os,'getgid',return_value=10001), \
+             patch.dict(entry.os.environ,{'DSIG_CONTAINER':'1'}), \
+             patch.object(business,'run',side_effect=ValueError('synthetic secret')):
+            with self.assertRaisesRegex(SystemExit,'^PROD runtime admission failed
+
+if __name__=='__main__':
+    unittest.main()
+):
+                entry.main()
 
 if __name__=='__main__':
     unittest.main()
