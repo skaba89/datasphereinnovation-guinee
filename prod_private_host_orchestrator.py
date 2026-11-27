@@ -50,11 +50,11 @@ def prepare(*, authority_path, approved_pin, approved_measurements, measurement_
     if report['status'] != 'PASS':
         raise ValueError('permit refused')
     args = ['container', 'inspect', '--format', binding.FORMAT, container_id]
-    created = prod_review.decode(acquisition.command(args).encode('utf-8'))
+    created = binding.canonical_observation(prod_review.decode(acquisition.command(args).encode('utf-8')))
     if (created['Id'] != container_id or created['State'] != 'created'
             or continuity.digest(created) != expected['runtime_sha256']):
         raise ValueError('approved observation changed')
-    if prod_review.decode(acquisition.command(args).encode('utf-8')) != created:
+    if binding.canonical_observation(prod_review.decode(acquisition.command(args).encode('utf-8'))) != created:
         raise ValueError('unstable observation')
     return expected, created, report['envelope'], public
 
