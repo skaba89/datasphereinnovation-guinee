@@ -23,6 +23,7 @@ class RuntimePreflightTest(unittest.TestCase):
             self.addCleanup(p.stop)
         p=patch.object(runtime.volume,'exclusive')
         lock=p.start()
+        self.lock=lock.return_value
         lock.return_value.__enter__.return_value=(runtime.DATA,1)
         self.addCleanup(p.stop)
         p=patch.object(runtime.sqlite3,'connect')
@@ -35,6 +36,25 @@ class RuntimePreflightTest(unittest.TestCase):
         self.assertEqual(report['status'],'PASS')
         self.assertFalse(report['startup_authorized'])
         self.assertFalse(report['production_authorized'])
+
+    def test_lock_retained_until_context_exit(self):
+        with runtime.locked_preflight({}, {}) as report:
+            self.assertEqual(report['status'],'PASS')
+            self.lock.__exit__.assert_not_called()
+        self.lock.__exit__.assert_called_once()
+
+    def test_failed_scanner_releases_lock_before_return(self):
+        self.prod_private_scanner_inspect.return_value={'status':'FAIL'}
+        with runtime.locked_preflight({}, {}) as report:
+            self.assertEqual(report['status'],'FAIL')
+            self.lock.__exit__.assert_called_once()
+
+    def test_caller_exception_releases_lock(self):
+        with self.assertRaisesRegex(RuntimeError,'caller failure'):
+            with runtime.locked_preflight({}, {}) as report:
+                self.assertEqual(report['status'],'PASS')
+                raise RuntimeError('caller failure')
+        self.lock.__exit__.assert_called_once()
 
     def test_bootstrap_token_rejected(self):
         with patch.dict(os.environ,{'DSIG_ADMIN_TOKEN':'synthetic'}):
