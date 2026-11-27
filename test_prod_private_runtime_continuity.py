@@ -9,7 +9,7 @@ class ContinuityTests(unittest.TestCase):
     def setUp(self):
         self.created = dict(Id='a'*64, Image='sha256:'+'b'*64,
             State='created', Config=dict(Env=['DSIG_ENV=PROD']),
-            HostConfig=dict(Privileged=False), Mounts=[dict(Name='prod-data')],
+            HostConfig=dict(Privileged=False), Mounts=[dict(Name='prod-data',Destination='/app/data'),dict(Destination='/run/dsig-clamav',RW=False)],
             Networks={continuity.NETWORK: dict(NetworkID='c'*64, EndpointID='',
                 IPAddress='', IPPrefixLen=0, Gateway='', GlobalIPv6Address='',
                 GlobalIPv6PrefixLen=0, IPv6Gateway='', MacAddress='', Aliases=['app'])})
@@ -22,6 +22,12 @@ class ContinuityTests(unittest.TestCase):
 
     def compare(self):
         return continuity.compare(self.created, self.running, approved_digest=self.pin)
+
+    def test_mount_order_is_not_drift(self):
+        self.running['Mounts'].reverse()
+        self.assertTrue(self.compare())
+        self.running['Mounts'][0]['RW'] = True
+        self.assertFalse(self.compare())
 
     def test_valid_transition(self):
         self.assertTrue(self.compare())
