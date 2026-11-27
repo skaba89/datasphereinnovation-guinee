@@ -31,6 +31,23 @@ class RuntimePreflightTest(unittest.TestCase):
         db.execute.return_value.fetchall.return_value=[('fernet:synthetic',),('fernet:synthetic2',)]
         self.addCleanup(p.stop)
 
+    def test_local_preflight_never_reads_reference_secrets(self):
+        with patch.object(runtime.prod_config,'inspect_local',return_value={'status':'PASS'}) as local:
+            with runtime.locked_local_preflight() as report:
+                self.assertEqual(report['status'],'PASS')
+                self.assertFalse(report['startup_authorized'])
+                self.lock.__exit__.assert_not_called()
+            local.assert_called_once()
+            self.prod_config_inspect.assert_not_called()
+            self.lock.__exit__.assert_called_once()
+
+    def test_local_configuration_failure(self):
+        with patch.object(runtime.prod_config,'inspect_local',return_value={'status':'FAIL'}):
+            with runtime.locked_local_preflight() as report:
+                self.assertEqual(report['status'],'FAIL')
+            self.prod_config_inspect.assert_not_called()
+            self.prod_private_data_lifecycle_inspect.assert_not_called()
+
     def test_success_does_not_authorize_start(self):
         report=runtime.inspect({}, {})
         self.assertEqual(report['status'],'PASS')
