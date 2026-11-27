@@ -68,7 +68,7 @@ class OrchestratorTests(unittest.TestCase):
         self.exchange.return_value={'status':'FAIL','nonce_consumed':False}
         with self.assertRaises(ValueError):
             self.run_exchange()
-        self.stop.assert_called_once_with('a'*64')
+        self.stop.assert_called_once_with('a'*64)
         self.published.return_value.__exit__.assert_called_once()
 
     def test_accept_timeout_requests_cleanup(self):
