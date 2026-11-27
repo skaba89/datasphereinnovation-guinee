@@ -8,7 +8,7 @@ import prod_private_volume_init as volume
 import server
 from prod_private_handoff_transport import recipient_exchange
 
-def run(sock,*,expected_uid,envelope,public,authority_pin,expected,exercise):
+def run(sock,*,expected_uid,envelope,public,authority_pin,expected,exercise,restart_exercise):
     """Run a caller-supplied test against an isolated business listener.
     Dedicated process only: server globals are not thread-local.
     No production database, secrets or listener are used.
@@ -65,6 +65,21 @@ def run(sock,*,expected_uid,envelope,public,authority_pin,expected,exercise):
                 # Verify the lock is released only after all request handlers join.
                 with volume.exclusive(data):
                     import operations
+                    operations.verify(server.DB)
+                    with closing(server.connect()) as db:
+                        if named.readiness(db)['status']!='PASS':
+                            raise ValueError('persisted MFA readiness failed')
+                if volume.initialize_isolated(data)['created'] is not False:
+                    raise ValueError('existing schema unexpectedly recreated')
+                with volume.exclusive(data):
+                    with JoinedServer(('127.0.0.1',0),server.Handler) as http:
+                        thread=threading.Thread(target=http.serve_forever)
+                        thread.start()
+                        try:
+                            restart_exercise(http.server_port)
+                        finally:
+                            http.shutdown()
+                            thread.join()
                     operations.verify(server.DB)
         finally:
             server.DB,server.ADMIN_TOKEN=previous_db,previous_token
