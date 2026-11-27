@@ -69,6 +69,26 @@ class ExecutableMeasurementTests(unittest.TestCase):
         c['HostConfig']['Mounts'][0]['BindOptions']['CreateMountpoint']=True
         self.assertEqual(self.measure(c)['status'],'FAIL')
 
+    def test_permutations_same_digest(self):
+        import itertools
+        expected = self.measure(self.c)['runtime_sha256']
+        for mounts in itertools.permutations(self.c['Mounts']):
+            other = dict(self.c, Mounts=list(mounts))
+            with patch.object(measurement.acquisition, 'command',
+                              side_effect=[json.dumps(self.c), json.dumps(other)]):
+                self.assertEqual(measurement.measure(**self.kw)['runtime_sha256'], expected)
+
+    def test_duplicate_and_changed_mount_rejected(self):
+        for field, value in [('RW', True), ('Source', '/foreign'), ('Propagation', 'shared')]:
+            other = copy.deepcopy(self.c)
+            other['Mounts'][-1][field] = value
+            with patch.object(measurement.acquisition, 'command',
+                              side_effect=[json.dumps(self.c), json.dumps(other)]):
+                self.assertEqual(measurement.measure(**self.kw)['status'], 'FAIL')
+        other = copy.deepcopy(self.c)
+        other['Mounts'].append(copy.deepcopy(other['Mounts'][0]))
+        self.assertEqual(self.measure(other)['status'], 'FAIL')
+
     def test_changed_observation_rejected(self):
         with patch.object(measurement.acquisition,'command',side_effect=[
                 json.dumps(self.c),json.dumps(dict(self.c,State='running'))]):

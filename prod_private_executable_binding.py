@@ -1,4 +1,5 @@
 """Read-only binding of a CREATED executable runtime container; no startup."""
+import copy
 import hmac
 import re
 import prod_backup_acquisition as acquisition
@@ -7,6 +8,19 @@ import prod_private_launch_topology as topology
 import prod_private_compose_normalization as normalization
 
 FORMAT='{"Id":{{json .Id}},"Image":{{json .Image}},"State":{{json .State.Status}},"Config":{{json .Config}},"HostConfig":{{json .HostConfig}},"Mounts":{{json .Mounts}},"Networks":{{json .NetworkSettings.Networks}}}'
+
+def canonical_observation(value):
+    """Normalize only Engine's unordered effective mount inventory."""
+    result = copy.deepcopy(value)
+    mounts = result['Mounts']
+    if not isinstance(mounts, list):
+        raise ValueError('invalid mount inventory')
+    destinations = [m['Destination'] for m in mounts]
+    if (not all(isinstance(d, str) and d.startswith('/') for d in destinations)
+            or len(destinations) != len(set(destinations))):
+        raise ValueError('invalid mount destinations')
+    result['Mounts'] = sorted(mounts, key=lambda m: m['Destination'])
+    return result
 
 def inspect(*, container_id, image_id, compose_bytes, expected_image, run=None):
     """Compare selected actual container settings against the executable topology.
@@ -27,7 +41,7 @@ def inspect(*, container_id, image_id, compose_bytes, expected_image, run=None):
         checks['topology']='PASS'
         s=compose['services']['app']
         def snapshot():
-            return prod_review.decode(runner(['container','inspect','--format',FORMAT,container_id]).encode('utf-8'))
+            return canonical_observation(prod_review.decode(runner(['container','inspect','--format',FORMAT,container_id]).encode('utf-8')))
         c=snapshot()
         checks['identity']='FAIL'
         cfg=c['Config']; hc=c['HostConfig']

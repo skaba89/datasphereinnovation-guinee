@@ -8,7 +8,7 @@ class DockerActionTests(unittest.TestCase):
     def setUp(self):
         self.cid='a'*64
         self.image='sha256:'+'b'*64
-        self.created=dict(Id=self.cid,Image=self.image,State='created',
+        self.created=dict(Id=self.cid,Image=self.image,State='created',Mounts=[],
             Config={'Labels':{'com.docker.compose.project':'dsig-prod',
                               'com.docker.compose.service':'app'}})
         self.kw=dict(container_id=self.cid,image_id=self.image,
