@@ -22,28 +22,55 @@ import prod_private_peer_binding as binding
 CLIENT = """
 import base64,json,os,socket,urllib.request,urllib.error
 from prod_private_business_qualification import run
-def exercise(port,token):
+def exercise(port,rows):
+    import authentication as auth
+    import secrets
     base='http://127.0.0.1:'+str(port)
-    def call(route,expected,headers=None,data=None):
-        req=urllib.request.Request(base+route,headers=headers or {},data=data)
+    common={'Host':'qualification.invalid','Origin':'https://qualification.invalid',
+        'Content-Type':'application/json','X-DSIG-Session':'cookie'}
+    def call(route,expected,session=None,data=None):
+        headers=dict(common)
+        if session:
+            headers.update(Authorization='Bearer session',Cookie=session)
+        req=urllib.request.Request(base+route,headers=headers,
+            data=None if data is None else json.dumps(data).encode())
         try:
             response=urllib.request.urlopen(req,timeout=15)
         except urllib.error.HTTPError as error:
             response=error
         with response:
-            assert response.code==expected,(route,response.code)
-            return json.load(response)
-    assert call('/api/ready',200)['status']=='ready'
+            assert response.code in ((expected,) if isinstance(expected,int) else expected),(route,response.code)
+            return json.load(response),response.headers.get('Set-Cookie','')
+    assert call('/api/ready',200)[0]['status']=='ready'
     call('/api/admin/requests',401)
-    headers={'Authorization':'Bearer '+token,'Content-Type':'application/json'}
-    for route in ('/api/admin/requests','/api/admin/crm/organizations','/api/admin/quotes','/api/admin/billing','/api/admin/direction'):
-        call(route,200,headers)
+    for row in rows:
+        auth.ATTEMPTS.clear()
+        credentials=dict(username=row['username'],password=secrets.token_urlsafe(32))
+        call('/api/auth/activate',200,data=dict(credentials,key=row['activation_key']))
+        body,cookie=call('/api/auth/login',200,data=credentials)
+        assert 'token' not in body and 'Secure' in cookie and 'HttpOnly' in cookie
+        session=cookie.split(';',1)[0]
+        call('/api/admin/requests',(401,403),session)
+        setup,_=call('/api/auth/mfa-setup',200,session,{'password':credentials['password']})
+        confirmation,_=call('/api/auth/mfa-confirm',200,session,
+            {'code':auth.totp(setup['secret'],int(auth.time.time())//30)})
+        call('/api/admin/requests',(401,403),session)
+        call('/api/auth/login',401,data=credentials)
+        auth.ATTEMPTS.clear()
+        otp=confirmation['recovery_codes'][0]
+        body,cookie=call('/api/auth/login',200,data=dict(credentials,otp=otp))
+        assert body['mfa_enabled'] and 'token' not in body
+        session=cookie.split(';',1)[0]
+        for route in ('/api/admin/requests','/api/admin/crm/organizations','/api/admin/quotes','/api/admin/billing','/api/admin/direction'):
+            call(route,200,session)
+        call('/api/auth/login',401,data=dict(credentials,otp=otp))
+        call('/api/auth/logout',200,session,{})
+        call('/api/admin/requests',(401,403),session)
     payload=dict(nom='Qualification',org='Synthetic',email='qa@example.invalid',
         besoin='Demande de démonstration',solution='MineFleet360',message='Qualification isolée',
         consent=True,website='')
-    created=call('/api/requests',201,{'Content-Type':'application/json'},json.dumps(payload).encode())
+    created,_=call('/api/requests',201,data=payload)
     assert created['id']
-    call('/api/admin/requests',200,headers)
 with socket.socket(socket.AF_UNIX) as sock:
     sock.connect('/qualification/channel.sock')
     config=json.load(open('/qualification/config.json'))
