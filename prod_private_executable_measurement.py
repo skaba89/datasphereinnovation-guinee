@@ -6,7 +6,7 @@ import prod_backup_acquisition as acquisition
 import prod_private_executable_binding as binding
 import prod_review
 
-DOMAIN='DSIG-DOCKER-EXECUTABLE-OBSERVATION-V1'
+DOMAIN='DSIG-DOCKER-EXECUTABLE-OBSERVATION-V2'
 
 def measure(*, container_id, image_id, expected_image, compose_bytes):
     """Capture actual local daemon output, validate those exact observations,
@@ -19,7 +19,7 @@ def measure(*, container_id, image_id, expected_image, compose_bytes):
             return result
         args=['container','inspect','--format',binding.FORMAT,container_id]
         def snapshot():
-            return prod_review.decode(acquisition.command(args).encode('utf-8'))
+            return binding.canonical_observation(prod_review.decode(acquisition.command(args).encode('utf-8')))
         first=snapshot()
         # Validate the captured observation, rather than a separate unbound one.
         def captured(request):
