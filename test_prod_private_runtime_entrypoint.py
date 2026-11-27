@@ -75,12 +75,10 @@ class AdmissionTests(unittest.TestCase):
              patch.object(entry.os,'getgid',return_value=10001), \
              patch.dict(entry.os.environ,{'DSIG_CONTAINER':'1'}), \
              patch.object(business,'run',side_effect=ValueError('synthetic secret')):
-            with self.assertRaisesRegex(SystemExit,'^PROD runtime admission failed
-
-if __name__=='__main__':
-    unittest.main()
-):
+            with self.assertRaises(SystemExit) as error:
                 entry.main()
+            self.assertEqual(str(error.exception), 'PROD runtime admission failed')
+
 
 if __name__=='__main__':
     unittest.main()
