@@ -14,7 +14,7 @@ import authentication
 DATA=Path('/app/data')
 DB=DATA/'requests.sqlite3'
 
-def _check(rec,candidate,stack):
+def _check(rec,candidate,stack,*,local_only=False):
     checks=dict.fromkeys(('identity','configuration','data','named_mfa','scanner'),'NOT_RUN')
     result=dict(status='FAIL',checks=checks,startup_authorized=False,production_authorized=False)
     try:
@@ -25,7 +25,8 @@ def _check(rec,candidate,stack):
         if env.get('DSIG_DB')!=str(DB) or 'DSIG_ADMIN_TOKEN' in env:
             return result
         checks['identity']='PASS'
-        checks['configuration']=prod_config.inspect(env,rec,candidate)['status']
+        checks['configuration']=(prod_config.inspect_local(env) if local_only else
+                                 prod_config.inspect(env,rec,candidate))['status']
         if checks['configuration']!='PASS':
             return result
         checks['data']='FAIL'
@@ -58,6 +59,17 @@ def locked_preflight(rec,candidate):
     """
     with ExitStack() as stack:
         result=_check(rec,candidate,stack)
+        if result['status']!='PASS':
+            stack.close()
+        yield result
+
+@contextmanager
+def locked_local_preflight():
+    """Local checks only; caller must separately authenticate host admission.
+    This does not establish separation from REC or authorize startup.
+    """
+    with ExitStack() as stack:
+        result=_check(None,None,stack,local_only=True)
         if result['status']!='PASS':
             stack.close()
         yield result
