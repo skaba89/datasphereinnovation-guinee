@@ -23,7 +23,7 @@ DYNAMIC = frozenset(('EndpointID', 'IPAddress', 'IPPrefixLen', 'Gateway',
 
 def digest(observation):
     return hashlib.sha256(auth.canonical(
-        {'domain': measurement.DOMAIN, 'observation': observation})).hexdigest()
+        {'domain': measurement.DOMAIN, 'observation': binding.canonical_observation(observation)})).hexdigest()
 
 
 def compare(created, running, *, approved_digest, network_id=None, dns_names=None):
@@ -33,6 +33,8 @@ def compare(created, running, *, approved_digest, network_id=None, dns_names=Non
             return False
         if not hmac.compare_digest(digest(created), approved_digest):
             return False
+        created = binding.canonical_observation(created)
+        running = binding.canonical_observation(running)
         if created['State'] != 'created' or running['State'] != 'running':
             return False
         if set(created) != set(running):
@@ -103,7 +105,7 @@ def inspect(*, created, approved_digest, container_id):
             return result
         args = ['container', 'inspect', '--format', binding.FORMAT, container_id]
         def snapshot():
-            return prod_review.decode(acquisition.command(args).encode('utf-8'))
+            return binding.canonical_observation(prod_review.decode(acquisition.command(args).encode('utf-8')))
         first = snapshot()
         network = prod_review.decode(acquisition.command(
             ['network','inspect','--format','{"Id":{{json .Id}},"Name":{{json .Name}},"Internal":{{json .Internal}}}',NETWORK]).encode('utf-8'))
