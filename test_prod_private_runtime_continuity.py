@@ -48,17 +48,51 @@ class ContinuityTests(unittest.TestCase):
         self.pin = '0'*64
         self.assertFalse(self.compare())
 
+    def test_docker29_transitions(self):
+        self.created['HostConfig']['OomKillDisable'] = False
+        self.running['HostConfig']['OomKillDisable'] = None
+        before = self.created['Networks'][continuity.NETWORK]
+        after = self.running['Networks'][continuity.NETWORK]
+        before.update(NetworkID='', DNSNames=None)
+        after.update(DNSNames=['app', 'a'*12])
+        self.pin = continuity.digest(self.created)
+        def compare(**kw):
+            return continuity.compare(self.created, self.running,
+                approved_digest=self.pin, **kw)
+        kw = dict(network_id='c'*64, dns_names={'app','a'*12})
+        self.assertTrue(compare(**kw))
+        self.assertFalse(compare())
+        self.assertFalse(compare(network_id='e'*64, dns_names=kw['dns_names']))
+        after['DNSNames'].append('foreign')
+        self.assertFalse(compare(**kw))
+        after['DNSNames'].pop()
+        self.running['HostConfig']['OomKillDisable'] = True
+        self.assertFalse(compare(**kw))
+        self.running['HostConfig']['OomKillDisable'] = None
+        self.running['HostConfig']['Privileged'] = True
+        self.assertFalse(compare(**kw))
+
     def test_actual_inspection_stability(self):
         kw = dict(created=self.created, approved_digest=self.pin, container_id='a'*64)
+        network = json.dumps(dict(Id='c'*64,Name=continuity.NETWORK,Internal=True))
+        def runner(*observations):
+            snapshots = iter(observations)
+            def command(args):
+                if args[0]=='network':
+                    return network
+                if args[3]=='{{.Name}}':
+                    return '/app'
+                return json.dumps(next(snapshots))
+            return command
         with patch.object(continuity.os, 'geteuid', return_value=0):
-            with patch.object(continuity.acquisition, 'command', return_value=json.dumps(self.running)):
+            with patch.object(continuity.acquisition, 'command', side_effect=runner(self.running,self.running)):
                 result = continuity.inspect(**kw)
                 self.assertEqual(result['status'], 'PASS')
                 self.assertFalse(result['production_authorized'])
             changed = copy.deepcopy(self.running)
             changed['Config']['Env'].append('OTHER=changed')
             with patch.object(continuity.acquisition, 'command',
-                              side_effect=[json.dumps(self.running), json.dumps(changed)]):
+                              side_effect=runner(self.running,changed)):
                 self.assertEqual(continuity.inspect(**kw)['status'], 'FAIL')
 
     def test_nonroot_refused(self):
