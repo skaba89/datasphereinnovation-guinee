@@ -1,0 +1,36 @@
+name: DSIG Public Preview
+on:
+  workflow_dispatch:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'scripts/capture-public-preview.py'
+      - '.github/workflows/public-preview.yml'
+permissions:
+  contents: read
+jobs:
+  preview:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '22'
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - name: Install browser
+        run: |
+          python -m pip install -r requirements-dev.txt
+          python -m playwright install --with-deps chromium
+      - name: Capture actual public export
+        run: python scripts/capture-public-preview.py public-preview-evidence
+      - name: Upload visual evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: dsig-public-preview
+          path: public-preview-evidence/
+          if-no-files-found: warn
+          retention-days: 14
