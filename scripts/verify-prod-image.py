@@ -32,9 +32,12 @@ def invoke(args):
     return subprocess.run(args, cwd=ROOT.parent, check=True, capture_output=True, timeout=120).stdout
 
 
-def verify(commit, image, *, ci_local=False, qualification_local=False):
+def verify(commit, image, *, ci_local=False, qualification_local=False, require_revision=False):
     checks=dict.fromkeys(('source_manifest','immutable_reference','image_identity','content_matches'), 'FAIL')
+    if require_revision:
+        checks['revision']='FAIL'
     count=0
+    image_id=None
     try:
         if not re.fullmatch(r'[0-9a-f]{40}',commit):
             raise ValueError('invalid commit')
@@ -71,6 +74,13 @@ def verify(commit, image, *, ci_local=False, qualification_local=False):
         if data.get('Config',{}).get('User') != '10001:10001' or data.get('Config',{}).get('Volumes'):
             raise ValueError('unexpected image configuration')
         checks['image_identity']='PASS'
+        labels=data['Config'].get('Labels') or {}
+        if labels.get('com.dsig.image.role') == 'test-only':
+            raise ValueError('test-only image')
+        if require_revision:
+            if labels.get('org.opencontainers.image.revision') != commit:
+                raise ValueError('missing or mismatched revision')
+            checks['revision']='PASS'
         actual=json.loads(invoke(['docker','run','--rm','--pull=never','--network=none',
             '--read-only','--cap-drop=ALL','--security-opt=no-new-privileges:true',
             '--user=10001:10001','--memory=256m','--cpus=1','--pids-limit=32',
@@ -81,6 +91,7 @@ def verify(commit, image, *, ci_local=False, qualification_local=False):
     ok=all(v=='PASS' or (ci_local and k=='immutable_reference' and v=='NOT_APPLICABLE_CI')
            for k,v in checks.items())
     return {'status':'PASS' if ok else 'FAIL','checks':checks,'file_count':count,
+            'git_commit':commit,'image_id':image_id,'revision_required':require_revision,
             'ci_local':ci_local,'qualification_local':qualification_local,'production_authorized':False}
 
 
@@ -91,7 +102,8 @@ if __name__=='__main__':
     modes=parser.add_mutually_exclusive_group()
     modes.add_argument('--ci-local',action='store_true')
     modes.add_argument('--qualification-local',action='store_true')
+    parser.add_argument('--require-revision',action='store_true')
     args=parser.parse_args()
-    report=verify(args.commit,args.image,ci_local=args.ci_local,qualification_local=args.qualification_local)
+    report=verify(args.commit,args.image,ci_local=args.ci_local,qualification_local=args.qualification_local,require_revision=args.require_revision)
     print(json.dumps(report))
     raise SystemExit(int(report['status']!='PASS'))

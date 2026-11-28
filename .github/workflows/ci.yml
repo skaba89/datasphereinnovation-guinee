@@ -97,9 +97,9 @@ jobs:
           chmod 0600 requirements.txt
           find dist -type d -exec chmod 0700 {} +
           find dist -type f -exec chmod 0600 {} +
-          docker build -t dsig-ci .
+          docker build --label "org.opencontainers.image.revision=$(git rev-parse HEAD)" -t dsig-ci .
       - name: Verify application image content in isolated sandbox
-        run: python scripts/verify-prod-image.py "$(git rev-parse HEAD)" dsig-ci --ci-local
+        run: python scripts/verify-prod-image.py "$(git rev-parse HEAD)" dsig-ci --ci-local --require-revision
       - name: Qualify private signed handoff inside isolated Docker
         run: bash scripts/qualify-private-docker.sh dsig-ci
       - name: Qualify host-to-container signed handoff

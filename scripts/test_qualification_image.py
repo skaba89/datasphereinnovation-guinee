@@ -47,3 +47,22 @@ class QualificationImageTests(unittest.TestCase):
 
     def test_conflicting_modes(self):
         self.assertEqual(self.verify(ci_local=True,qualification_local=True)['status'],'FAIL')
+
+    def test_required_revision(self):
+        self.info[0]['Config']['Labels']={'org.opencontainers.image.revision':self.sha}
+        result=self.verify(qualification_local=True,require_revision=True)
+        self.assertEqual(result['status'],'PASS')
+        self.assertEqual(result['image_id'],self.image)
+        self.assertEqual(result['git_commit'],self.sha)
+
+    def test_missing_empty_wrong_revision(self):
+        for labels in ({}, {'org.opencontainers.image.revision':''},
+                       {'org.opencontainers.image.revision':'c'*40}):
+            with self.subTest(labels=labels):
+                self.info[0]['Config']['Labels']=labels
+                self.assertEqual(self.verify(qualification_local=True,require_revision=True)['status'],'FAIL')
+
+    def test_test_only_image_rejected(self):
+        self.info[0]['Config']['Labels']={'org.opencontainers.image.revision':self.sha,
+                                         'com.dsig.image.role':'test-only'}
+        self.assertEqual(self.verify(qualification_local=True,require_revision=True)['status'],'FAIL')
