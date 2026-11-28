@@ -1,0 +1,70 @@
+name: DSIG Public Qualification
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  public-docker-smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: Build static public image
+        run: |
+          # Reproduce a private VPS checkout (umask 077).
+          chmod 0600 deploy/public/Caddyfile
+          find dist -type f -exec chmod 0600 {} +
+          docker build -f Dockerfile.public --build-arg DSIG_PUBLIC_EMAIL=contact@dsig-consulting.com -t dsig-public:ci .
+      - name: Validate both public Caddyfiles with Caddy itself
+        run: |
+          node scripts/public-caddyfile.mjs deploy/public/Caddyfile enabled > Caddyfile.enabled
+          docker run --rm -v "$PWD/Caddyfile.enabled:/etc/caddy/Caddyfile:ro" caddy:2-alpine caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
+          docker run --rm --entrypoint caddy dsig-public:ci validate --config /etc/caddy/Caddyfile --adapter caddyfile
+      - name: Public form build refused while legal data is incomplete
+        run: |
+          ! docker build -f Dockerfile.public --build-arg DSIG_PUBLIC_EMAIL=contact@dsig-consulting.com --build-arg DSIG_PUBLIC_FORM=enabled -t dsig-public:form-refused . 2>build.log
+          grep -q 'legal information is incomplete' build.log
+          ! docker build -f Dockerfile.public --build-arg DSIG_PUBLIC_EMAIL=contact@dsig-consulting.com --build-arg DSIG_PUBLIC_FORM=yes -t dsig-public:bad-mode . 2>/dev/null
+          test "$(docker inspect -f '{{ index .Config.Labels "com.dsig.public.form" }}' dsig-public:ci)" = disabled
+      - name: Validate composition
+        env:
+          DSIG_PUBLIC_IMAGE: dsig-public:ci
+        run: |
+          bash -n scripts/deploy-public.sh
+          docker compose -f compose.public.yaml config --quiet
+      - name: Test isolated static container
+        run: |
+          docker run -d --name dsig-public-ci --read-only --cap-drop ALL --security-opt no-new-privileges:true --tmpfs /tmp --tmpfs /data:uid=10001,gid=10001 --tmpfs /config:uid=10001,gid=10001 -p 127.0.0.1:8080:8080 dsig-public:ci
+          for i in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:8080/healthz; then break; fi
+            sleep 1
+          done
+          curl -fsS http://127.0.0.1:8080/healthz
+          curl -fsS http://127.0.0.1:8080/ | grep 'rel="canonical" href="https://dsig-consulting.com/"'
+          curl -fsS http://127.0.0.1:8080/sitemap.xml | grep 'https://dsig-consulting.com/en.html'
+          curl -fsSI http://127.0.0.1:8080/ | grep -i "^content-security-policy: default-src 'self'; script-src 'self'; style-src 'self'"
+          curl -fsSI http://127.0.0.1:8080/ | grep -i '^permissions-policy: '
+          for route in /mentions-legales.html /legal-en.html /confidentialite.html /privacy-en.html; do
+            curl -fsS "http://127.0.0.1:8080$route" | grep 'content="noindex,nofollow"'
+          done
+          ! curl -fsS http://127.0.0.1:8080/sitemap.xml | grep -E 'mentions-legales|legal-en'
+          for route in /accounts.html /connexion.html /api/admin/requests /.env /server.py; do
+            test "$(curl -sS -o /dev/null -w '%{http_code}' "http://127.0.0.1:8080$route")" = 404
+          done
+      - name: Test isolated PROD contact service image
+        run: |
+          docker build -f Dockerfile.contact -t dsig-contact:ci .
+          ! docker run --rm dsig-contact:ci ls /app/server.py
+          key=$(docker run --rm dsig-contact:ci python -c "from cryptography.fernet import Fernet;print(Fernet.generate_key().decode())")
+          docker run -d --name dsig-contact-ci --read-only --cap-drop ALL --security-opt no-new-privileges:true --tmpfs /tmp -v dsig-contact-ci:/data -e DSIG_CONTACT_KEY="$key" -p 127.0.0.1:8090:8090 dsig-contact:ci
+          for i in $(seq 1 30); do curl -fsS http://127.0.0.1:8090/healthz && break; sleep 1; done
+          curl -fsS http://127.0.0.1:8090/healthz | grep '"accepting": false'
+          test "$(curl -sS -o /dev/null -w '%{http_code}' -X POST -H 'Content-Type: application/json' -H 'Origin: https://dsig-consulting.com' -d '{}' http://127.0.0.1:8090/api/contact)" = 503
+          test "$(curl -sS -o /dev/null -w '%{http_code}' http://127.0.0.1:8090/api/admin/requests)" = 404
+          docker run --rm -v dsig-contact-ci:/data -e DSIG_CONTACT_KEY="$key" dsig-contact:ci python contact_service.py --purge
+          DSIG_CONTACT_IMAGE=dsig-contact:ci DSIG_CONTACT_ENV_FILE=/dev/null docker compose -f compose.contact.yaml config --quiet
+      - name: Cleanup contact container
+        if: always()
+        run: docker rm -f dsig-contact-ci || true; docker volume rm dsig-contact-ci || true
+      - name: Cleanup public container
+        if: always()
+        run: docker rm -f dsig-public-ci || true
