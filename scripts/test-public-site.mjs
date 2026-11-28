@@ -106,6 +106,8 @@ try{
    assert(html.includes('aria-current="page"'));
   }
   if(url.startsWith('/blog-')&&url!=='/blog-en.html'){
+   assert(html.includes('class="policy sector-detail public-blog-article"'));
+   assert.equal([...html.matchAll(/class="sector-insight"/g)].length,3);
    const article=graph.find(n=>n['@type']==='BlogPosting');
    assert(article);
    assert.equal(article.author['@id'],org['@id']);
@@ -146,6 +148,8 @@ try{
  }
  for(const post of posts)for(const lang of ['fr','en']){
   const index=read(lang==='en'?'blog-en.html':'blog.html');
+  assert(index.includes('class="expertise-grid sector-directory public-blog-directory"'));
+  assert.equal([...index.matchAll(/class="service-link"/g)].length,posts.length);
   assert(index.includes('href="/blog'+(lang==='en'?'-en':'')+'-'+post.slug+'.html"'));
  }
  assert.equal(urls.filter(u=>/^\/(offres|offers)[.-]/.test(u)).length,2+offers.length*2);

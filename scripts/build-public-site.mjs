@@ -146,8 +146,8 @@ function buildBlog(out,contact){
    const en=lang==='en',entry=post[lang],url=blogPath(lang,post.slug);
    const expertise=publicPath(lang,post.expertise);
    if(!pages.includes(expertise))throw Error('Unknown related expertise: '+expertise);
-   const body='<nav aria-label="'+(en?'Breadcrumb':'Fil d’Ariane')+'"><a href="'+home(lang)+'">'+(en?'Home':'Accueil')+'</a> / <a href="'+blogPath(lang)+'">Blog</a> / <span aria-current="page">'+esc(entry.title)+'</span></nav><article class="policy"><h1>'+esc(entry.title)+'</h1><p>'+esc(entry.description)+'</p><p>DataSphere Innovation Guinée</p>'+
-    entry.sections.map(([heading,text])=>'<h2>'+esc(heading)+'</h2><p>'+esc(text)+'</p>').join('')+
+   const body='<nav class="sector-breadcrumb" aria-label="'+(en?'Breadcrumb':'Fil d’Ariane')+'"><a href="'+home(lang)+'">'+(en?'Home':'Accueil')+'</a> / <a href="'+blogPath(lang)+'">Blog</a> / <span aria-current="page">'+esc(entry.title)+'</span></nav><article class="policy sector-detail public-blog-article"><div class="sector-intro"><span class="tag">DSIG INSIGHTS</span><h1>'+esc(entry.title)+'</h1><p>'+esc(entry.description)+'</p><p>DataSphere Innovation Guinée</p></div>'+
+    entry.sections.map(([heading,text],i)=>'<section class="sector-insight"><span class="tag">0'+(i+1)+'</span><h2>'+esc(heading)+'</h2><p>'+esc(text)+'</p></section>').join('')+
     '<p><a href="'+expertise+'">'+(en?'Explore the related expertise':'Découvrir l’expertise associée')+'</a></p><p><a class="btn" href="mailto:'+esc(contact)+'">'+(en?'Discuss your project':'Parlons de votre projet')+'</a></p><p><a href="'+blogPath(lang)+'">'+(en?'Back to the blog':'Retour au blog')+'</a></p></article>';
    const fr=blogPath('fr',post.slug),english=blogPath('en',post.slug);
    let html=metadata(blogTemplate(lang,body,en?fr:english),entry.title+' | DSIG',entry.description,fr,english,lang).replace('property="og:type" content="website"','property="og:type" content="article"');
@@ -157,7 +157,7 @@ function buildBlog(out,contact){
  }
  for(const lang of ['fr','en']){
   const en=lang==='en',url=blogPath(lang),title=en?'DSIG Insights — Data, AI and digital transformation':'Blog DSIG — Data, IA et transformation digitale',description=en?'Practical guides for organisations in Guinea and Africa.':'Guides pratiques pour les organisations en Guinée et en Afrique.';
-  const body='<h1>'+esc(title)+'</h1><p>'+esc(description)+'</p><div class="expertise-grid">'+posts.map(post=>'<article><h2><a href="'+blogPath(lang,post.slug)+'">'+esc(post[lang].title)+'</a></h2><p>'+esc(post[lang].description)+'</p></article>').join('')+'</div>';
+  const body='<div class="sector-intro"><span class="tag">DSIG INSIGHTS</span><h1>'+esc(title)+'</h1><p>'+esc(description)+'</p></div><div class="expertise-grid sector-directory public-blog-directory">'+posts.map(post=>'<article><span class="tag">'+(en?'PRACTICAL GUIDE':'GUIDE PRATIQUE')+'</span><h2><a href="'+blogPath(lang,post.slug)+'">'+esc(post[lang].title)+'</a></h2><p>'+esc(post[lang].description)+'</p><a class="service-link" href="'+blogPath(lang,post.slug)+'">'+(en?'Read the guide':'Lire le guide')+'</a></article>').join('')+'</div>';
   let html=metadata(blogTemplate(lang,body,blogPath(en?'fr':'en')),title,description,blogPath('fr'),blogPath('en'),lang);
   html=structuredData(html,lang,url,title,description,contact);
   put(out,url.slice(1),html);pages.push(url);
