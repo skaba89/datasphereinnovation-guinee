@@ -834,6 +834,27 @@ class BrowserTests(unittest.TestCase):
         expect(self.page.locator('h1')).to_have_text('Privacy and personal data')
         self.assertEqual(self.errors, [])
 
+    def test_corporate_mega_menu(self):
+        for path in ('/', '/en.html'):
+            for width in (390, 1440):
+                self.page.set_viewport_size({'width': width, 'height': 900})
+                self.page.goto(path)
+                if width == 390:
+                    self.page.locator('#menu').click()
+                details = self.page.locator('.corporate-mega')
+                summary = details.locator('summary')
+                summary.click()
+                expect(details).to_have_attribute('open', '')
+                expect(details.locator('.corporate-mega-panel a')).to_have_count(6)
+                self.assertTrue(self.page.evaluate('document.documentElement.scrollWidth <= innerWidth + 1'))
+                summary.press('Escape')
+                expect(details).not_to_have_attribute('open', '')
+                expect(summary).to_be_focused()
+                summary.click()
+                details.locator('a[href="#services"]').click()
+                expect(details).not_to_have_attribute('open', '')
+        self.assertEqual(self.errors, [])
+
     def test_mobile_navigation_and_accessibility(self):
         self.page.set_viewport_size({'width':390,'height':844})
         external=[]
