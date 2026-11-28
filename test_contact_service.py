@@ -114,7 +114,13 @@ class ContactServiceTests(unittest.TestCase):
         self.assertEqual(contact_service.notify(config, lambda *a: sent.append(a) or 'p1', now=future)['sent'], 1)
         _, request_id, subject, text = sent[0]
         self.assertEqual(request_id, rid)
-        for secret in ('awa@example.invalid', 'Awa', 'Org fictive', '620', 'Besoin fictif'):
+        # A random UUID may legitimately contain the phone's three-digit prefix.
+        # Check the entire allowlisted notification, including its actual DB timestamp.
+        with contact_service.connect() as db:
+            created, besoin = db.execute('SELECT created_at, besoin FROM contact_requests WHERE id=?', (rid,)).fetchone()
+        self.assertEqual(subject, f'[DSIG] Nouvelle demande de contact — {besoin}')
+        self.assertEqual(text, f'Nouvelle demande reçue le {created} UTC.\nType : {besoin}\nRéférence : {rid}\n\nConsultation sur le serveur (commande --show). Aucune donnée personnelle dans cet e-mail.')
+        for secret in ('awa@example.invalid', 'Awa', 'Org fictive', FORM['telephone'], 'Besoin fictif'):
             self.assertNotIn(secret, subject + text)
         for bad in ({'recipients': []}, {'recipients': 'a@b.c'}, {'recipients': ['x'] }):
             with self.assertRaises(ValueError):
