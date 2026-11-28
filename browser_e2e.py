@@ -22,7 +22,7 @@ class PublicExportBrowserTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             site = Path(tmp) / 'public'
             subprocess.run(['node', 'scripts/build-public-site.mjs', str(site),
-                            'contact@datasphere-innovation.net'], check=True,
+                            'contact@dsig-consulting.com'], check=True,
                            cwd=Path(__file__).resolve().parent)
             # Serve the export with the exact CSP of the public image (deploy/public/Caddyfile).
             caddyfile = (Path(__file__).resolve().parent / 'deploy' / 'public' / 'Caddyfile').read_text(encoding='utf-8')
@@ -90,7 +90,7 @@ class PublicContactFormBrowserTests(unittest.TestCase):
                 "import {build} from " + json.dumps((root / 'scripts' / 'build-public-site.mjs').as_uri()) + ";",
                 "import {legalFields} from " + json.dumps((root / 'scripts' / 'legal-content.mjs').as_uri()) + ";",
                 "const fields=legalFields.map(f=>({...f,value:'Valeur validée '+f.id,confirmed:true,source:'Pièce de recette',validatedBy:'Validateur de recette'}));",
-                "build(process.argv[2],'contact@datasphere-innovation.net',{form:true,fields});",
+                "build(process.argv[2],'contact@dsig-consulting.com',{form:true,fields});",
             )), encoding='utf-8')
             subprocess.run(['node', str(helper), str(site)], check=True, cwd=root)
             caddy = subprocess.run(['node', 'scripts/public-caddyfile.mjs', 'deploy/public/Caddyfile', 'enabled'], check=True, cwd=root,
@@ -144,7 +144,7 @@ class PublicContactFormBrowserTests(unittest.TestCase):
                     expect(status).to_have_text('Adresse e-mail invalide.')
                     replies.append((503, {'error':'Le formulaire n’est pas encore ouvert.'}))
                     form.locator('[type=submit]').click()
-                    expect(status).to_contain_text('contact@datasphere-innovation.net')
+                    expect(status).to_contain_text('contact@dsig-consulting.com')
                     expect(form.locator('[type=submit]')).to_be_enabled()
                     self.assertTrue(page.evaluate('document.documentElement.scrollWidth <= innerWidth + 1'))
                     page.goto(f'http://127.0.0.1:{http.server_port}/en.html')
