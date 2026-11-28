@@ -109,11 +109,16 @@ try{
   const prefix=lang==='en'?'sectors':'secteurs',other=lang==='en'?'secteurs':'sectors';
   assert(read(lang==='en'?'en.html':'index.html').includes('href="/'+prefix+'.html"'));
   const index=read(prefix+'.html');
+  assert(index.includes('class="expertise-grid sector-directory"'));
+  assert.equal([...index.matchAll(/class="service-link"/g)].length,sectors.length);
+  assert(index.includes('class="sector-intro sector-contact"'));
   for(const sector of sectors){
    const url='/'+prefix+'-'+sector.slug+'.html',alternate='/'+other+'-'+sector.slug+'.html';
    assert(urls.includes(url));assert(urls.includes(alternate));
    assert(index.includes('href="'+url+'"'));
    const html=read(url.slice(1));
+   assert(html.includes('class="policy sector-detail"'));
+   assert.equal([...html.matchAll(/class="sector-insight"/g)].length,sector[lang].sections.length);
    assert(html.includes('href="'+alternate+'" hreflang="'+(lang==='en'?'fr':'en')+'"'));
    assert(html.includes('href="/'+prefix+'.html"'));
    assert.equal([...html.matchAll(/<h1\b/g)].length,1);
