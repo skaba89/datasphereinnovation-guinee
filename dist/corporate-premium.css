@@ -1,0 +1,21 @@
+/* Homepage-only design; preserve existing shared styles and private pages. */
+.corporate-premium{--dsig-night:#08182f;--dsig-blue:#1249a0;--dsig-green:#008f8a;--dsig-paper:#f3f6fa}
+.corporate-premium .hero{background:var(--dsig-night);color:#fff;gap:clamp(24px,4vw,64px);padding-block:clamp(48px,7vw,104px)}
+.corporate-premium .hero h1{color:#fff;font-size:clamp(40px,5vw,76px);line-height:1.08;letter-spacing:-.045em;overflow-wrap:break-word}
+.corporate-premium .hero h1 em{color:#83e4d8;font-style:normal}
+.corporate-premium .hero p,.corporate-premium .hero-note{color:#d4dfec}
+.corporate-premium .hero .eyebrow{color:#83e4d8}
+.corporate-premium .hero .btn{background:#fff;color:var(--dsig-night)}
+.corporate-premium .hero .outline{background:transparent;color:#fff;border-color:#9bb2c8}
+.corporate-premium .hero .outline:hover{background:#24415a}
+.corporate-premium .corporate-pillars{background:#fff}
+.corporate-premium .corporate-pillar-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:20px}
+.corporate-premium .corporate-pillar-grid article{padding:clamp(22px,3vw,36px);background:var(--dsig-paper);border:1px solid #dce5ef;border-top:3px solid var(--dsig-blue);border-radius:8px}
+.corporate-premium .corporate-pillar-grid h3{font-size:clamp(23px,2.5vw,32px);line-height:1.2;color:var(--dsig-night);margin:16px 0 12px}
+.corporate-premium .corporate-pillar-grid p{color:#42566e;margin-bottom:20px}
+.corporate-premium .corporate-pillar-grid a{color:#1249a0;font-weight:700;text-decoration:underline;text-underline-offset:4px}
+.corporate-premium .entry-band{background:#102b49}
+.corporate-premium .hero a:focus-visible{outline:3px solid #83e4d8;outline-offset:4px}
+@media(max-width:850px){.corporate-premium .corporate-pillar-grid{grid-template-columns:1fr}}
+@media(max-width:480px){.corporate-premium .hero h1{font-size:clamp(36px,9vw,44px)}.corporate-premium .hero .actions{flex-wrap:wrap}}
+@media(prefers-reduced-motion:reduce){.corporate-premium .hero a,.corporate-premium .corporate-pillar-grid a{transition:none;transform:none}}
