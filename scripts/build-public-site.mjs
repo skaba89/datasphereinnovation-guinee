@@ -129,6 +129,12 @@ function blogTemplate(lang,body,alternate){
  ['style.css','brand.css','premium.css','studio.css','identity.css','expertise.css','accessibility.css','corporate-premium.css'].map(css=>'<link rel="stylesheet" href="/'+css+'">').join('')+
  '</head><body><a class="skip-link" href="#main">'+(en?'Skip to content':'Aller au contenu')+'</a><header class="nav"><a class="brand" href="'+home(lang)+'"><img class="dsig-logo" src="/dsig-mark.svg" width="100" height="40" alt="DSIG"></a><a href="'+blogPath(lang)+'">Blog</a><a href="'+alternate+'" hreflang="'+(en?'fr':'en')+'">'+(en?'Français':'English')+'</a></header><main class="section" id="main" tabindex="-1">'+body+'</main><footer><p>DataSphere Innovation Guinée</p><a href="'+legalPaths[lang].legal+'">'+(en?'Legal notice':'Mentions légales')+'</a> <a href="'+legalPaths[lang].privacy+'">'+(en?'Privacy':'Confidentialité')+'</a></footer></body></html>';
 }
+const sectorFamilies=[
+   {id:'operations',fr:'Transport, logistique et industries',en:'Transport, logistics and industries',slugs:['transport','logistique','transport-logistique','mines','industrie','btp-infrastructures','energie-environnement','agriculture']},
+   {id:'business',fr:'Entreprises, commerce et finance',en:'Business, retail and finance',slugs:['commerce-distribution','finance-comptabilite','banques','immobilier','services-entreprises','telecoms']},
+   {id:'institutions',fr:'Institutions et services à la population',en:'Institutions and public services',slugs:['administrations','education','sante','culture']}
+  ];
+
 function buildSectors(out,contact){
  const slugs=new Set();
  for(const sector of sectors){
@@ -150,12 +156,7 @@ function buildSectors(out,contact){
  }
  for(const lang of ['fr','en']){
   const en=lang==='en',url=sectorPath(lang),title=en?'Industries — Digital consulting in Guinea | DSIG':'Secteurs — Conseil numérique en Guinée | DSIG',description=en?'Explore sector-specific digital and data solutions in Guinea.':'Découvrez les solutions numériques et Data adaptées aux secteurs d’activité en Guinée.';
-  const families=[
-   {id:'operations',fr:'Transport, logistique et industries',en:'Transport, logistics and industries',slugs:['transport','logistique','transport-logistique','mines','industrie','btp-infrastructures','energie-environnement','agriculture']},
-   {id:'business',fr:'Entreprises, commerce et finance',en:'Business, retail and finance',slugs:['commerce-distribution','finance-comptabilite','banques','immobilier','services-entreprises','telecoms']},
-   {id:'institutions',fr:'Institutions et services à la population',en:'Institutions and public services',slugs:['administrations','education','sante','culture']}
-  ];
-  const available=families.map(family=>({...family,items:family.slugs.map(slug=>sectors.find(sector=>sector.slug===slug)).filter(Boolean)})).filter(family=>family.items.length);
+  const available=sectorFamilies.map(family=>({...family,items:family.slugs.map(slug=>sectors.find(sector=>sector.slug===slug)).filter(Boolean)})).filter(family=>family.items.length);
   const assigned=available.flatMap(family=>family.items);
   const remaining=sectors.filter(sector=>!assigned.includes(sector));
   if(remaining.length)available.push({id:'other',fr:'Autres secteurs',en:'Other industries',items:remaining});
@@ -285,6 +286,20 @@ export function build(out,contact,options={}){
  for(const lang of ['fr','en']){
   const english=lang==='en',filename=english?'en.html':'index.html';
   let html=renderReferenceLogos(read(filename),logos);
+  const sectorMenuLabels={
+   transport:['Transport et mobilité','Transport and mobility'],logistique:['Logistique et supply chain','Logistics and supply chain'],
+   'transport-logistique':['Transport et logistique intégrés','Integrated transport and logistics'],mines:['Mines','Mining'],industrie:['Industrie','Manufacturing'],
+   'btp-infrastructures':['BTP et infrastructures','Construction and infrastructure'],'energie-environnement':['Énergie et environnement','Energy and environment'],agriculture:['Agriculture','Agriculture'],
+   'commerce-distribution':['Commerce et distribution','Retail and distribution'],'finance-comptabilite':['Finance et comptabilité','Finance and accounting'],banques:['Banques','Banking'],immobilier:['Immobilier','Real estate'],
+   'services-entreprises':['Services aux entreprises','Business services'],telecoms:['Télécommunications','Telecommunications'],administrations:['Administrations publiques','Public administration'],
+   education:['Éducation','Education'],sante:['Santé','Healthcare'],culture:['Culture','Culture']
+  };
+  const sectorMenu=sectorFamilies.map(family=>{
+   const items=family.slugs.map(slug=>sectors.find(sector=>sector.slug===slug)).filter(Boolean);
+   return items.length?'<div><strong>'+esc(family[lang])+'</strong>'+items.map(sector=>'<a href="'+sectorPath(lang,sector.slug)+'">'+esc(sectorMenuLabels[sector.slug]?.[english?1:0]??sector[lang].title)+'</a>').join('')+'</div>':'';
+  }).join('');
+  const sectorDropdown='<details class="corporate-mega public-sector-mega"><summary>'+(english?'Industries':'Secteurs')+'</summary><div class="corporate-mega-panel">'+sectorMenu+'</div></details>';
+
   // Public positioning only: retain the shared REC homepage unchanged.
   const publicHero=english?{
    eyebrow:'CONSULTING · ENGINEERING · TECHNOLOGY · BUSINESS SOLUTIONS',
@@ -366,7 +381,7 @@ export function build(out,contact,options={}){
    .replace(/<form id="request">[\s\S]*?<\/form>/,form?publicForm(lang,contact):'<div class="contact-public"><p>'+(english?'Contact our team by email. Do not send sensitive information.':'Contactez notre équipe par e-mail. Ne transmettez pas de données sensibles.')+'</p><a class="btn" href="mailto:'+esc(contact)+'">'+esc(contact)+'</a></div>')
    .replace('<script src="expertise.js"></script>','').replace('<script src="app.js"></script>','<script src="public-menu.js"></script>'+(form?'<script defer src="public-contact.js"></script>':''))
    .replace('<a href="#offres">'+(english?'Our services':'Nos offres')+'</a>','<a href="'+offerPath(lang)+'">'+(english?'Our services':'Nos offres')+'</a>')
-   .replace('</nav>','<a href="'+sectorPath(lang)+'">'+(english?'Industries':'Secteurs')+'</a><a href="'+blogPath(lang)+'">Blog</a><a href="'+home(english?'fr':'en')+'" hreflang="'+(english?'fr':'en')+'">'+(english?'Français':'English')+'</a></nav>')
+   .replace('</nav>',sectorDropdown+'<a href="'+sectorPath(lang)+'">'+(english?'All industries':'Tous les secteurs')+'</a><a href="'+blogPath(lang)+'">Blog</a><a href="'+home(english?'fr':'en')+'" hreflang="'+(english?'fr':'en')+'">'+(english?'Français':'English')+'</a></nav>')
    .replaceAll('href="index.html','href="/');
   const title=english?'DSIG | Multiservice consulting, technology and business solutions':'DSIG Guinée | Conseil multiservices, technologies et solutions métiers';
   const description=english?'Consulting, data, AI, transport, logistics, industry and business solutions for organisations in Guinea, Africa and internationally.':'Conseil, Data, IA, transport, logistique, industrie et solutions métiers pour les organisations en Guinée, en Afrique et à l’international.';
