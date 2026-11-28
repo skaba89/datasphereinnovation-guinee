@@ -24,24 +24,25 @@ def command(args):
     return out.decode('utf-8')
 
 
-def acquire(*, expected_container_id, expected_image_id, run=None):
+def acquire(*, expected_container_id, expected_image_id, expected_started_at=None, run=None):
     return _acquire(expected_container_id=expected_container_id,expected_image_id=expected_image_id,
-                    run=run,volume_name=source.VOLUME,validator=source.inspect)
+                    run=run,expected_started_at=expected_started_at,volume_name=source.VOLUME,validator=source.inspect)
 
 
-def acquire_qualification(*, expected_container_id, expected_image_id, run_id, run=None):
+def acquire_qualification(*, expected_container_id, expected_image_id, run_id, expected_started_at=None, run=None):
     if not isinstance(run_id,str) or not re.fullmatch(r'[0-9a-f]{16}',run_id):
         raise ValueError('invalid qualification run id')
     def validator(c,v,**kwargs):
         return source.inspect_qualification(c,v,run_id=run_id,**kwargs)
     result=_acquire(expected_container_id=expected_container_id,expected_image_id=expected_image_id,
-                    run=run,volume_name='dsig-qualification-'+run_id+'_prod-data',validator=validator)
+                    run=run,expected_started_at=expected_started_at,volume_name='dsig-qualification-'+run_id+'_prod-data',validator=validator)
     return dict(result,qualification_only=True)
 
 
-def _acquire(*, expected_container_id, expected_image_id, run, volume_name, validator):
+def _acquire(*, expected_container_id, expected_image_id, expected_started_at, run, volume_name, validator):
     run=run or command
     checks=dict.fromkeys(('local_inspection','source','exclusive_consumer','stable_observation'),'NOT_RUN')
+    started_at = None
     try:
         checks['local_inspection']='FAIL'
         if not re.fullmatch(r'[0-9a-f]{64}',expected_container_id) or not re.fullmatch(r'sha256:[0-9a-f]{64}',expected_image_id):
@@ -58,6 +59,8 @@ def _acquire(*, expected_container_id, expected_image_id, run, volume_name, vali
             raise ValueError('source rejected')
         if not isinstance(c['State']['StartedAt'],str) or not c['State']['StartedAt']:
             raise ValueError('missing runtime generation')
+        if expected_started_at is not None and c['State']['StartedAt'] != expected_started_at:
+            raise ValueError('source generation changed')
         checks['source']='PASS'
         checks['exclusive_consumer']='FAIL'
         if ids!=[expected_container_id]:
@@ -67,8 +70,9 @@ def _acquire(*, expected_container_id, expected_image_id, run, volume_name, vali
         if snapshot()!=(c,v,ids):
             raise ValueError('source changed during inspection')
         checks['stable_observation']='PASS'
+        started_at = c['State']['StartedAt']
     except (ValueError,TypeError,KeyError,AttributeError,OSError,UnicodeError,RecursionError):
         pass
     return {'status':'PASS' if all(x=='PASS' for x in checks.values()) else 'FAIL',
             'checks':checks,'local_daemon_used':run is command,
-            'database_verified':False,'production_authorized':False}
+            'source_started_at':started_at,'database_verified':False,'production_authorized':False}

@@ -40,6 +40,16 @@ class AcquisitionTests(unittest.TestCase):
         self.check('PASS')
         self.assertEqual(len(self.calls),6)
 
+    def test_restart_between_two_stable_acquisitions(self):
+        args = dict(expected_container_id=self.cid, expected_image_id=self.image, run=self.fake_run)
+        first = p.acquire(**args)
+        self.assertEqual(first['source_started_at'], self.c['State']['StartedAt'])
+        self.assertEqual(p.acquire(**args, expected_started_at=first['source_started_at'])['status'], 'PASS')
+        self.c['State']['StartedAt'] = '2026-11-26T11:30:00Z'
+        result = p.acquire(**args, expected_started_at=first['source_started_at'])
+        self.assertEqual(result['status'], 'FAIL')
+        self.assertIsNone(result['source_started_at'])
+
     def test_other_consumer(self):
         self.ids.append('d'*64)
         self.check()

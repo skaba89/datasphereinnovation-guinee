@@ -1,5 +1,4 @@
 """Explicit Docker qualification, isolated namespace, no business data or B2."""
-import base64
 import hashlib
 import json
 import os
@@ -8,6 +7,7 @@ import secrets
 import subprocess
 import sys
 import tempfile
+from contextlib import closing
 from pathlib import Path
 from datetime import datetime, timezone
 
@@ -16,6 +16,7 @@ sys.path.insert(0,str(Path(__file__).resolve().parents[1]))
 import prod_backup_acquisition as acquisition
 import prod_backup_rehearsal as rehearsal
 import operations
+from unittest.mock import patch
 from cryptography.fernet import Fernet
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from cryptography.hazmat.primitives import serialization
@@ -26,15 +27,15 @@ INIT="""import os,time,server
 from contextlib import closing
 os.chmod('/app/data',0o700)
 with closing(server.connect()) as db:
-    db.execute('CREATE TABLE qualification_probe (value TEXT NOT NULL)')
-    db.execute("INSERT INTO qualification_probe VALUES ('DSIG-V230-SYNTHETIC')")
+    db.execute("INSERT INTO requests(id,nom,org,email,besoin,solution,message) VALUES(?,?,?,?,?,?,?)",
+               ('backup-probe','QA','QA','qa@example.invalid','QA','QA','DSIG-V230-SYNTHETIC'))
     db.commit()
 time.sleep(600)
 """
 EXTRACT="""import sqlite3,sys
 from contextlib import closing
 with closing(sqlite3.connect('file:/app/data/requests.sqlite3?mode=ro',uri=True)) as db:
-    if db.execute("SELECT value FROM qualification_probe").fetchone()!=('DSIG-V230-SYNTHETIC',):
+    if db.execute("SELECT message FROM requests WHERE id=?",('backup-probe',)).fetchone()!=('DSIG-V230-SYNTHETIC',):
         raise ValueError('unexpected qualification data')
     with closing(sqlite3.connect('/tmp/snapshot.sqlite3')) as target:
         db.backup(target)
@@ -81,18 +82,27 @@ def main(image):
                    '-e','DSIG_ENV=DEV','--entrypoint','python',image,'-c',INIT).decode().strip()
         if not re.fullmatch(r'[0-9a-f]{64}',cid):
             raise ValueError('invalid created container identity')
+        def observe(expected_started_at=None):
+            return acquisition.acquire_qualification(expected_container_id=cid, expected_image_id=image,
+                run_id=run_id, expected_started_at=expected_started_at)
+
+        initial = observe()
+        if initial['status'] != 'PASS':
+            raise ValueError('qualification source rejected before extraction')
+        def check():
+            return observe(initial['source_started_at'])
+
         import time
         for _ in range(30):
+            if check()['status'] != 'PASS':
+                raise ValueError('qualification source changed before extraction')
             try:
-                data=docker('exec',cid,'python','-c',EXTRACT)
+                data=docker('exec','--user','10001:10001',cid,'python','-c',EXTRACT)
                 break
             except ValueError:
                 time.sleep(1)
         else:
             raise ValueError('synthetic source not ready')
-        def check():
-            return acquisition.acquire_qualification(expected_container_id=cid,
-                expected_image_id=image,run_id=run_id)
         if check()['status']!='PASS':
             raise ValueError('qualification acquisition rejected')
         if acquisition.acquire(expected_container_id=cid,expected_image_id=image)['status']!='FAIL':
@@ -126,8 +136,17 @@ def main(image):
             second=rehearsal.run_rehearsal(**args)
             if not first['created'] or second['created'] or first['sha256']!=second['sha256']:
                 raise ValueError('rehearsal not idempotent')
+            restored = root/'restored.sqlite3'
+            # Exercise the application restore path against the saved replica.
+            with patch.dict(os.environ, {'DSIG_BACKUP_KEY': key.decode('ascii')}):
+                operations.restore_isolated(cycle/'replica'/archive, restored, db, root/'public')
+            with closing(operations.readonly(restored)) as connection:
+                rows = connection.execute('SELECT message FROM requests WHERE id=?', ('backup-probe',)).fetchall()
+            if rows != [('DSIG-V230-SYNTHETIC',)] or check()['status'] != 'PASS':
+                raise ValueError('restored marker or final source generation mismatch')
             print(json.dumps(dict(status='PASS',run_id=run_id,qualification_only=True,
-                                  docker_source_verified=True,local_replica_verified=True,
+                                  docker_source_verified=True,source_generation_verified=True,restored_marker_verified=True,
+                                  local_replica_verified=True,
                                   remote_verified=False,business_provenance_verified=False,
                                   production_authorized=False),sort_keys=True))
     finally:
