@@ -286,6 +286,22 @@ export function build(out,contact,options={}){
  for(const lang of ['fr','en']){
   const english=lang==='en',filename=english?'en.html':'index.html';
   let html=renderReferenceLogos(read(filename),logos);
+  // Public-only discovery links: the shared REC homepage is not modified.
+  const pillarLinks={
+   'DSIG Consulting':{url:offerPath(lang,'conseil-audit'),label:english?'Explore consulting':'Découvrir le conseil'},
+   'DSIG Technology':{url:home(lang)+'#services',label:english?'Explore technology expertise':'Découvrir les expertises'},
+   'DSIG Solutions':{url:offerPath(lang,'saas'),label:english?'Explore business solutions':'Découvrir les solutions métiers'}
+  };
+  for(const [name,link] of Object.entries(pillarLinks)){
+   const marker='<h3>'+name+'</h3>';
+   const start=html.indexOf(marker),end=html.indexOf('</article>',start);
+   if(start<0||end<0)throw Error('Missing public pillar: '+name);
+   const fragment=html.slice(start,end);
+   const updated=fragment.replace(/<a href="[^"]+"[^>]*>[\s\S]*?<\/a>/,'<a href="'+link.url+'">'+esc(link.label)+' <span data-icon="arrow"></span></a>');
+   if(updated===fragment)throw Error('Missing public pillar link: '+name);
+   html=html.slice(0,start)+updated+html.slice(end);
+  }
+
   const sectorMenuLabels={
    transport:['Transport et mobilité','Transport and mobility'],logistique:['Logistique et supply chain','Logistics and supply chain'],
    'transport-logistique':['Transport et logistique intégrés','Integrated transport and logistics'],mines:['Mines','Mining'],industrie:['Industrie','Manufacturing'],
@@ -381,7 +397,7 @@ export function build(out,contact,options={}){
    .replace(/<form id="request">[\s\S]*?<\/form>/,form?publicForm(lang,contact):'<div class="contact-public"><p>'+(english?'Contact our team by email. Do not send sensitive information.':'Contactez notre équipe par e-mail. Ne transmettez pas de données sensibles.')+'</p><a class="btn" href="mailto:'+esc(contact)+'">'+esc(contact)+'</a></div>')
    .replace('<script src="expertise.js"></script>','').replace('<script src="app.js"></script>','<script src="public-menu.js"></script>'+(form?'<script defer src="public-contact.js"></script>':''))
    .replace('<a href="#offres">'+(english?'Our services':'Nos offres')+'</a>','<a href="'+offerPath(lang)+'">'+(english?'Our services':'Nos offres')+'</a>')
-   .replace('</nav>',sectorDropdown+'<a href="'+sectorPath(lang)+'">'+(english?'All industries':'Tous les secteurs')+'</a><a href="'+blogPath(lang)+'">Blog</a><a href="'+home(english?'fr':'en')+'" hreflang="'+(english?'fr':'en')+'">'+(english?'Français':'English')+'</a></nav>')
+   .replace('</nav>','<a href="'+offerPath(lang,'saas')+'">'+(english?'Solutions':'Solutions')+'</a>'+sectorDropdown+'<a href="'+sectorPath(lang)+'">'+(english?'All industries':'Tous les secteurs')+'</a><a href="'+blogPath(lang)+'">Blog</a><a href="'+home(english?'fr':'en')+'" hreflang="'+(english?'fr':'en')+'">'+(english?'Français':'English')+'</a></nav>')
    .replaceAll('href="index.html','href="/');
   const title=english?'DSIG | Multiservice consulting, technology and business solutions':'DSIG Guinée | Conseil multiservices, technologies et solutions métiers';
   const description=english?'Consulting, data, AI, transport, logistics, industry and business solutions for organisations in Guinea, Africa and internationally.':'Conseil, Data, IA, transport, logistique, industrie et solutions métiers pour les organisations en Guinée, en Afrique et à l’international.';
