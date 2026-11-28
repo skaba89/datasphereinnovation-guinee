@@ -273,6 +273,31 @@ export function build(out,contact,options={}){
  for(const lang of ['fr','en']){
   const english=lang==='en',filename=english?'en.html':'index.html';
   let html=renderReferenceLogos(read(filename),logos);
+  // Public positioning only: retain the shared REC homepage unchanged.
+  const publicHero=english?{
+   eyebrow:'CONSULTING · ENGINEERING · TECHNOLOGY · BUSINESS SOLUTIONS',
+   heading:'Your multiservice partner for <em>lasting business transformation.</em>',
+   description:'From data and digital strategy to transport, logistics, industry, finance and public services, DSIG helps organisations design and implement solutions tailored to their needs.',
+   note:'Serving businesses, industries and institutions in Guinea, Africa and internationally.',
+   action:'Explore our sectors'
+  }:{
+   eyebrow:'CONSEIL · INGÉNIERIE · TECHNOLOGIES · SOLUTIONS MÉTIERS',
+   heading:'Votre partenaire multiservices pour <em>transformer durablement vos activités.</em>',
+   description:'De la Data et du numérique au transport, à la logistique, à l’industrie, à la finance et aux services publics, DSIG accompagne les organisations dans la conception et la mise en œuvre de solutions adaptées.',
+   note:'Au service des entreprises, industries et institutions en Guinée, en Afrique et à l’international.',
+   action:'Découvrir nos secteurs'
+  };
+  let heroUpdated=false;
+  html=html.replace(/<div class="hero-content">[\s\S]*?<\/div><div class="visual"/,hero=>{
+   heroUpdated=true;
+   return hero.replace(/(<div class="eyebrow"><i><\/i> )[\s\S]*?<\/div>/,'$1'+esc(publicHero.eyebrow)+'</div>')
+    .replace(/<h1>[\s\S]*?<\/h1>/,'<h1>'+publicHero.heading+'</h1>')
+    .replace(/<\/h1><p>[\s\S]*?<\/p>/,'</h1><p>'+esc(publicHero.description)+'</p>')
+    .replace(/<div class="hero-note">[\s\S]*?<\/div>/,'<div class="hero-note">'+esc(publicHero.note)+'</div>')
+    .replace('</div><div class="hero-note">','<a class="outline" href="'+sectorPath(lang)+'">'+esc(publicHero.action)+'</a></div><div class="hero-note">');
+  });
+  if(!heroUpdated||!html.includes(publicHero.heading)||!html.includes(esc(publicHero.action)))throw Error('Missing public multiservice hero');
+
   // Public-only technology positioning. No vendor partnership or product availability claim.
   const techBenefits=english?[
    'Choose storage and processing platforms suited to data volumes and operating constraints.',
@@ -331,8 +356,8 @@ export function build(out,contact,options={}){
    .replace('<a href="#offres">'+(english?'Our services':'Nos offres')+'</a>','<a href="'+offerPath(lang)+'">'+(english?'Our services':'Nos offres')+'</a>')
    .replace('</nav>','<a href="'+sectorPath(lang)+'">'+(english?'Industries':'Secteurs')+'</a><a href="'+blogPath(lang)+'">Blog</a><a href="'+home(english?'fr':'en')+'" hreflang="'+(english?'fr':'en')+'">'+(english?'Français':'English')+'</a></nav>')
    .replaceAll('href="index.html','href="/');
-  const title=english?'DataSphere Innovation Guinea | Data, AI & digital consulting':'DataSphere Innovation Guinée | Conseil Data, IA et transformation digitale';
-  const description=english?'Digital consulting, Data Engineering, AI, BI, cybersecurity, SaaS and logistics expertise for organisations in Guinea and Africa.':'Cabinet de conseil numérique en Guinée : Data Engineering, IA, BI, cybersécurité, SaaS, logistique et transformation digitale pour les organisations.';
+  const title=english?'DSIG | Multiservice consulting, technology and business solutions':'DSIG Guinée | Conseil multiservices, technologies et solutions métiers';
+  const description=english?'Consulting, data, AI, transport, logistics, industry and business solutions for organisations in Guinea, Africa and internationally.':'Conseil, Data, IA, transport, logistique, industrie et solutions métiers pour les organisations en Guinée, en Afrique et à l’international.';
   html=metadata(html,title,description,'/', '/en.html',lang);
   html=structuredData(html,lang,home(lang),title,description,contact);
   // Keep the public presentation separate from the REC contact collection.
