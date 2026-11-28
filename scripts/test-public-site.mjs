@@ -41,6 +41,21 @@ try{
   assert(gzipSync(css).length<=14*1024,name+' CSS gzip budget');
   assert(gzipSync(html).length<=12*1024,name+' HTML gzip budget');
   assert(!/<script src=/.test(html),name+' has blocking JavaScript');
+  // Static accessibility checks for the generated public documents only.
+  assert(/^<!doctype html>/i.test(html),name+' missing HTML doctype');
+  assert(/<html lang="(?:fr|en)"/.test(html),name+' missing document language');
+  const mainTags=[...html.matchAll(/<main\b[^>]*>/g)];
+  assert.equal(mainTags.length,1,name+' must have one main landmark');
+  const mainId=mainTags[0][0].match(/\bid="([^"]+)"/)?.[1];
+  assert(mainId,name+' missing main identifier');
+  assert(/\btabindex="-1"/.test(mainTags[0][0]),name+' main is not programmatically focusable');
+  const skip=html.match(/<a class="skip-link" href="#([^"]+)">([^<]+)<\/a>/);
+  assert(skip&&skip[1]===mainId&&skip[2].trim(),name+' invalid skip link');
+  const ids=[...html.matchAll(/<[a-z][^>]*\sid="([^"]+)"/gi)].map(m=>m[1]);
+  assert.equal(new Set(ids).size,ids.length,name+' duplicate element IDs');
+  assert.equal([...html.matchAll(/<h1\b[^>]*>/gi)].length,1,name+' must have one H1');
+  assert(!/<meta[^>]+(?:user-scalable=no|maximum-scale=1(?:[,"]))/i.test(html),name+' disables user zoom');
+
   for(const match of css.matchAll(/url\(['"]?([^'"\)]+)['"]?\)/g))assert(fs.existsSync(path.join(out,match[1])),name+' missing CSS asset');
  }
  for(const name of ['index.html','en.html']){
