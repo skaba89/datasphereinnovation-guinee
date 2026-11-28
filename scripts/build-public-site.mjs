@@ -55,7 +55,7 @@ function optimizePublicPages(out){
   }
   const styles=[...html.matchAll(/<link rel="stylesheet" href="\/?([a-z-]+\.css)">/g)];
   if(!styles.length)throw Error('Missing public styles: '+name);
-  let css=styles.map(m=>read(m[1])).join('\n')+(['index.html','en.html'].includes(name)?'\n.corporate-premium .public-reference-intro{max-width:72ch;color:#42566e;font-size:16px;line-height:1.7}.corporate-premium .public-reference-action{margin-top:24px}.corporate-premium .references .footnote{border-left:3px solid #1249a0;padding:12px 16px;background:#f3f6fa;color:#42566e}':'');
+  let css=styles.map(m=>read(m[1])).join('\n')+(['index.html','en.html'].includes(name)?'\n.corporate-premium .public-reference-intro{max-width:72ch;color:#42566e;font-size:16px;line-height:1.7}.corporate-premium .public-reference-action{margin-top:24px}.corporate-premium .references .footnote{border-left:3px solid #1249a0;padding:12px 16px;background:#f3f6fa;color:#42566e}.public-commercial-journey{margin-bottom:32px}.public-commercial-journey h3{font-size:20px;color:#08182f;margin:0 0 12px}.public-commercial-journey .expertise-grid{grid-template-columns:repeat(2,minmax(0,1fr))}@media(max-width:580px){.public-commercial-journey .expertise-grid{grid-template-columns:1fr}}':'');
   if(editorial)css+='\n.public-editorial-header{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:16px;padding:16px 5%;background:#08182f;color:white}.public-editorial-header nav{position:static;display:flex;flex-wrap:wrap;gap:12px 20px;background:transparent;padding:0;border:0;color:white;flex:1;justify-content:flex-end}.public-editorial-header nav a{color:white;padding:8px 0;line-height:1.5}.public-editorial-header nav a:hover{color:#83e4d8}.public-editorial-footer{background:#08182f;color:#d4dfec}.public-editorial-footer a{color:white;text-decoration:underline}@media(max-width:700px){.public-editorial-header nav{flex-basis:100%;justify-content:flex-start;gap:4px 16px}.public-editorial-header nav a{min-height:44px;display:flex;align-items:center}}';
   const hash=createHash('sha256').update(css).digest('hex').slice(0,16);
   const bundle='public-'+hash+'.css';
@@ -271,6 +271,44 @@ export function build(out,contact,options={}){
  for(const lang of ['fr','en']){
   const english=lang==='en',filename=english?'en.html':'index.html';
   let html=renderReferenceLogos(read(filename),logos);
+  // Public-only technology positioning. No vendor partnership or product availability claim.
+  const techBenefits=english?[
+   'Choose storage and processing platforms suited to data volumes and operating constraints.',
+   'Build reliable, observable and maintainable data pipelines.',
+   'Turn trusted data into actionable indicators and controlled access.',
+   'Automate deployment and improve operational reliability.',
+   'Frame delivery around measurable objectives and acceptance criteria.',
+   'Assess automation and AI use cases before selecting a solution.'
+  ]:[
+   'Choisir des plateformes adaptées aux volumes de données et aux contraintes d’exploitation.',
+   'Construire des pipelines de données fiables, observables et maintenables.',
+   'Transformer les données fiables en indicateurs utiles et maîtriser les accès.',
+   'Automatiser les déploiements et améliorer la fiabilité opérationnelle.',
+   'Cadrer les interventions autour d’objectifs mesurables et de critères de recette.',
+   'Évaluer les usages de l’automatisation et de l’IA avant de choisir une solution.'
+  ];
+  let techCount=0;
+  html=html.replace(/<section class="section technologies" id="technologies">[\s\S]*?<\/section>/,section=>{
+   const cards=section.replace(/(<article><h3>[^<]+<\/h3>)(<p>[\s\S]*?<\/p><\/article>)/g,(_,heading,tools)=>{
+    if(techCount>=techBenefits.length)throw Error('Unexpected public technology card');
+    return heading+'<p class="public-tech-benefit">'+esc(techBenefits[techCount++])+'</p>'+tools;
+   });
+   const notice=english?'Technologies are selected according to project needs. Brand names do not imply a vendor partnership.':'Les technologies sont sélectionnées selon les besoins du projet. Les marques citées n’impliquent aucun partenariat éditeur.';
+   return cards.replace('</section>','<p class="footnote">'+esc(notice)+'</p><p><a class="btn" href="#contact">'+(english?'Discuss your technical requirements':'Échanger sur vos besoins techniques')+'</a></p></section>');
+  });
+  if(techCount!==techBenefits.length)throw Error('Missing public technology cards');
+
+  // Public-only commercial orientation, independent of the application and contact API.
+  const journeys=[
+   ['conseil-audit',english?'Assess and plan':'Diagnostiquer et planifier',english?'Clarify priorities and define a roadmap.':'Clarifier les priorités et définir une feuille de route.'],
+   ['regie',english?'Strengthen your team':'Renforcer vos équipes',english?'Explore specialist support for your project.':'Mobiliser une expertise spécialisée pour votre projet.'],
+   ['forfait',english?'Deliver a project':'Réaliser un projet',english?'Define scope, milestones and acceptance criteria.':'Définir le périmètre, les jalons et les critères de recette.'],
+   ['saas',english?'Explore business solutions':'Étudier une solution métier',english?'Qualify your needs before discussing a pilot.':'Qualifier vos besoins avant d’envisager un pilote.']
+  ];
+  const contactMarker='<section class="section" id="contact">';
+  if(!html.includes(contactMarker))throw Error('Missing public contact section');
+  html=html.replace(contactMarker,contactMarker+'<div class="public-commercial-journey"><div class="section-head"><div><div class="tag">'+(english?'YOUR PROJECT':'VOTRE PROJET')+'</div><h2>'+(english?'Find the right support for your needs':'Trouvez l’accompagnement adapté à vos besoins')+'</h2></div></div><div class="expertise-grid sector-directory">'+journeys.map(([slug,title,description])=>'<article><h3>'+esc(title)+'</h3><p>'+esc(description)+'</p><a class="service-link" href="'+offerPath(lang,slug)+'">'+(english?'Explore the offer':'Découvrir l’offre')+'</a></article>').join('')+'</div></div>');
+
   // Public-only editorial enhancement: do not alter the shared application templates.
   html=html.replace(/<section class="section references" id="references">[\s\S]*?<\/section>/,section=>{
    const heading=english?'Expertise built in the field.':'Une expertise forgée sur le terrain.';

@@ -50,6 +50,16 @@ try{
   assert(!/Offres de prestations à cadrer|Compétences issues des missions|Références issues du parcours|Services are scoped according|Skills drawn from the founder|References from the founder/.test(html));
   assert(html.includes(name==='en.html'?'they are not contractual references or partnerships':'elles ne constituent pas des références contractuelles ou des partenariats'));
   assert.equal(html.split('class="public-reference-intro"').length,2);
+  assert.equal([...html.matchAll(/class="public-tech-benefit"/g)].length,6);
+  assert(html.includes(name==='en.html'?'Brand names do not imply a vendor partnership.':'Les marques citées n’impliquent aucun partenariat éditeur.'));
+  assert(html.includes(name==='en.html'?'Discuss your technical requirements':'Échanger sur vos besoins techniques'));
+  assert(!fs.readFileSync(new URL('../dist/'+name,import.meta.url),'utf8').includes('public-tech-benefit'));
+  assert.equal(html.split('class="public-commercial-journey"').length,2);
+  const journey=html.match(/<div class="public-commercial-journey">[\s\S]*?<\/div><\/div><div class="contact">/)?.[0];
+  assert(journey,'Missing public commercial journey');
+  for(const slug of ['conseil-audit','regie','forfait','saas'])assert(journey.includes('href="/'+(name==='en.html'?'offers':'offres')+'-'+slug+'.html"'));
+  assert(!fs.readFileSync(new URL('../dist/'+name,import.meta.url),'utf8').includes('public-commercial-journey'));
+
   assert.equal(html.split('class="public-reference-action"').length,2);
   assert(html.includes(name==='en.html'?'Discuss a similar challenge':'Échanger sur un enjeu similaire'));
   assert(!fs.readFileSync(new URL('../dist/'+name,import.meta.url),'utf8').includes('public-reference-intro'));
