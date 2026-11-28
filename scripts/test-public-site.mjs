@@ -50,6 +50,10 @@ try{
   assert(!/Offres de prestations à cadrer|Compétences issues des missions|Références issues du parcours|Services are scoped according|Skills drawn from the founder|References from the founder/.test(html));
   assert(html.includes(name==='en.html'?'they are not contractual references or partnerships':'elles ne constituent pas des références contractuelles ou des partenariats'));
   assert(html.includes('class="corporate-institution-grid"'));
+  assert(html.includes('class="corporate-leadership-grid"'));
+  for(const person of ['Moussa KABA','Sekouna KABA'])assert.equal(html.split('<h4>'+person+'</h4>').length,2);
+  assert(html.includes(name==='en.html'?'Co-founder · Managing Director':'Cofondateur · Directeur général'));
+  assert(html.includes(name==='en.html'?'Co-founder · Data, AI and IT architecture expert':'Cofondateur · Expert Data, IA et architecture SI'));
   for(const label of name==='en.html'?['Our mission','Our ambition','Our commitments']:['Notre mission','Notre ambition','Nos engagements'])assert(html.includes('<h4>'+label+'</h4>'));
  }
  assert(fs.statSync(path.join(out,'digital-mockup.svg')).size<=8*1024);
