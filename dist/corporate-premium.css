@@ -37,3 +37,37 @@
 .corporate-premium .corporate-mega-panel strong{font-size:15px;border-bottom:1px solid #dce5ef;padding-bottom:10px}
 .corporate-premium .nav #links .corporate-mega-panel a{color:#1249a0;padding:8px 0;white-space:normal;text-decoration:underline;text-underline-offset:3px}
 @media(max-width:1199px){.corporate-premium .nav #menu{display:block;background:transparent;border:0;margin-left:auto;min-width:44px;min-height:44px}.corporate-premium .nav .top-cta{display:none}.corporate-premium .nav #links{display:none;position:absolute;inset:100% 0 auto;padding:16px 5%;background:#08182f;align-items:stretch;flex-direction:column;max-height:calc(100dvh - 90px);overflow:auto}.corporate-premium .nav #links.open{display:flex;background:#08182f}.corporate-premium .nav #links>a{padding:10px 0}.corporate-premium .corporate-mega-panel{position:static;grid-template-columns:1fr;gap:12px;padding:16px;box-shadow:none;border-radius:8px}}
+
+/* Corporate visual consistency: retain the locally hosted fonts and approved assets. */
+.corporate-premium{color:var(--dsig-night);background:#fff}
+.corporate-premium .utility,.corporate-premium .enterprise-footer{background:var(--dsig-night);color:#d4dfec}
+.corporate-premium .hero:before{background:radial-gradient(ellipse at 90% 25%,#12496c55,transparent 65%);opacity:1}
+.corporate-premium .hero .eyebrow i{background:#83e4d8}
+.corporate-premium .hero-note{border-color:#83e4d8}
+.corporate-premium .entry-band{background:transparent}
+.corporate-premium .entry-band a,.corporate-premium .entry-band a:first-child,.corporate-premium .entry-band a:last-child{background:#fff;color:#08182f;border:1px solid #dce5ef!important;border-radius:10px;box-shadow:0 8px 24px #08182f12}
+.corporate-premium .entry-band a:hover{background:#f3f6fa}
+.corporate-premium .entry-band a span,.corporate-premium .entry-band small,.corporate-premium .tag{color:#1249a0}
+.corporate-premium .section h2,.corporate-premium .about h2,.corporate-premium .expertise-group>h3,.corporate-premium .expertise-grid h4,.corporate-premium .career-card h3{color:#08182f}
+.corporate-premium .engagement,.corporate-premium .references,.corporate-premium .services{background:#fff}
+.corporate-premium .technologies,.corporate-premium .about{background:#f3f6fa;color:#08182f}
+.corporate-premium .offer-grid article,.corporate-premium .tech-grid article,.corporate-premium .expertise-grid article,.corporate-premium .career-card,.corporate-premium .principles,.corporate-premium .ref-grid article{background:#fff;border:1px solid #dce5ef;border-radius:10px;box-shadow:none}
+.corporate-premium .offer-grid article:nth-child(2){background:#102b49;color:#fff;border-color:#102b49}
+.corporate-premium .offer-label,.corporate-premium .offer-grid li:before,.corporate-premium .service-link{color:#1249a0}
+.corporate-premium .offer-grid article:nth-child(2) .offer-label,.corporate-premium .offer-grid article:nth-child(2) li:before{color:#83e4d8}
+.corporate-premium .expertise-icon{background:#eaf1fa;color:#1249a0;border-radius:10px}
+.corporate-premium .sector-choice{background:#f3f6fa;border:1px solid #dce5ef;border-radius:10px;color:#08182f}
+.corporate-premium .sector-choice:hover{background:#e5eff9;border-color:#1249a0}
+.corporate-premium .sector-choice small,.corporate-premium .sector-choice span{color:#1249a0}
+.corporate-premium .ref-grid article strong,.corporate-premium .about .principles h3{color:#08182f}
+.corporate-premium .ref-grid article span,.corporate-premium .tech-grid p,.corporate-premium .about p,.corporate-premium .principles p{color:#42566e}
+.corporate-premium .approach{background:#102b49;color:white}
+.corporate-premium .approach h2{color:white}
+.corporate-premium .approach .tag,.corporate-premium .approach-grid b{color:#83e4d8}
+.corporate-premium .contact{background:#f3f6fa;border:1px solid #dce5ef;border-radius:12px}
+.corporate-premium .contact input,.corporate-premium .contact select,.corporate-premium .contact textarea{border-color:#9eafc2}
+.corporate-premium .btn,.corporate-premium .contact .btn{background:#1249a0;color:#fff;border-radius:8px}
+.corporate-premium .btn:hover,.corporate-premium .contact .btn:hover{background:#0b3477;color:white}
+.corporate-premium .hero .btn,.corporate-premium .nav .top-cta,.corporate-premium .offer-grid article:nth-child(2) .btn{background:#fff;color:#08182f}
+.corporate-premium .hero .btn:hover,.corporate-premium .nav .top-cta:hover,.corporate-premium .offer-grid article:nth-child(2) .btn:hover{background:#dbe9f8;color:#08182f}
+.corporate-premium .enterprise-footer a:hover{color:#83e4d8}

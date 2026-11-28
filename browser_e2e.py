@@ -834,6 +834,20 @@ class BrowserTests(unittest.TestCase):
         expect(self.page.locator('h1')).to_have_text('Privacy and personal data')
         self.assertEqual(self.errors, [])
 
+    def test_corporate_visual_identity(self):
+        for path in ('/', '/en.html'):
+            for width in (390, 1440):
+                self.page.set_viewport_size({'width': width, 'height': 900})
+                self.page.goto(path)
+                for selector, color in (('.nav', 'rgb(8, 24, 47)'),
+                                        ('.hero', 'rgb(8, 24, 47)'),
+                                        ('.enterprise-footer', 'rgb(8, 24, 47)'),
+                                        ('.technologies', 'rgb(243, 246, 250)')):
+                    self.assertEqual(self.page.locator(selector).evaluate('(el) => getComputedStyle(el).backgroundColor'), color)
+                expect(self.page.locator('#expertise-groups article')).to_have_count(29)
+                self.assertTrue(self.page.evaluate('document.documentElement.scrollWidth <= innerWidth + 1'))
+        self.assertEqual(self.errors, [])
+
     def test_corporate_mega_menu(self):
         for path in ('/', '/en.html'):
             for width in (390, 1440):
