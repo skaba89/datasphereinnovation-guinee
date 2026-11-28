@@ -66,8 +66,12 @@ def preflight(envelope,authority_public,*,authority_pin,backup_path,signer_path,
     if not hmac.compare_digest(hashlib.sha256(raw).hexdigest(),p['backup_key_id']):
         raise ValueError('backup key not bound to permit')
     B2ReviewAdapter(expected_bucket_id).bucket_info(BUCKET)
+    confirmed = acquisition.acquire(expected_container_id=p['container_id'], expected_image_id=p['image_id'],
+                                    expected_started_at=observation['source_started_at'])
+    if confirmed['status'] != 'PASS' or confirmed['local_daemon_used'] is not True:
+        raise ValueError('business source changed during preflight')
     verify(envelope,authority_public,authority_pin=authority_pin,now=datetime.now(timezone.utc))
-    return dict(status='PASS',slot=p['slot'],source_preflight_verified=True,
+    return dict(status='PASS',slot=p['slot'],source_started_at=observation['source_started_at'],source_preflight_verified=True,
                 keys_preflight_verified=True,remote_policy_verified=True,
                 business_backup_created=False,business_provenance_verified=False,
                 production_authorized=False,execution_authorized=False)

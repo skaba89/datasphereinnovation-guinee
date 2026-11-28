@@ -103,9 +103,15 @@ jobs:
       - name: Qualify private signed handoff inside isolated Docker
         run: bash scripts/qualify-private-docker.sh dsig-ci
       - name: Qualify host-to-container signed handoff
-        run: "$RUNNER_TEMP/dsig-prod-check/bin/python" scripts/qualify-private-cross-namespace.py dsig-ci
+        run: |
+          "$RUNNER_TEMP/dsig-prod-check/bin/python" scripts/qualify-private-cross-namespace.py dsig-ci
       - name: Qualify persistent volume across Docker replacement
-        run: "$RUNNER_TEMP/dsig-prod-check/bin/python" scripts/qualify-private-replacement.py dsig-ci
+        run: |
+          "$RUNNER_TEMP/dsig-prod-check/bin/python" scripts/qualify-private-replacement.py dsig-ci
+      - name: Verify Docker backup source and restored synthetic record
+        run: |
+          image_id=$(docker image inspect --format '{{.Id}}' dsig-ci)
+          "$RUNNER_TEMP/dsig-prod-check/bin/python" scripts/test-prod-docker-rehearsal.py --qualification-image-id "$image_id"
       - name: Verify local container
         run: |
           docker run -d --name dsig-ci -p 127.0.0.1:8080:8080 -e DSIG_ENV=REC -e DSIG_ADMIN_TOKEN=ci-fictitious-token-not-a-secret-123456 dsig-ci
