@@ -6,10 +6,10 @@ Le formulaire public est **prêt mais verrouillé**. Il n'apparaît sur la vitri
 
 ```bash
 # Par défaut (inchangé) : lien e-mail, aucune route API, connect-src 'none'
-docker build -f Dockerfile.public --build-arg DSIG_PUBLIC_EMAIL=contact@datasphere-innovation.net -t dsig-public:<sha> .
+docker build -f Dockerfile.public --build-arg DSIG_PUBLIC_EMAIL=contact@dsig-consulting.com -t dsig-public:<sha> .
 
 # Formulaire activé (échoue aujourd'hui : "legal information is incomplete (17 missing)")
-docker build -f Dockerfile.public --build-arg DSIG_PUBLIC_EMAIL=contact@datasphere-innovation.net \
+docker build -f Dockerfile.public --build-arg DSIG_PUBLIC_EMAIL=contact@dsig-consulting.com \
   --build-arg DSIG_PUBLIC_FORM=enabled -t dsig-public:<sha>-form .
 ```
 
