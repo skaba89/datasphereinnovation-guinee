@@ -89,3 +89,23 @@
 .sector-insight h2{color:#08182f;margin:8px 0}
 .sector-breadcrumb{display:flex;position:static;flex-wrap:wrap;background:transparent;padding:0;margin-bottom:16px;color:#1249a0}
 @media(max-width:600px){.sector-breadcrumb{gap:6px;font-size:12px}.sector-intro,.sector-insight{padding:20px}}
+
+/* Bilingual expertise detail template, shared by local and public builds. */
+.corporate-expertise{background:#fff;color:#08182f}
+.corporate-expertise .nav,.corporate-expertise footer{background:#08182f;color:#fff}
+.corporate-expertise .nav{flex-wrap:wrap;gap:12px}
+.corporate-expertise .nav .btn{background:#fff;color:#08182f}
+.corporate-expertise .nav>a[hreflang]{color:#fff;text-decoration:underline}
+.corporate-expertise #expertise-detail>nav{display:flex;position:static;flex-wrap:wrap;background:transparent;padding:0;color:#1249a0}
+.corporate-expertise #expertise-detail>a:not(.btn){color:#1249a0;text-decoration:underline}
+.corporate-expertise .expertise-detail-hero{background:#08182f;color:white;border-radius:12px;padding:clamp(24px,5vw,64px);margin:28px 0}
+.corporate-expertise .expertise-detail-hero h1{color:white;overflow-wrap:anywhere}
+.corporate-expertise .expertise-detail-hero p{color:#d4dfec;max-width:70ch}
+.corporate-expertise .expertise-detail-hero .tag{color:#83e4d8}
+.corporate-expertise .expertise-icon{background:#eaf1fa;color:#1249a0}
+.corporate-expertise .corporate-expertise-grid article{background:#f3f6fa;border:1px solid #dce5ef;border-radius:12px;box-shadow:none}
+.corporate-expertise .corporate-expertise-grid h2{font-size:clamp(19px,2vw,26px);line-height:1.3;color:#08182f;margin:0 0 12px}
+.corporate-expertise #expertise-contact{background:#1249a0;color:#fff}
+.corporate-expertise #expertise-contact:hover{background:#0b3477}
+.corporate-expertise footer a{text-decoration:underline}
+@media(max-width:600px){.corporate-expertise .nav .brand{flex:1 1 100%}.corporate-expertise .expertise-detail-hero{padding:24px}.corporate-expertise #expertise-contact{width:100%}}
