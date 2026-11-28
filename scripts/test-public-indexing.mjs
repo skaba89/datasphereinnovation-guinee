@@ -6,7 +6,7 @@ import {build} from './build-public-site.mjs';
 import {checkPublic} from './check-public-indexing.mjs';
 const tmp=fs.mkdtempSync(path.join(os.tmpdir(),'dsig-index-test-'));
 try{
- const site=path.join(tmp,'site');const count=build(site,'contact@datasphere-innovation.net');
+ const site=path.join(tmp,'site');const count=build(site,'contact@dsig-consulting.com');
  let fault='';
  const mock=async url=>{
   const u=new URL(url);assert(['dsig-consulting.com','rec.dsig-consulting.com'].includes(u.hostname));
