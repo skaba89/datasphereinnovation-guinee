@@ -150,7 +150,19 @@ function buildSectors(out,contact){
  }
  for(const lang of ['fr','en']){
   const en=lang==='en',url=sectorPath(lang),title=en?'Industries — Digital consulting in Guinea | DSIG':'Secteurs — Conseil numérique en Guinée | DSIG',description=en?'Explore sector-specific digital and data solutions in Guinea.':'Découvrez les solutions numériques et Data adaptées aux secteurs d’activité en Guinée.';
-  const body='<div class="sector-intro"><span class="tag">'+(en?'DSIG INDUSTRIES':'LES SECTEURS DSIG')+'</span><h1>'+(en?'Digital expertise for your industry':'Des expertises adaptées à votre secteur')+'</h1><p>'+esc(description)+'</p></div><div class="expertise-grid sector-directory">'+sectors.map((s,i)=>'<article><span class="tag">0'+(i+1)+'</span><h2><a href="'+sectorPath(lang,s.slug)+'">'+esc(s[lang].title)+'</a></h2><p>'+esc(s[lang].description)+'</p><a class="service-link" href="'+sectorPath(lang,s.slug)+'">'+(en?'Explore this industry':'Découvrir ce secteur')+'</a></article>').join('')+'</div><div class="sector-intro sector-contact"><h2>'+(en?'Discuss your industry challenges':'Parlons de vos enjeux métier')+'</h2><a class="btn" href="mailto:'+esc(contact)+'">'+(en?'Contact our team':'Contacter notre équipe')+'</a></div>';
+  const families=[
+   {id:'operations',fr:'Transport, logistique et industries',en:'Transport, logistics and industries',slugs:['transport','logistique','transport-logistique','mines','industrie','btp-infrastructures','energie-environnement','agriculture']},
+   {id:'business',fr:'Entreprises, commerce et finance',en:'Business, retail and finance',slugs:['commerce-distribution','finance-comptabilite','banques','immobilier','services-entreprises','telecoms']},
+   {id:'institutions',fr:'Institutions et services à la population',en:'Institutions and public services',slugs:['administrations','education','sante','culture']}
+  ];
+  const available=families.map(family=>({...family,items:family.slugs.map(slug=>sectors.find(sector=>sector.slug===slug)).filter(Boolean)})).filter(family=>family.items.length);
+  const assigned=available.flatMap(family=>family.items);
+  const remaining=sectors.filter(sector=>!assigned.includes(sector));
+  if(remaining.length)available.push({id:'other',fr:'Autres secteurs',en:'Other industries',items:remaining});
+  if(new Set(available.flatMap(family=>family.items)).size!==sectors.length)throw Error('Incomplete public sector navigation');
+  const familyNav='<nav class="sector-intro" aria-label="'+(en?'Industry families':'Familles de secteurs')+'"><ul>'+available.map(family=>'<li><a href="#family-'+family.id+'">'+esc(family[lang])+'</a></li>').join('')+'</ul></nav>';
+  const familyCards=available.map(family=>'<section class="sector-insight" id="family-'+family.id+'"><h2>'+esc(family[lang])+'</h2><div class="expertise-grid sector-directory">'+family.items.map(sector=>'<article><h3><a href="'+sectorPath(lang,sector.slug)+'">'+esc(sector[lang].title)+'</a></h3><p>'+esc(sector[lang].description)+'</p><a class="service-link" href="'+sectorPath(lang,sector.slug)+'">'+(en?'Explore this industry':'Découvrir ce secteur')+'</a></article>').join('')+'</div></section>').join('');
+  const body='<div class="sector-intro"><span class="tag">'+(en?'DSIG INDUSTRIES':'LES SECTEURS DSIG')+'</span><h1>'+(en?'Digital expertise for your industry':'Des expertises adaptées à votre secteur')+'</h1><p>'+esc(description)+'</p></div>'+familyNav+familyCards+'<div class="sector-intro sector-contact"><h2>'+(en?'Discuss your industry challenges':'Parlons de vos enjeux métier')+'</h2><a class="btn" href="mailto:'+esc(contact)+'">'+(en?'Contact our team':'Contacter notre équipe')+'</a></div>';
   put(out,url.slice(1),structuredData(metadata(blogTemplate(lang,body,sectorPath(en?'fr':'en')),title,description,sectorPath('fr'),sectorPath('en'),lang),lang,url,title,description,contact));pages.push(url);
  }
 }
