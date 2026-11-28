@@ -43,7 +43,10 @@ def exercise(port,rows):
             assert response.code in ((expected,) if isinstance(expected,int) else expected),(route,response.code)
             return json.load(response),response.headers.get('Set-Cookie','')
     assert call('/api/ready',200)[0]['status']=='ready'
-    call('/api/admin/requests',401)
+    # DEV without a bootstrap token intentionally returns 503 for a missing
+    # Authorization header. An explicit invalid named session must return 401.
+    call('/api/admin/requests',503)
+    call('/api/admin/requests',401,'dsig_session=invalid')
     for row in rows:
         auth.ATTEMPTS.clear()
         credentials=dict(username=row['username'],password=secrets.token_urlsafe(32))
