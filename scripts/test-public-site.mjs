@@ -49,6 +49,8 @@ try{
   const html=read(name);
   assert(!/Offres de prestations à cadrer|Compétences issues des missions|Références issues du parcours|Services are scoped according|Skills drawn from the founder|References from the founder/.test(html));
   assert(html.includes(name==='en.html'?'they are not contractual references or partnerships':'elles ne constituent pas des références contractuelles ou des partenariats'));
+  assert(html.includes('class="corporate-institution-grid"'));
+  for(const label of name==='en.html'?['Our mission','Our ambition','Our commitments']:['Notre mission','Notre ambition','Nos engagements'])assert(html.includes('<h4>'+label+'</h4>'));
  }
  assert(fs.statSync(path.join(out,'digital-mockup.svg')).size<=8*1024);
  assert(fs.statSync(path.join(out,'hero-image.webp')).size<=180*1024);
