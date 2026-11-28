@@ -16,9 +16,13 @@ try{
   if(!fs.existsSync(file))return new Response('',{status:404});
   let body=fs.readFileSync(file,'utf8');
   if(fault==='sitemap'&&u.pathname==='/sitemap.xml')body=body.replace('https://dsig-consulting.com/','https://evil.example/');
+  if(u.pathname==='/'&&fault==='hreflang')body=body.replace(/(<link rel="alternate" hreflang="en" href=")[^"]+/, '$1https://dsig-consulting.com/offers.html');
+  if(u.pathname==='/'&&fault==='title')body=body.replace(/<title>[^<]*<\/title>/,'<title></title>');
+  if(u.pathname==='/'&&fault==='h1')body=body.replace('</main>','<h1>Duplicate heading</h1></main>');
+  if(u.pathname==='/'&&fault==='description')body=body.replace(/<meta name="description" content="[^"]+">/,'');
   return new Response(body,{headers:{'content-type':file.endsWith('.html')?'text/html':'text/plain','x-robots-tag':fault==='noindex'&&u.pathname==='/'?'noindex':'index'}});
  };
  const good=await checkPublic(mock);assert.equal(good.status,'PASS');assert.equal(good.pages_checked,count);
- for(const scenario of ['rec','private','sitemap','noindex']){fault=scenario;assert.equal((await checkPublic(mock)).status,'FAIL',scenario);}
+ for(const scenario of ['rec','private','sitemap','noindex','hreflang','title','h1','description']){fault=scenario;assert.equal((await checkPublic(mock)).status,'FAIL',scenario);}
  console.log('PASS: publication checks and negative cases');
 }finally{fs.rmSync(tmp,{recursive:true,force:true});}
