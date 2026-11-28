@@ -256,6 +256,33 @@ export function build(out,contact,options={}){
  for(const lang of ['fr','en']){
   const english=lang==='en',filename=english?'en.html':'index.html';
   let html=renderReferenceLogos(read(filename),logos);
+  // Public-only technology positioning. No vendor partnership or product availability claim.
+  const techBenefits=english?[
+   'Choose storage and processing platforms suited to data volumes and operating constraints.',
+   'Build reliable, observable and maintainable data pipelines.',
+   'Turn trusted data into actionable indicators and controlled access.',
+   'Automate deployment and improve operational reliability.',
+   'Frame delivery around measurable objectives and acceptance criteria.',
+   'Assess automation and AI use cases before selecting a solution.'
+  ]:[
+   'Choisir des plateformes adaptées aux volumes de données et aux contraintes d’exploitation.',
+   'Construire des pipelines de données fiables, observables et maintenables.',
+   'Transformer les données fiables en indicateurs utiles et maîtriser les accès.',
+   'Automatiser les déploiements et améliorer la fiabilité opérationnelle.',
+   'Cadrer les interventions autour d’objectifs mesurables et de critères de recette.',
+   'Évaluer les usages de l’automatisation et de l’IA avant de choisir une solution.'
+  ];
+  let techCount=0;
+  html=html.replace(/<section class="section technologies" id="technologies">[\s\S]*?<\/section>/,section=>{
+   const cards=section.replace(/(<article><h3>[^<]+<\/h3>)(<p>[\s\S]*?<\/p><\/article>)/g,(_,heading,tools)=>{
+    if(techCount>=techBenefits.length)throw Error('Unexpected public technology card');
+    return heading+'<p class="public-tech-benefit">'+esc(techBenefits[techCount++])+'</p>'+tools;
+   });
+   const notice=english?'Technologies are selected according to project needs. Brand names do not imply a vendor partnership.':'Les technologies sont sélectionnées selon les besoins du projet. Les marques citées n’impliquent aucun partenariat éditeur.';
+   return cards.replace('</section>','<p class="footnote">'+esc(notice)+'</p><p><a class="btn" href="#contact">'+(english?'Discuss your technical requirements':'Échanger sur vos besoins techniques')+'</a></p></section>');
+  });
+  if(techCount!==techBenefits.length)throw Error('Missing public technology cards');
+
   // Public-only commercial orientation, independent of the application and contact API.
   const journeys=[
    ['conseil-audit',english?'Assess and plan':'Diagnostiquer et planifier',english?'Clarify priorities and define a roadmap.':'Clarifier les priorités et définir une feuille de route.'],
