@@ -1,0 +1,133 @@
+name: DSIG Business Qualification
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  regression:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ['3.10', '3.12']
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: ${{ matrix.python-version }}
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '22'
+      - name: Python regression tests
+        run: |
+          python -m pip install -r requirements.txt
+          python -m unittest -v
+          python -m unittest discover -s scripts -p 'test_qualification_image.py' -v
+      - name: Shell syntax
+        run: bash -n scripts/backup-rec.sh && bash -n scripts/acceptance-isolated.sh && bash -n scripts/prepare-rec-upgrade.sh
+      - name: JavaScript syntax
+        run: for f in dist/*.js; do node --check "$f" || exit 1; done
+      - name: Public SEO export
+        run: |
+          node scripts/test-public-site.mjs
+          node scripts/test-public-indexing.mjs
+          node scripts/test-public-release-gate.mjs
+          node scripts/test-legal-compliance.mjs
+          node scripts/test-public-form.mjs
+          python scripts/test-monitor-public.py
+  browser-acceptance:
+    # Keep browser system dependencies on the established LTS runner.
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - name: Install browser test dependencies
+        run: |
+          python -m pip install -r requirements-dev.txt
+          for attempt in 1 2 3; do
+            if python -m playwright install --with-deps chromium; then
+              exit 0
+            fi
+            if [ "$attempt" -eq 3 ]; then
+              echo "::error::Playwright dependency installation failed after three attempts"
+              exit 1
+            fi
+            sleep "$((attempt * 10))"
+          done
+      - name: Browser acceptance tests
+        run: python -m unittest -v browser_e2e
+  docker-smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: Validate isolated candidate configuration
+        env:
+          DSIG_CANDIDATE_ADMIN_TOKEN: ci-fictitious-token-not-a-secret-123456
+          DSIG_CANDIDATE_MFA_KEY: ci-placeholder
+          DSIG_CANDIDATE_BACKUP_KEY: ci-placeholder
+          DSIG_CANDIDATE_DOCUMENT_KEY: ci-placeholder
+          DSIG_CLAMD_GID: '109'
+        run: |
+          docker compose -f compose.prod-candidate.yaml config --quiet
+          docker compose -f compose.prod-candidate.yaml config --format json | python -c "import json,sys; c=json.load(sys.stdin); s=c['services']['candidate']; assert c['name']=='dsig-prod-candidate'; assert s['environment']['DSIG_ENV']=='REC'; assert s['ports'][0]['host_ip']=='127.0.0.1'; assert 'candidate-data' in c['volumes']; assert 'edge' not in c['networks']"
+      - name: Validate disabled PROD review topology
+        env:
+          DSIG_PROD_IMAGE: dsig.invalid/app@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+          DSIG_PROD_MFA_KEY: ci-placeholder
+          DSIG_PROD_BACKUP_KEY: ci-placeholder
+          DSIG_PROD_DOCUMENT_KEY: ci-placeholder
+          DSIG_PROD_CLAMD_GID: '109'
+          DSIG_PROD_PORT: '8320'
+        run: |
+          docker compose -f compose.prod.yaml --profile prod-review config --quiet
+          docker compose -f compose.prod.yaml --profile prod-review config --format json | python -c "import json,sys; c=json.load(sys.stdin); s=c['services']['app']; assert c['name']=='dsig-prod'; assert s['environment']['DSIG_ENV']=='PROD'; assert s['ports'][0]['host_ip']=='127.0.0.1'; assert c['volumes']['prod-data']['name']=='dsig-prod_prod-data'; assert c['networks']['prod-private']['internal']; assert 'edge' not in c['networks']; assert s['entrypoint'][2].startswith('raise SystemExit'); assert s['user']=='10001:10001'; assert s['read_only']; assert s['restart']=='no'; assert s['pull_policy']=='never'"
+      - name: Validate actual resolved PROD topology and isolated secrets
+        run: |
+          python -m venv "$RUNNER_TEMP/dsig-prod-check"
+          "$RUNNER_TEMP/dsig-prod-check/bin/python" -m pip install -r requirements.txt
+          "$RUNNER_TEMP/dsig-prod-check/bin/python" scripts/test-prod-compose-integration.py
+      - name: Build local image
+        run: |
+          # Reproduce the private checkout permissions used on the VPS.
+          find . -maxdepth 1 -type f -name '*.py' -exec chmod 0600 {} +
+          chmod 0600 requirements.txt
+          find dist -type d -exec chmod 0700 {} +
+          find dist -type f -exec chmod 0600 {} +
+          docker build -t dsig-ci .
+      - name: Verify application image content in isolated sandbox
+        run: python scripts/verify-prod-image.py "$(git rev-parse HEAD)" dsig-ci --ci-local
+      - name: Qualify private signed handoff inside isolated Docker
+        run: bash scripts/qualify-private-docker.sh dsig-ci
+      - name: Qualify host-to-container signed handoff
+        run: |
+          "$RUNNER_TEMP/dsig-prod-check/bin/python" scripts/qualify-private-cross-namespace.py dsig-ci
+      - name: Qualify persistent volume across Docker replacement
+        run: |
+          "$RUNNER_TEMP/dsig-prod-check/bin/python" scripts/qualify-private-replacement.py dsig-ci
+      - name: Verify Docker backup source and restored synthetic record
+        run: |
+          image_id=$(docker image inspect --format '{{.Id}}' dsig-ci)
+          "$RUNNER_TEMP/dsig-prod-check/bin/python" scripts/test-prod-docker-rehearsal.py --qualification-image-id "$image_id"
+      - name: Verify local container
+        run: |
+          docker run -d --name dsig-ci -p 127.0.0.1:8080:8080 -e DSIG_ENV=REC -e DSIG_ADMIN_TOKEN=ci-fictitious-token-not-a-secret-123456 dsig-ci
+          for i in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:8080/api/health; then break; fi
+            sleep 1
+          done
+          curl -fsS http://127.0.0.1:8080/api/health
+          curl -fsS http://127.0.0.1:8080/api/ready
+          curl -fsS http://127.0.0.1:8080/ >/dev/null
+      - name: Verify deployed commit content
+        run: |
+          for i in $(seq 1 40); do
+            if [ "$(docker inspect --format '{{.State.Health.Status}}' dsig-ci)" = healthy ]; then break; fi
+            sleep 2
+          done
+          python scripts/verify-rec-release.py "$(git rev-parse HEAD)" --container dsig-ci
+      - name: Verify isolated candidate regression suite
+        run: bash scripts/acceptance-isolated.sh
+      - name: Cleanup
+        if: always()
+        run: docker rm -f dsig-ci || true
