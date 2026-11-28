@@ -49,6 +49,14 @@ try{
   const html=read(name);
   assert(!/Offres de prestations à cadrer|Compétences issues des missions|Références issues du parcours|Services are scoped according|Skills drawn from the founder|References from the founder/.test(html));
   assert(html.includes(name==='en.html'?'they are not contractual references or partnerships':'elles ne constituent pas des références contractuelles ou des partenariats'));
+  assert.equal(html.split('class="public-reference-intro"').length,2);
+  assert.equal(html.split('class="public-reference-action"').length,2);
+  assert(html.includes(name==='en.html'?'Discuss a similar challenge':'Échanger sur un enjeu similaire'));
+  assert(!fs.readFileSync(new URL('../dist/'+name,import.meta.url),'utf8').includes('public-reference-intro'));
+  const referenceSection=html.match(/<section class="section references" id="references">[\s\S]*?<\/section>/)?.[0];
+  assert(referenceSection);
+  assert.equal([...referenceSection.matchAll(/<article(?:\s|>)/g)].length,13);
+
   assert(html.includes('class="corporate-institution-grid"'));
   assert(html.includes('class="corporate-leadership-grid"'));
   for(const person of ['Moussa KABA','Sekouna KABA'])assert.equal(html.split('<h4>'+person+'</h4>').length,2);
