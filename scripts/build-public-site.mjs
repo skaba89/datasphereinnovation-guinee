@@ -41,7 +41,7 @@ function optimizePublicPages(out){
   const file=path.join(out,name);let html=fs.readFileSync(file,'utf8');
   const styles=[...html.matchAll(/<link rel="stylesheet" href="\/?([a-z-]+\.css)">/g)];
   if(!styles.length)throw Error('Missing public styles: '+name);
-  const css=styles.map(m=>read(m[1])).join('\n');
+  const css=styles.map(m=>read(m[1])).join('\n')+(['index.html','en.html'].includes(name)?'\n.corporate-premium .public-reference-intro{max-width:72ch;color:#42566e;font-size:16px;line-height:1.7}.corporate-premium .public-reference-action{margin-top:24px}.corporate-premium .references .footnote{border-left:3px solid #1249a0;padding:12px 16px;background:#f3f6fa;color:#42566e}':'');
   const hash=createHash('sha256').update(css).digest('hex').slice(0,16);
   const bundle='public-'+hash+'.css';
   put(out,bundle,css);
@@ -256,6 +256,14 @@ export function build(out,contact,options={}){
  for(const lang of ['fr','en']){
   const english=lang==='en',filename=english?'en.html':'index.html';
   let html=renderReferenceLogos(read(filename),logos);
+  // Public-only editorial enhancement: do not alter the shared application templates.
+  html=html.replace(/<section class="section references" id="references">[\s\S]*?<\/section>/,section=>{
+   const heading=english?'Expertise built in the field.':'Une expertise forgée sur le terrain.';
+   const intro=english?'Explore the declared professional experience behind DSIG: analytics platforms, data integration, migrations and business intelligence.':'Découvrez les expériences professionnelles déclarées à l’origine de DSIG : plateformes analytiques, intégration de données, migrations et informatique décisionnelle.';
+   const cta=english?'Discuss a similar challenge':'Échanger sur un enjeu similaire';
+   return section.replace('<h2>'+heading+'</h2>','<h2>'+heading+'</h2><p class="public-reference-intro">'+esc(intro)+'</p>')
+    .replace('</section>','<p class="public-reference-action"><a class="btn" href="#contact">'+esc(cta)+'</a></p></section>');
+  });
   const placeholder='<div id="expertise-groups"></div>';
   if(!html.includes(placeholder))throw Error('Missing expertise group');
   html=html.replace(placeholder,'<div id="expertise-groups">'+groups[lang].join('')+'</div>')
