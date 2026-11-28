@@ -39,9 +39,24 @@ function put(out,name,content){fs.writeFileSync(path.join(out,name),content);}
 function optimizePublicPages(out){
  for(const name of fs.readdirSync(out).filter(n=>n.endsWith('.html'))){
   const file=path.join(out,name);let html=fs.readFileSync(file,'utf8');
+  // Harmonize generated editorial pages only; never alter the REC templates or legal notices.
+  const editorial=/^(expertise-|blog(?:-|\.)|secteurs(?:-|\.)|sectors(?:-|\.)|offres(?:-|\.)|offers(?:-|\.))/.test(name);
+  if(editorial){
+   const lang=html.match(/<html lang="(fr|en)"/)?.[1];
+   if(!lang)throw Error('Missing editorial language: '+name);
+   const en=lang==='en',other=en?'fr':'en';
+   const alternate=html.match(new RegExp('<a href="([^"]+)" hreflang="'+other+'">'))?.[1];
+   if(!alternate)throw Error('Missing editorial language switch: '+name);
+   const links=[[home(lang)+'#services',en?'Expertise':'Expertises'],[offerPath(lang),en?'Services':'Nos offres'],[sectorPath(lang),en?'Industries':'Secteurs'],[blogPath(lang),'Blog'],[home(lang)+'#contact',en?'Contact':'Contact']];
+   const markup=links.map(([url,label])=>'<a href="'+esc(url)+'">'+esc(label)+'</a>').join('');
+   const header='<header class="public-editorial-header"><a class="brand" href="'+home(lang)+'"><img src="/dsig-mark.svg" width="100" height="40" alt="DSIG"></a><nav aria-label="'+(en?'Main navigation':'Navigation principale')+'">'+markup+'<a href="'+esc(alternate)+'" hreflang="'+other+'">'+(en?'Français':'English')+'</a></nav></header>';
+   // Keep the existing footer wording and legal links, including the company status notice.
+   html=html.replace(/<header class="nav">[\s\S]*?<\/header>/,()=>header).replace('<footer>','<footer class="public-editorial-footer">');
+  }
   const styles=[...html.matchAll(/<link rel="stylesheet" href="\/?([a-z-]+\.css)">/g)];
   if(!styles.length)throw Error('Missing public styles: '+name);
-  const css=styles.map(m=>read(m[1])).join('\n')+(['index.html','en.html'].includes(name)?'\n.corporate-premium .public-reference-intro{max-width:72ch;color:#42566e;font-size:16px;line-height:1.7}.corporate-premium .public-reference-action{margin-top:24px}.corporate-premium .references .footnote{border-left:3px solid #1249a0;padding:12px 16px;background:#f3f6fa;color:#42566e}':'');
+  let css=styles.map(m=>read(m[1])).join('\n')+(['index.html','en.html'].includes(name)?'\n.corporate-premium .public-reference-intro{max-width:72ch;color:#42566e;font-size:16px;line-height:1.7}.corporate-premium .public-reference-action{margin-top:24px}.corporate-premium .references .footnote{border-left:3px solid #1249a0;padding:12px 16px;background:#f3f6fa;color:#42566e}':'');
+  if(editorial)css+='\n.public-editorial-header{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:16px;padding:16px 5%;background:#08182f;color:white}.public-editorial-header nav{position:static;display:flex;flex-wrap:wrap;gap:12px 20px;background:transparent;padding:0;border:0;color:white;flex:1;justify-content:flex-end}.public-editorial-header nav a{color:white;padding:8px 0;line-height:1.5}.public-editorial-header nav a:hover{color:#83e4d8}.public-editorial-footer{background:#08182f;color:#d4dfec}.public-editorial-footer a{color:white;text-decoration:underline}@media(max-width:700px){.public-editorial-header nav{flex-basis:100%;justify-content:flex-start;gap:4px 16px}.public-editorial-header nav a{min-height:44px;display:flex;align-items:center}}';
   const hash=createHash('sha256').update(css).digest('hex').slice(0,16);
   const bundle='public-'+hash+'.css';
   put(out,bundle,css);
