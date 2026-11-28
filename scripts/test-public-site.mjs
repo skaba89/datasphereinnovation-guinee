@@ -41,6 +41,23 @@ try{
   assert(gzipSync(css).length<=14*1024,name+' CSS gzip budget');
   assert(gzipSync(html).length<=12*1024,name+' HTML gzip budget');
   assert(!/<script src=/.test(html),name+' has blocking JavaScript');
+  // Static performance safeguards: no claim about measured browser Core Web Vitals.
+  const scripts=[...html.matchAll(/<script\b[^>]*\bsrc="([^"]+)"[^>]*>/g)];
+  for(const [,src] of scripts){
+   assert(/^(?:\/)?[a-z0-9-]+\.js$/.test(src),name+' unexpected external script '+src);
+   assert(fs.existsSync(path.join(out,src)),name+' missing script '+src);
+  }
+  const images=[...html.matchAll(/<img\b[^>]*>/g)];
+  for(const [tag] of images){
+   const src=tag.match(/\bsrc="([^"]+)"/)?.[1];
+   assert(src&& !/^(?:[a-z]+:|\/\/)/i.test(src),name+' external or missing image');
+   assert(fs.existsSync(path.join(out,src)),name+' missing image '+src);
+   assert(/\balt="[^"]*"/.test(tag),name+' missing image alt');
+  }
+  const transferBytes=gzipSync(html).length+gzipSync(css).length+
+   [...new Set(scripts.map(m=>m[1]))].reduce((sum,src)=>sum+gzipSync(fs.readFileSync(path.join(out,src))).length,0);
+  assert(transferBytes<=32*1024,name+' combined HTML/CSS/JS gzip budget: '+transferBytes);
+
   for(const match of css.matchAll(/url\(['"]?([^'"\)]+)['"]?\)/g))assert(fs.existsSync(path.join(out,match[1])),name+' missing CSS asset');
  }
  for(const name of ['index.html','en.html']){
