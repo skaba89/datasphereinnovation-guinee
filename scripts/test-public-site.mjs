@@ -8,6 +8,7 @@ import {build} from './build-public-site.mjs';
 import {posts} from './blog-content.mjs';
 import {sectors} from './sector-content.mjs';
 import {offers} from './offer-content.mjs';
+import {publicSolutionFamilies} from './public-solution-families.mjs';
 import {loadReferenceLogos,renderReferenceLogos,referenceBrands} from './reference-logos.mjs';
 
 const tmp=fs.mkdtempSync(path.join(os.tmpdir(),'dsig-public-test-'));
@@ -217,6 +218,16 @@ try{
    const url='/'+prefix+'-'+offer.slug+'.html',html=read(url.slice(1));
    assert(urls.includes(url));assert(read(prefix+'.html').includes('href="'+url+'"'));
    assert(html.includes('class="policy sector-detail offer-detail"'));
+   if(offer.slug==='saas'){
+    assert.equal(publicSolutionFamilies.length,12);
+    assert.equal(new Set(publicSolutionFamilies.map(f=>f.sector)).size,12);
+    assert(html.includes('class="public-solution-catalogue"'));
+    for(const family of publicSolutionFamilies){
+     assert(html.includes('href="/'+(lang==='fr'?'secteurs':'sectors')+'-'+family.sector+'.html"'));
+     assert(family[lang].title&&family[lang].audience&&family[lang].benefit);
+    }
+   }else assert(!html.includes('class="public-solution-catalogue"'));
+
    assert.equal([...html.matchAll(/class="sector-insight"/g)].length,2);
    assert(html.includes('href="/'+other+'-'+offer.slug+'.html" hreflang='));
    assert(html.includes('mailto:contact@dsig-consulting.com?subject='));
