@@ -81,6 +81,12 @@ try{
   assert(!/Offres de prestations à cadrer|Compétences issues des missions|Références issues du parcours|Services are scoped according|Skills drawn from the founder|References from the founder/.test(html));
   assert(html.includes(name==='en.html'?'they are not contractual references or partnerships':'elles ne constituent pas des références contractuelles ou des partenariats'));
   assert.equal(html.split('class="public-reference-intro"').length,2);
+  const sectorMega=html.match(/<details class="corporate-mega public-sector-mega">[\s\S]*?<\/details>/)?.[0];
+  assert(sectorMega,name+' missing sector mega menu');
+  for(const sector of sectors)assert(sectorMega.includes('href="/'+(name==='en.html'?'sectors':'secteurs')+'-'+sector.slug+'.html"'),name+' missing '+sector.slug);
+  assert.equal([...sectorMega.matchAll(/<a href=/g)].length,sectors.length);
+  assert(!fs.readFileSync(new URL('../dist/'+name,import.meta.url),'utf8').includes('public-sector-mega'));
+
   assert.equal([...html.matchAll(/class="public-tech-benefit"/g)].length,6);
   assert(html.includes(name==='en.html'?'Brand names do not imply a vendor partnership.':'Les marques citées n’impliquent aucun partenariat éditeur.'));
   assert(html.includes(name==='en.html'?'Discuss your technical requirements':'Échanger sur vos besoins techniques'));
