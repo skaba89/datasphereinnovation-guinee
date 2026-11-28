@@ -5,7 +5,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
 
-export const approvedContact='contact@datasphere-innovation.net';
+export const approvedContact='contact@dsig-consulting.com';
 export const legalPaths={fr:{legal:'/mentions-legales.html',privacy:'/confidentialite.html'},en:{legal:'/legal-en.html',privacy:'/privacy-en.html'}};
 
 // Facts already established in the repository (site content, approved V160 mailbox, public export tests).

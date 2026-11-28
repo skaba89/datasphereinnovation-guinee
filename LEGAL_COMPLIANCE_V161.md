@@ -32,7 +32,7 @@ Statut : **NO-GO publication**. Les pages existent, mais l’identité juridique
 | Hébergement | Adresse de l’hébergeur | Mentions officielles de l’hébergeur |
 | Hébergement | Contact de l’hébergeur | Mentions officielles de l’hébergeur |
 | Confidentialité | Responsable du traitement | Décision du représentant légal |
-| Confidentialité | Prestataire de messagerie | Contrat de la boîte `contact@datasphere-innovation.net` |
+| Confidentialité | Prestataire de messagerie | Contrat de la boîte `contact@dsig-consulting.com` |
 | Confidentialité | Durée de conservation des e-mails | Politique interne validée |
 | Confidentialité | Durée de conservation des journaux techniques | Configuration hébergeur / proxy |
 | Confidentialité | Cadre juridique applicable | Revue juridique (Guinée et publics visés, dont France) |

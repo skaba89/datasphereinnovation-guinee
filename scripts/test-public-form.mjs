@@ -7,7 +7,7 @@ import {build} from './build-public-site.mjs';
 import {legalFields} from './legal-content.mjs';
 import {publicCaddyfile,contactUpstream} from './public-caddyfile.mjs';
 
-const email='contact@datasphere-innovation.net';
+const email='contact@dsig-consulting.com';
 const tmp=fs.mkdtempSync(path.join(os.tmpdir(),'dsig-public-form-'));
 const caddy=fs.readFileSync(new URL('../deploy/public/Caddyfile',import.meta.url),'utf8');
 try{

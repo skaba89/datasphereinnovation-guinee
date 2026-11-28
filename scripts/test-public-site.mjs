@@ -28,7 +28,9 @@ try{
  writeManifest([{...entry,id:'../secret'}]);assert.throws(()=>loadReferenceLogos(fixture));
  assert.equal(Object.keys(referenceBrands).length,13);
  assert.throws(()=>build(out,'invalid'));
- const count=build(out,'contact@datasphere-innovation.net');
+ assert.throws(()=>build(out,'contact@datasphere-innovation.net'));
+ assert.throws(()=>build(out,'contact@example.invalid'));
+ const count=build(out,'contact@dsig-consulting.com');
  const files=fs.readdirSync(out);
  const read=name=>fs.readFileSync(path.join(out,name),'utf8');
  for(const name of files.filter(n=>n.endsWith('.html'))){
@@ -71,7 +73,7 @@ try{
   assert.equal(schema['@context'],'https://schema.org');
   const org=graph.find(n=>n['@type']==='Organization');
   assert.equal(org['@id'],'https://dsig-consulting.com/#organization');
-  assert.equal(org.email,'contact@datasphere-innovation.net');
+  assert.equal(org.email,'contact@dsig-consulting.com');
   assert(org.areaServed.some(a=>a.name==='Conakry'));
   assert(!org.address&&!org.telephone&&!org.aggregateRating);
   assert(!graph.some(n=>n['@type']==='LocalBusiness'));
@@ -97,7 +99,7 @@ try{
  }
  for(const name of ['index.html','en.html']){
   const html=read(name);
-  assert(html.includes('mailto:contact@datasphere-innovation.net'));
+  assert(html.includes('mailto:contact@dsig-consulting.com'));
   assert.equal([...html.matchAll(/href="\/expertise-[^"]+"/g)].length,urls.filter(u=>u.startsWith('/expertise-')).length/2);
   assert(html.includes('href="'+(name==='en.html'?'/blog-en.html':'/blog.html')+'"'));
  }
@@ -115,7 +117,7 @@ try{
    assert(html.includes('href="'+alternate+'" hreflang="'+(lang==='en'?'fr':'en')+'"'));
    assert(html.includes('href="/'+prefix+'.html"'));
    assert.equal([...html.matchAll(/<h1\b/g)].length,1);
-   assert(html.includes('mailto:contact@datasphere-innovation.net'));
+   assert(html.includes('mailto:contact@dsig-consulting.com'));
    for(const slug of sector.expertise)assert(html.includes('href="/expertise-'+(lang==='en'?'en-':'')+slug+'.html"'));
   }
  }
@@ -131,8 +133,8 @@ try{
    const url='/'+prefix+'-'+offer.slug+'.html',html=read(url.slice(1));
    assert(urls.includes(url));assert(read(prefix+'.html').includes('href="'+url+'"'));
    assert(html.includes('href="/'+other+'-'+offer.slug+'.html" hreflang='));
-   assert(html.includes('mailto:contact@datasphere-innovation.net?subject='));
-   if(offer.slug==='saas')assert.equal([...html.matchAll(/mailto:contact@datasphere-innovation.net\?subject=/g)].length,2);
+   assert(html.includes('mailto:contact@dsig-consulting.com?subject='));
+   if(offer.slug==='saas')assert.equal([...html.matchAll(/mailto:contact@dsig-consulting.com\?subject=/g)].length,2);
   }
  }
  for(const name of files.filter(n=>n.endsWith('.html')))assert(!/MineFleet360|MakitiPlus|Gestion Scolaire Pro|Kora Finance|Guinée Logistique/.test(read(name)),name+' exposes internal catalogue');

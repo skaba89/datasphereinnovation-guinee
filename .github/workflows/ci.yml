@@ -143,7 +143,7 @@ jobs:
           # Reproduce a private VPS checkout (umask 077).
           chmod 0600 deploy/public/Caddyfile
           find dist -type f -exec chmod 0600 {} +
-          docker build -f Dockerfile.public --build-arg DSIG_PUBLIC_EMAIL=contact@datasphere-innovation.net -t dsig-public:ci .
+          docker build -f Dockerfile.public --build-arg DSIG_PUBLIC_EMAIL=contact@dsig-consulting.com -t dsig-public:ci .
       - name: Validate both public Caddyfiles with Caddy itself
         run: |
           node scripts/public-caddyfile.mjs deploy/public/Caddyfile enabled > Caddyfile.enabled
@@ -151,9 +151,9 @@ jobs:
           docker run --rm --entrypoint caddy dsig-public:ci validate --config /etc/caddy/Caddyfile --adapter caddyfile
       - name: Public form build refused while legal data is incomplete
         run: |
-          ! docker build -f Dockerfile.public --build-arg DSIG_PUBLIC_EMAIL=contact@datasphere-innovation.net --build-arg DSIG_PUBLIC_FORM=enabled -t dsig-public:form-refused . 2>build.log
+          ! docker build -f Dockerfile.public --build-arg DSIG_PUBLIC_EMAIL=contact@dsig-consulting.com --build-arg DSIG_PUBLIC_FORM=enabled -t dsig-public:form-refused . 2>build.log
           grep -q 'legal information is incomplete' build.log
-          ! docker build -f Dockerfile.public --build-arg DSIG_PUBLIC_EMAIL=contact@datasphere-innovation.net --build-arg DSIG_PUBLIC_FORM=yes -t dsig-public:bad-mode . 2>/dev/null
+          ! docker build -f Dockerfile.public --build-arg DSIG_PUBLIC_EMAIL=contact@dsig-consulting.com --build-arg DSIG_PUBLIC_FORM=yes -t dsig-public:bad-mode . 2>/dev/null
           test "$(docker inspect -f '{{ index .Config.Labels "com.dsig.public.form" }}' dsig-public:ci)" = disabled
       - name: Validate composition
         env:

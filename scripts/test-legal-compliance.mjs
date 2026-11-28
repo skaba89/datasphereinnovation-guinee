@@ -17,7 +17,7 @@ assert.deepEqual(legalFields.map(f=>f.id),expected);
 for(const f of legalFields){assert.equal(f.value,null,f.id+' must stay null until validated');assert.equal(f.confirmed,false);assert(f.fr&&f.en);}
 assert.deepEqual(legalReadiness(),{complete:false,missing:expected});
 assert(confirmedFacts.some(f=>f.fr[1]===approvedContact));
-assert.equal(approvedContact,'contact@datasphere-innovation.net');
+assert.equal(approvedContact,'contact@dsig-consulting.com');
 
 // 2. Guard: unvalidated or placeholder values are refused.
 const refuse=(mutate,label)=>{const fields=clone();mutate(fields.find(f=>f.id==='rccm'));assert.throws(()=>assertPublishable(fields),label);assert.throws(()=>renderLegalMain('fr',approvedContact,fields),label);};

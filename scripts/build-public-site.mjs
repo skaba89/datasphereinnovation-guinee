@@ -8,7 +8,7 @@ import {posts} from './blog-content.mjs';
 import {sectors} from './sector-content.mjs';
 import {offers} from './offer-content.mjs';
 import {loadReferenceLogos,renderReferenceLogos} from './reference-logos.mjs';
-import {renderLegalMain,renderPrivacyMain,legalPaths,legalFields,legalReadiness} from './legal-content.mjs';
+import {renderLegalMain,renderPrivacyMain,legalPaths,legalFields,legalReadiness,approvedContact} from './legal-content.mjs';
 
 const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'..');
 const source=path.join(root,'dist');
@@ -203,7 +203,7 @@ form.addEventListener('submit',async e=>{e.preventDefault();if(busy)return;
 `;
 
 export function build(out,contact,options={}){
- if(contact!=='contact@datasphere-innovation.net')throw Error('Provide the approved DSIG contact mailbox.');
+ if(contact!==approvedContact)throw Error('Provide the approved DSIG contact mailbox.');
  const form=options.form===true,fields=options.fields??legalFields;
  // The public form can only be published once every legal field is officially validated (V161).
  if(form&&!legalReadiness(fields).complete)throw Error('Public contact form refused: legal information is incomplete ('+legalReadiness(fields).missing.length+' missing).');
