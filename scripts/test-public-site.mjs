@@ -137,10 +137,15 @@ try{
  assert.equal(urls.filter(u=>/^\/(offres|offers)[.-]/.test(u)).length,2+offers.length*2);
  for(const lang of ['fr','en']){
   const prefix=lang==='fr'?'offres':'offers',other=lang==='fr'?'offers':'offres';
+  const directory=read(prefix+'.html');
+  assert(directory.includes('class="expertise-grid sector-directory offer-directory"'));
+  assert.equal([...directory.matchAll(/class="service-link"/g)].length,offers.length);
   assert(read(lang==='fr'?'index.html':'en.html').includes('href="/'+prefix+'.html"'));
   for(const offer of offers){
    const url='/'+prefix+'-'+offer.slug+'.html',html=read(url.slice(1));
    assert(urls.includes(url));assert(read(prefix+'.html').includes('href="'+url+'"'));
+   assert(html.includes('class="policy sector-detail offer-detail"'));
+   assert.equal([...html.matchAll(/class="sector-insight"/g)].length,2);
    assert(html.includes('href="/'+other+'-'+offer.slug+'.html" hreflang='));
    assert(html.includes('mailto:contact@dsig-consulting.com?subject='));
    if(offer.slug==='saas')assert.equal([...html.matchAll(/mailto:contact@dsig-consulting.com\?subject=/g)].length,2);
