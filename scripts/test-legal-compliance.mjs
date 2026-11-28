@@ -69,7 +69,7 @@ const tmp=fs.mkdtempSync(path.join(os.tmpdir(),'dsig-legal-test-'));
 try{
  const out=path.join(tmp,'site'),count=build(out,approvedContact);
  const read=name=>fs.readFileSync(path.join(out,name),'utf8');
- assert.equal(count,96,'indexable public pages must stay at 96');
+ assert.equal(count,120,'indexable public pages must match the 120 approved pages');
  const sitemap=read('sitemap.xml');
  for(const lang of ['fr','en'])for(const kind of ['legal','privacy']){
   const url=legalPaths[lang][kind],html=read(url.slice(1));
