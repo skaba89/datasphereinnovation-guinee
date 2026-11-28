@@ -103,6 +103,13 @@ try{
   assert(!graph.some(n=>n['@type']==='LocalBusiness'));
   const page=graph.find(n=>n['@type']==='WebPage');
   assert.equal(page.url,'https://dsig-consulting.com'+url);
+  if(url!=='/'&&url!=='/en.html'){
+   const header=html.match(/<header class="public-editorial-header">[\s\S]*?<\/header>/)?.[0];
+   assert(header,'Missing public editorial header '+url);
+   const en=html.includes('<html lang="en"');
+   for(const target of [en?'/en.html#services':'/#services',en?'/offers.html':'/offres.html',en?'/sectors.html':'/secteurs.html',en?'/blog-en.html':'/blog.html',en?'/en.html#contact':'/#contact'])assert(header.includes('href="'+target+'"'),url+' missing '+target);
+   assert(html.includes('<footer class="public-editorial-footer">'));
+  }
   if(url.startsWith('/expertise-')){
    assert(html.includes('class="corporate-expertise"'));
    assert(html.includes('class="expertise-grid corporate-expertise-grid"'));
