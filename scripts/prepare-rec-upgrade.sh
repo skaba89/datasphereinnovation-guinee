@@ -25,7 +25,9 @@ bash scripts/acceptance-isolated.sh
 suite="dsig-rec-suite:$commit"
 candidate_id=$(docker image inspect --format '{{.Id}}' "$suite")
 [[ "$candidate_id" =~ ^sha256:[0-9a-f]{64}$ ]]
+python3 scripts/verify-prod-image.py "$commit" "$candidate_id" --qualification-local --require-revision
 docker tag "$candidate_id" "$candidate"
+[[ "$(docker image inspect --format '{{.Id}}' "$candidate")" == "$candidate_id" ]]
 docker tag "$old_id" "$rollback"
 # Verify backup and restore without replacing the active database.
 [[ "$(docker inspect --format '{{.Image}}' "$container")" == "$old_id" ]]
