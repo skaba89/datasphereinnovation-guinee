@@ -41,7 +41,7 @@ function optimizePublicPages(out){
   const file=path.join(out,name);let html=fs.readFileSync(file,'utf8');
   const styles=[...html.matchAll(/<link rel="stylesheet" href="\/?([a-z-]+\.css)">/g)];
   if(!styles.length)throw Error('Missing public styles: '+name);
-  const css=styles.map(m=>read(m[1])).join('\n')+(['index.html','en.html'].includes(name)?'\n.corporate-premium .public-reference-intro{max-width:72ch;color:#42566e;font-size:16px;line-height:1.7}.corporate-premium .public-reference-action{margin-top:24px}.corporate-premium .references .footnote{border-left:3px solid #1249a0;padding:12px 16px;background:#f3f6fa;color:#42566e}':'');
+  const css=styles.map(m=>read(m[1])).join('\n')+(['index.html','en.html'].includes(name)?'\n.corporate-premium .public-reference-intro{max-width:72ch;color:#42566e;font-size:16px;line-height:1.7}.corporate-premium .public-reference-action{margin-top:24px}.corporate-premium .references .footnote{border-left:3px solid #1249a0;padding:12px 16px;background:#f3f6fa;color:#42566e}.public-commercial-journey{margin-bottom:32px}.public-commercial-journey h3{font-size:20px;color:#08182f;margin:0 0 12px}.public-commercial-journey .expertise-grid{grid-template-columns:repeat(2,minmax(0,1fr))}@media(max-width:580px){.public-commercial-journey .expertise-grid{grid-template-columns:1fr}}':'');
   const hash=createHash('sha256').update(css).digest('hex').slice(0,16);
   const bundle='public-'+hash+'.css';
   put(out,bundle,css);
@@ -256,6 +256,17 @@ export function build(out,contact,options={}){
  for(const lang of ['fr','en']){
   const english=lang==='en',filename=english?'en.html':'index.html';
   let html=renderReferenceLogos(read(filename),logos);
+  // Public-only commercial orientation, independent of the application and contact API.
+  const journeys=[
+   ['conseil-audit',english?'Assess and plan':'Diagnostiquer et planifier',english?'Clarify priorities and define a roadmap.':'Clarifier les priorités et définir une feuille de route.'],
+   ['regie',english?'Strengthen your team':'Renforcer vos équipes',english?'Explore specialist support for your project.':'Mobiliser une expertise spécialisée pour votre projet.'],
+   ['forfait',english?'Deliver a project':'Réaliser un projet',english?'Define scope, milestones and acceptance criteria.':'Définir le périmètre, les jalons et les critères de recette.'],
+   ['saas',english?'Explore business solutions':'Étudier une solution métier',english?'Qualify your needs before discussing a pilot.':'Qualifier vos besoins avant d’envisager un pilote.']
+  ];
+  const contactMarker='<section class="section" id="contact">';
+  if(!html.includes(contactMarker))throw Error('Missing public contact section');
+  html=html.replace(contactMarker,contactMarker+'<div class="public-commercial-journey"><div class="section-head"><div><div class="tag">'+(english?'YOUR PROJECT':'VOTRE PROJET')+'</div><h2>'+(english?'Find the right support for your needs':'Trouvez l’accompagnement adapté à vos besoins')+'</h2></div></div><div class="expertise-grid sector-directory">'+journeys.map(([slug,title,description])=>'<article><h3>'+esc(title)+'</h3><p>'+esc(description)+'</p><a class="service-link" href="'+offerPath(lang,slug)+'">'+(english?'Explore the offer':'Découvrir l’offre')+'</a></article>').join('')+'</div></div>');
+
   // Public-only editorial enhancement: do not alter the shared application templates.
   html=html.replace(/<section class="section references" id="references">[\s\S]*?<\/section>/,section=>{
    const heading=english?'Expertise built in the field.':'Une expertise forgée sur le terrain.';
