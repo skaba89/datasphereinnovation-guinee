@@ -71,3 +71,21 @@
 .corporate-premium .hero .btn,.corporate-premium .nav .top-cta,.corporate-premium .offer-grid article:nth-child(2) .btn{background:#fff;color:#08182f}
 .corporate-premium .hero .btn:hover,.corporate-premium .nav .top-cta:hover,.corporate-premium .offer-grid article:nth-child(2) .btn:hover{background:#dbe9f8;color:#08182f}
 .corporate-premium .enterprise-footer a:hover{color:#83e4d8}
+
+/* Public sector pages: selectors intentionally independent of the REC homepage. */
+.sector-intro{background:#08182f;color:#fff;padding:clamp(24px,5vw,64px);border-radius:12px;margin:0 0 32px}
+.sector-intro .tag{color:#83e4d8}
+.sector-intro h1{font-size:clamp(32px,4.5vw,58px);line-height:1.15;letter-spacing:-.035em;margin:14px 0}
+.sector-intro p{color:#d4dfec;max-width:72ch;margin:0}
+.sector-directory article{border:1px solid #dce5ef;border-radius:12px;background:#f3f6fa;box-shadow:none}
+.sector-directory h2{font-size:clamp(20px,2vw,28px);color:#08182f}
+.sector-directory .tag,.sector-directory .service-link,.sector-insight .tag{color:#1249a0}
+.sector-directory .service-link{text-decoration:underline;text-underline-offset:4px}
+.sector-contact{margin:36px 0 0}
+.sector-contact .btn,.sector-detail .btn{background:#1249a0;color:#fff;text-decoration:none}
+.sector-detail{max-width:1040px;padding:24px 0}
+.sector-detail .sector-intro p{color:#d4dfec}
+.sector-insight{border:1px solid #dce5ef;border-radius:10px;padding:24px;margin:18px 0;background:#f3f6fa}
+.sector-insight h2{color:#08182f;margin:8px 0}
+.sector-breadcrumb{display:flex;position:static;flex-wrap:wrap;background:transparent;padding:0;margin-bottom:16px;color:#1249a0}
+@media(max-width:600px){.sector-breadcrumb{gap:6px;font-size:12px}.sector-intro,.sector-insight{padding:20px}}
