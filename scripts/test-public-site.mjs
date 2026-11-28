@@ -80,6 +80,10 @@ try{
   const page=graph.find(n=>n['@type']==='WebPage');
   assert.equal(page.url,'https://dsig-consulting.com'+url);
   if(url.startsWith('/expertise-')){
+   assert(html.includes('class="corporate-expertise"'));
+   assert(html.includes('class="expertise-grid corporate-expertise-grid"'));
+   for(const id of ['benefit','scope','deliverables'])assert(new RegExp('id="'+id+'">[^<]+').test(html));
+   assert.equal([...html.matchAll(/<h2>/g)].length,3);
    const service=graph.find(n=>n['@type']==='Service');
    assert.equal(service.provider['@id'],org['@id']);
    assert.equal(page.mainEntity['@id'],service['@id']);
