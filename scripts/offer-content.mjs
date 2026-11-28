@@ -6,3 +6,13 @@ export const offers=[
  {slug:'saas',fr:['Solutions SaaS et applications métiers','Étude de solutions pour les mines, le transport, l’éducation, le commerce et la finance.','Qualification du besoin, démonstration sur données fictives si disponible et proposition de pilote après validation technique et métier.'],en:['SaaS and business applications','Explore solutions for mining, transport, education, retail and finance.','Requirements review, demonstration with fictional data if available, and pilot proposal subject to technical and business approval.']},
  {slug:'formation',fr:['Formation et transfert de compétences','Accompagnement des équipes sur la Data, l’IA, la BI et les outils numériques.','Objectifs pédagogiques, ateliers pratiques adaptés au niveau et bilan des acquis.'],en:['Training and knowledge transfer','Team development in data, AI, BI and digital tools.','Learning objectives, practical workshops tailored to experience and learning review.']}
 ];
+
+ 
+// Public examples are indicative, never commitments to availability or existing clients.
+export const offerUseCases=Object.freeze({
+ 'conseil-audit':{fr:['Diagnostic de maturité Data et SI','Audit des flux et de la qualité des données','Priorisation des risques et investissements'],en:['Data and IT maturity assessment','Data flow and quality audit','Risk and investment prioritisation']},
+ regie:{fr:['Renfort Data Engineering et BI','Architecture et intégration des systèmes','Accompagnement technique des équipes'],en:['Data engineering and BI support','Systems architecture and integration','Technical team support']},
+ forfait:{fr:['Plateforme décisionnelle','Digitalisation d’un processus métier','Intégration et automatisation des flux'],en:['Analytics platform','Business process digitisation','Data integration and automation']},
+ saas:{fr:['Suivi opérationnel des flottes et activités minières','Gestion des établissements et processus administratifs','Gestion commerciale, stocks et finance'],en:['Fleet and mining operations monitoring','Institutional and administrative management','Sales, inventory and finance management']},
+ formation:{fr:['Ateliers SQL, Python et BI','Bonnes pratiques de gouvernance et de sécurité','Accompagnement à la prise en main des outils'],en:['SQL, Python and BI workshops','Governance and security practices','Tool adoption support']}
+});
