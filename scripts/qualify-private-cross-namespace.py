@@ -157,7 +157,14 @@ def main():
                     envelope=envelope,signing_key=key,authority_pin=pin,expected=expected)
                 if report['status']!='PASS' or not report['nonce_consumed']:
                     raise RuntimeError('handoff failed')
-            if docker('wait',cid)!='0':
+            exit_code=docker('wait',cid)
+            if exit_code!='0':
+                # CI-only disposable container: report bounded synthetic diagnostics
+                # before cleanup, never inspect its environment or configuration.
+                diagnostics=subprocess.run(['/usr/bin/docker','--host','unix:///var/run/docker.sock',
+                    'logs','--tail','80',cid],capture_output=True,text=True,timeout=15)
+                print('Synthetic qualification container exit:',exit_code,file=sys.stderr)
+                print((diagnostics.stdout+diagnostics.stderr)[-12000:],file=sys.stderr)
                 raise RuntimeError('isolated HTTP qualification failed')
             print('PASS: cross-namespace qualification only')
         finally:
