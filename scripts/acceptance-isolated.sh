@@ -23,11 +23,18 @@ test ! -e "$stage/data"
 # Archive is tracked source only; allow the unprivileged container to read it.
 chmod -R a+rX "$stage"
 image="dsig-rec-suite:$commit"
-docker build -t "$image" "$stage"
+if docker image inspect "$image" >/dev/null 2>&1; then
+  echo 'Existing suite image: use a fresh commit or review the existing qualification' >&2
+  exit 1
+fi
+docker build --label "org.opencontainers.image.revision=$commit" -t "$image" "$stage"
+image_id=$(docker image inspect --format '{{.Id}}' "$image")
+[[ "$image_id" =~ ^sha256:[0-9a-f]{64}$ ]]
+python3 scripts/verify-prod-image.py "$commit" "$image_id" --qualification-local --require-revision
 # Test-only derivative: host-side release tooling needs Git in the isolated suite.
 # Keep the deployable application image unchanged; install dependencies at build time only.
 test_image="dsig-rec-suite-git:$commit"
-docker build --build-arg BASE_IMAGE="$image" -t "$test_image" -f - "$stage" <<'DOCKERFILE'
+docker build --build-arg BASE_IMAGE="$image_id" --label "com.dsig.image.role=test-only" -t "$test_image" -f - "$stage" <<'DOCKERFILE'
 ARG BASE_IMAGE
 FROM ${BASE_IMAGE}
 USER root
@@ -40,4 +47,6 @@ docker run --rm --network none --read-only --tmpfs /tmp:rw,nosuid,nodev,size=512
   --mount "type=bind,src=$stage,dst=/suite,readonly" \
   -e DSIG_ENV=REC -e PYTHONDONTWRITEBYTECODE=1 \
   -w /tmp "$test_image" sh -ec 'cp -R /suite /tmp/suite; cd /tmp/suite; python -m unittest -v'
+[[ "$(docker image inspect --format '{{.Id}}' "$image")" == "$image_id" ]]
+echo "Qualified application image: $image_id"
 echo 'PASS: isolated Python regression suite. Manual REC acceptance still required.'
