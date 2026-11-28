@@ -109,7 +109,7 @@ function buildOffers(out,contact){
 function blogTemplate(lang,body,alternate){
  const en=lang==='en';
  return '<!doctype html><html lang="'+lang+'"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Blog | DSIG</title><link rel="icon" href="/favicon.svg">'+
- ['style.css','brand.css','premium.css','studio.css','identity.css','expertise.css','accessibility.css'].map(css=>'<link rel="stylesheet" href="/'+css+'">').join('')+
+ ['style.css','brand.css','premium.css','studio.css','identity.css','expertise.css','accessibility.css','corporate-premium.css'].map(css=>'<link rel="stylesheet" href="/'+css+'">').join('')+
  '</head><body><a class="skip-link" href="#main">'+(en?'Skip to content':'Aller au contenu')+'</a><header class="nav"><a class="brand" href="'+home(lang)+'"><img class="dsig-logo" src="/dsig-mark.svg" width="100" height="40" alt="DSIG"></a><a href="'+blogPath(lang)+'">Blog</a><a href="'+alternate+'" hreflang="'+(en?'fr':'en')+'">'+(en?'Français':'English')+'</a></header><main class="section" id="main" tabindex="-1">'+body+'</main><footer><p>DataSphere Innovation Guinée</p><a href="'+legalPaths[lang].legal+'">'+(en?'Legal notice':'Mentions légales')+'</a> <a href="'+legalPaths[lang].privacy+'">'+(en?'Privacy':'Confidentialité')+'</a></footer></body></html>';
 }
 function buildSectors(out,contact){
@@ -126,14 +126,14 @@ function buildSectors(out,contact){
     if(!label)throw Error('Missing expertise label: '+target);
     return '<li><a href="'+target+'">'+label+'</a></li>';
    }).join('');
-   const body='<nav aria-label="'+(en?'Breadcrumb':'Fil d’Ariane')+'"><a href="'+home(lang)+'">'+(en?'Home':'Accueil')+'</a> / <a href="'+sectorPath(lang)+'">'+(en?'Industries':'Secteurs')+'</a> / <span aria-current="page">'+esc(entry.title)+'</span></nav><article class="policy"><h1>'+esc(entry.title)+'</h1><p>'+esc(entry.description)+'</p>'+entry.sections.map(([heading,copy])=>'<h2>'+esc(heading)+'</h2><p>'+esc(copy)+'</p>').join('')+'<h2>'+(en?'Related expertise':'Expertises associées')+'</h2><ul>'+links+'</ul><p><a class="btn" href="mailto:'+esc(contact)+'">'+(en?'Discuss your project':'Parlons de votre projet')+'</a></p></article>';
+   const body='<nav class="sector-breadcrumb" aria-label="'+(en?'Breadcrumb':'Fil d’Ariane')+'"><a href="'+home(lang)+'">'+(en?'Home':'Accueil')+'</a> / <a href="'+sectorPath(lang)+'">'+(en?'Industries':'Secteurs')+'</a> / <span aria-current="page">'+esc(entry.title)+'</span></nav><article class="policy sector-detail"><div class="sector-intro"><span class="tag">'+(en?'INDUSTRY EXPERTISE':'EXPERTISE SECTORIELLE')+'</span><h1>'+esc(entry.title)+'</h1><p>'+esc(entry.description)+'</p></div>'+entry.sections.map(([heading,copy],i)=>'<section class="sector-insight"><span class="tag">0'+(i+1)+'</span><h2>'+esc(heading)+'</h2><p>'+esc(copy)+'</p></section>').join('')+'<h2>'+(en?'Related expertise':'Expertises associées')+'</h2><ul>'+links+'</ul><p><a class="btn" href="mailto:'+esc(contact)+'">'+(en?'Discuss your project':'Parlons de votre projet')+'</a></p></article>';
    const title=entry.title+' | DSIG';
    put(out,url.slice(1),structuredData(metadata(blogTemplate(lang,body,en?fr:english),title,entry.description,fr,english,lang),lang,url,title,entry.description,contact));pages.push(url);
   }
  }
  for(const lang of ['fr','en']){
   const en=lang==='en',url=sectorPath(lang),title=en?'Industries — Digital consulting in Guinea | DSIG':'Secteurs — Conseil numérique en Guinée | DSIG',description=en?'Explore sector-specific digital and data solutions in Guinea.':'Découvrez les solutions numériques et Data adaptées aux secteurs d’activité en Guinée.';
-  const body='<h1>'+esc(title)+'</h1><p>'+esc(description)+'</p><div class="expertise-grid">'+sectors.map(s=>'<article><h2><a href="'+sectorPath(lang,s.slug)+'">'+esc(s[lang].title)+'</a></h2><p>'+esc(s[lang].description)+'</p></article>').join('')+'</div>';
+  const body='<div class="sector-intro"><span class="tag">'+(en?'DSIG INDUSTRIES':'LES SECTEURS DSIG')+'</span><h1>'+(en?'Digital expertise for your industry':'Des expertises adaptées à votre secteur')+'</h1><p>'+esc(description)+'</p></div><div class="expertise-grid sector-directory">'+sectors.map((s,i)=>'<article><span class="tag">0'+(i+1)+'</span><h2><a href="'+sectorPath(lang,s.slug)+'">'+esc(s[lang].title)+'</a></h2><p>'+esc(s[lang].description)+'</p><a class="service-link" href="'+sectorPath(lang,s.slug)+'">'+(en?'Explore this industry':'Découvrir ce secteur')+'</a></article>').join('')+'</div><div class="sector-intro sector-contact"><h2>'+(en?'Discuss your industry challenges':'Parlons de vos enjeux métier')+'</h2><a class="btn" href="mailto:'+esc(contact)+'">'+(en?'Contact our team':'Contacter notre équipe')+'</a></div>';
   put(out,url.slice(1),structuredData(metadata(blogTemplate(lang,body,sectorPath(en?'fr':'en')),title,description,sectorPath('fr'),sectorPath('en'),lang),lang,url,title,description,contact));pages.push(url);
  }
 }
